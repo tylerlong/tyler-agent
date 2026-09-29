@@ -8,6 +8,9 @@
     body { max-width: 42rem; margin: 3rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui, sans-serif; }
     label { display: block; margin: 1rem 0; }
     input, textarea, button { box-sizing: border-box; display: block; width: 100%; padding: .6rem; font: inherit; }
+    fieldset { margin: 1rem 0; }
+    fieldset label { display: inline-flex; align-items: center; gap: .4rem; margin: .3rem 1rem .3rem 0; }
+    input[type="radio"] { display: inline; width: auto; }
     pre { padding: .8rem; background: #f3f3f3; white-space: pre-wrap; }
     #error { color: #a00000; }
   </style>
@@ -15,6 +18,11 @@
 <body>
   <h1>Tyler Agent</h1>
   <p>输入 prompt，获取一次模型回答。目标文件夹目前只用于确认路径有效，不会读取或修改文件。</p>
+  <fieldset id="debug" disabled>
+    <legend>OpenRouter 调试日志（服务端 terminal）</legend>
+    <label><input type="radio" name="debug" value="false">关闭</label>
+    <label><input type="radio" name="debug" value="true">开启</label>
+  </fieldset>
   <form id="task">
     <label>目标文件夹（运行服务的电脑上的路径）<input name="folder" required></label>
     <label>Prompt<textarea name="prompt" required></textarea></label>
@@ -26,10 +34,45 @@
     <pre id="answer"></pre>
   </section>
   <script>
+    const debug = document.querySelector('#debug');
+    const error = document.querySelector('#error');
+    const showDebug = (enabled) => {
+      debug.querySelector(`input[value="${enabled}"]`).checked = true;
+    };
+    fetch('/api/debug').then(async (response) => {
+      if (!response.ok) throw new Error('读取日志设置失败');
+      showDebug((await response.json()).enabled);
+      debug.disabled = false;
+    }).catch(() => { error.textContent = '读取日志设置失败，请刷新页面重试'; });
+    debug.addEventListener('change', async (event) => {
+      debug.disabled = true;
+      error.textContent = '';
+      try {
+        const response = await fetch('/api/debug', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ enabled: event.target.value === 'true' }),
+        });
+        if (!response.ok) throw new Error('更新日志设置失败');
+        showDebug((await response.json()).enabled);
+        debug.disabled = false;
+      } catch {
+        error.textContent = '更新日志设置失败，正在读取服务状态';
+        try {
+          const current = await fetch('/api/debug');
+          if (!current.ok) throw new Error('读取日志设置失败');
+          showDebug((await current.json()).enabled);
+          debug.disabled = false;
+          error.textContent = '更新日志设置失败，请重试';
+        } catch {
+          debug.querySelectorAll('input').forEach((input) => { input.checked = false; });
+          error.textContent = '无法确认日志设置，请刷新页面';
+        }
+      }
+    });
     document.querySelector('#task').addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
-      const error = document.querySelector('#error');
       const result = document.querySelector('#result');
       error.textContent = '';
       result.hidden = true;

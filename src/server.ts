@@ -15,10 +15,34 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 }
 
 export function createServer(fetchModel: typeof fetch = fetch) {
+  let debugEnabled = false;
+  let callId = 0;
   return createHttpServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/') {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       response.end(await readFile(page));
+      return;
+    }
+
+    if (request.url === '/api/debug' && request.method === 'GET') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ enabled: debugEnabled }));
+      return;
+    }
+
+    if (request.url === '/api/debug' && request.method === 'PUT') {
+      try {
+        const input = await readJson(request);
+        if (!input || typeof input !== 'object' || !('enabled' in input) || typeof input.enabled !== 'boolean') {
+          throw new SafeResponseError('无效的日志设置');
+        }
+        debugEnabled = input.enabled;
+        response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ enabled: debugEnabled }));
+      } catch {
+        response.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: '无效的日志设置' }));
+      }
       return;
     }
 
@@ -39,16 +63,35 @@ export function createServer(fetchModel: typeof fetch = fetch) {
         const apiKey = process.env.OPENROUTER_API_KEY;
         const model = process.env.OPENROUTER_MODEL;
         if (!apiKey || !model) throw new SafeResponseError('OpenRouter 配置缺失');
-        const upstream = await fetchModel('https://openrouter.ai/api/v1/responses', {
+        const url = 'https://openrouter.ai/api/v1/responses';
+        const headers = {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        };
+        const body = JSON.stringify({ model, input: input.prompt, stream: false });
+        const shouldLog = debugEnabled;
+        const id = shouldLog ? ++callId : 0;
+        const started = performance.now();
+        const escapedKey = JSON.stringify(apiKey).slice(1, -1);
+        const redact = (value: unknown) => JSON.stringify(value, (_key, field: unknown) => typeof field === 'string'
+          ? field.replaceAll(apiKey, '[REDACTED]').replaceAll(escapedKey, '[REDACTED]')
+          : field);
+        if (shouldLog) console.log(`[OpenRouter #${id}] request ${redact({ time: new Date().toISOString(), url, method: 'POST', headers: { ...headers, authorization: '[REDACTED]' }, body })}`);
+        const upstream = await fetchModel(url, {
           method: 'POST',
-          headers: {
-            authorization: `Bearer ${apiKey}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({ model, input: input.prompt, stream: false }),
+          headers,
+          body,
         });
+        const rawBody = await upstream.text();
+        if (shouldLog) {
+          const responseHeaders = Object.fromEntries([...upstream.headers].map(([name, value]) => [
+            name.replaceAll(apiKey, '[REDACTED]'),
+            /authorization|token|key|secret|cookie/i.test(name) ? '[REDACTED]' : value,
+          ]));
+          console.log(`[OpenRouter #${id}] response ${redact({ status: upstream.status, headers: responseHeaders, body: rawBody, durationMs: Math.round(performance.now() - started) })}`);
+        }
         if (!upstream.ok) throw new SafeResponseError('OpenRouter 请求失败');
-        const data: unknown = await upstream.json();
+        const data: unknown = JSON.parse(rawBody);
         const output = data && typeof data === 'object' && 'output' in data ? data.output : null;
         const answer = Array.isArray(output)
           ? output.flatMap((item) => item.type === 'message' && Array.isArray(item.content)

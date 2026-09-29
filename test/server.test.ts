@@ -31,6 +31,8 @@ test('a prompt returns the model answer without sending the folder or changing f
     const html = await page.text();
     assert.match(html, /name="folder"/);
     assert.match(html, /name="prompt"/);
+    assert.match(html, /name="debug" value="false"/);
+    assert.match(html, /name="debug" value="true"/);
     assert.match(html, /Tyler Agent/);
 
     const response = await fetch(`${base}/api/task`, {
@@ -47,6 +49,110 @@ test('a prompt returns the model answer without sending the folder or changing f
     assert.equal(await readFile(file, 'utf8'), 'A teh example.');
   } finally {
     server.close();
+    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
+    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previousModel;
+  }
+});
+
+test('debug setting is shared by clients, resets with server, and logs a successful exchange without credentials', async () => {
+  const secret = 'fake"secret-for-debug';
+  const previousKey = process.env.OPENROUTER_API_KEY;
+  const previousModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_API_KEY = secret;
+  process.env.OPENROUTER_MODEL = 'test-model';
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values) => { logs.push(values.join(' ')); };
+  const upstream: typeof fetch = async () => new Response(JSON.stringify({ output: [{ type: 'message', content: [{ type: 'output_text', text: '2' }] }], echo: secret }), {
+    status: 200,
+    headers: { 'content-type': 'application/json', 'x-example': 'raw-header', authorization: 'Bearer another-token', 'x-api-key': 'different-secret' },
+  });
+  const server = createServer(upstream).listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}`;
+    assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), { enabled: false });
+    const submit = () => fetch(`${base}/api/task`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ folder: directory, prompt: '1 + 1 = ?' }),
+    });
+    assert.deepEqual(await (await submit()).json(), { answer: '2' });
+    assert.equal(logs.length, 0);
+    assert.deepEqual(await (await fetch(`${base}/api/debug`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }),
+    })).json(), { enabled: true });
+    assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), { enabled: true });
+    const invalid = await fetch(`${base}/api/debug`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: 'false' }),
+    });
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), { enabled: true });
+    assert.deepEqual(await (await submit()).json(), { answer: '2' });
+    const record = logs.join('\n');
+    assert.match(record, /https:\/\/openrouter\.ai\/api\/v1\/responses/);
+    assert.match(record, /"method":"POST"/);
+    assert.match(record, /"content-type":"application\/json"/);
+    assert.match(record, /1 \+ 1 = \?/);
+    assert.match(record, /raw-header/);
+    assert.match(record, /"status":200/);
+    assert.match(record, /output_text/);
+    assert.match(record, /"durationMs":/);
+    assert.match(record, /\[REDACTED\]/);
+    assert.doesNotMatch(record, new RegExp(secret));
+    assert.equal(record.includes(JSON.stringify(secret).slice(1, -1)), false);
+    assert.equal(record.includes('another-token'), false);
+    assert.equal(record.includes('different-secret'), false);
+    assert.deepEqual(await (await fetch(`${base}/api/debug`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: false }),
+    })).json(), { enabled: false });
+    const count = logs.length;
+    await submit();
+    assert.equal(logs.length, count);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    console.log = originalLog;
+    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
+    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previousModel;
+  }
+  const restarted = createServer(upstream).listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => restarted.once('listening', resolve));
+    const address = restarted.address();
+    assert(address && typeof address !== 'string');
+    assert.deepEqual(await (await fetch(`http://127.0.0.1:${address.port}/api/debug`)).json(), { enabled: false });
+  } finally {
+    restarted.close();
+  }
+});
+
+test('a credential in a response header name is hidden', async () => {
+  const previousKey = process.env.OPENROUTER_API_KEY;
+  const previousModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_API_KEY = 'fake-key';
+  process.env.OPENROUTER_MODEL = 'test-model';
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values) => { logs.push(values.join(' ')); };
+  const server = createServer(async () => Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: '2' }] }] }, { headers: { 'fake-key': 'echo' } })).listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}`;
+    await fetch(`${base}/api/debug`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
+    const response = await fetch(`${base}/api/task`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folder: directory, prompt: '1 + 1 = ?' }) });
+    assert.deepEqual(await response.json(), { answer: '2' });
+    assert.equal(logs.join('\n').includes('fake-key'), false);
+    assert.match(logs.join('\n'), /\[REDACTED\]/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    console.log = originalLog;
     if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
     else process.env.OPENROUTER_API_KEY = previousKey;
     if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
