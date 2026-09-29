@@ -14,8 +14,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(body);
 }
 
-export function createServer(fetchModel: typeof fetch = fetch) {
-  let debugEnabled = false;
+export function createServer(fetchModel: typeof fetch = fetch, debugEnabled = false) {
   let callId = 0;
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   return createHttpServer(async (request, response) => {
@@ -127,7 +126,7 @@ export function createServer(fetchModel: typeof fetch = fetch) {
 
 if (import.meta.main) {
   const port = Number(process.env.PORT ?? 3000);
-  createServer().listen(port, '127.0.0.1', () => {
+  createServer(fetch, process.argv.includes('--debug')).listen(port, '127.0.0.1', () => {
     console.log(`Open http://127.0.0.1:${port}`);
   });
 }

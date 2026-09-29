@@ -194,6 +194,18 @@ test('debug setting is shared by clients, resets with server, and logs a success
   }
 });
 
+test('debug can start enabled', async () => {
+  const server = createServer(fetch, true).listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    assert.deepEqual(await (await fetch(`http://127.0.0.1:${address.port}/api/debug`)).json(), { enabled: true });
+  } finally {
+    server.close();
+  }
+});
+
 test('invalid folders are rejected before the model request', async () => {
   let requests = 0;
   const server = createServer(async () => {
