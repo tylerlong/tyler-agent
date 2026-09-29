@@ -76,22 +76,22 @@ export function createServer(fetchModel: typeof fetch = fetch) {
         const redact = (value: unknown) => JSON.stringify(value, (_key, field: unknown) => typeof field === 'string'
           ? field.replaceAll(apiKey, '[REDACTED]').replaceAll(escapedKey, '[REDACTED]')
           : field);
+        const responseHeaders = (result: Response) => Object.fromEntries([...result.headers].map(([name, value]) => [
+          name.replaceAll(apiKey, '[REDACTED]'),
+          /^(?:authorization|proxy-authorization|cookie|set-cookie)$|(?:^|[-_])(?:token|key|secret)$/i.test(name) ? '[REDACTED]' : value,
+        ]));
         if (shouldLog) console.log(`[OpenRouter #${id}] request ${redact({ time: new Date().toISOString(), url, method: 'POST', headers: { ...headers, authorization: '[REDACTED]' }, body })}`);
-        let upstream: Response;
+        let upstream: Response | undefined;
         let rawBody: string;
         try {
           upstream = await fetchModel(url, { method: 'POST', headers, body });
           rawBody = await upstream.text();
         } catch (error) {
-          if (shouldLog) console.log(`[OpenRouter #${id}] error ${redact({ error: String(error), durationMs: Math.round(performance.now() - started) })}`);
+          if (shouldLog) console.log(`[OpenRouter #${id}] error ${redact({ ...(upstream && { status: upstream.status, headers: responseHeaders(upstream) }), error: String(error), durationMs: Math.round(performance.now() - started) })}`);
           throw error;
         }
         if (shouldLog) {
-          const responseHeaders = Object.fromEntries([...upstream.headers].map(([name, value]) => [
-            name.replaceAll(apiKey, '[REDACTED]'),
-            /authorization|token|key|secret|cookie/i.test(name) ? '[REDACTED]' : value,
-          ]));
-          console.log(`[OpenRouter #${id}] response ${redact({ status: upstream.status, headers: responseHeaders, body: rawBody, durationMs: Math.round(performance.now() - started) })}`);
+          console.log(`[OpenRouter #${id}] response ${redact({ status: upstream.status, headers: responseHeaders(upstream), body: rawBody, durationMs: Math.round(performance.now() - started) })}`);
         }
         if (!upstream.ok) throw new SafeResponseError('OpenRouter 请求失败');
         const data: unknown = JSON.parse(rawBody);

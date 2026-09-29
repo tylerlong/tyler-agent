@@ -67,7 +67,7 @@ test('debug setting is shared by clients, resets with server, and logs a success
   console.log = (...values) => { logs.push(values.join(' ')); };
   const upstream: typeof fetch = async () => new Response(JSON.stringify({ output: [{ type: 'message', content: [{ type: 'output_text', text: '2' }] }], echo: secret }), {
     status: 200,
-    headers: { 'content-type': 'application/json', 'x-example': 'raw-header', authorization: 'Bearer another-token', 'x-api-key': 'different-secret' },
+    headers: { 'content-type': 'application/json', 'x-example': 'raw-header', 'x-token-count': '42', authorization: 'Bearer another-token', 'x-api-key': 'different-secret' },
   });
   const server = createServer(upstream).listen(0, '127.0.0.1');
   try {
@@ -98,6 +98,7 @@ test('debug setting is shared by clients, resets with server, and logs a success
     assert.match(record, /"content-type":"application\/json"/);
     assert.match(record, /1 \+ 1 = \?/);
     assert.match(record, /raw-header/);
+    assert.match(record, /"x-token-count":"42"/);
     assert.match(record, /"status":200/);
     assert.match(record, /output_text/);
     assert.match(record, /"durationMs":/);
@@ -264,6 +265,9 @@ test('debug logs failed and concurrent calls with their starting setting and no 
     const prompt = (JSON.parse(String(init?.body)) as { input: string }).input;
     if (prompt === 'network') throw new Error(`network failed with ${secret}`);
     if (prompt === 'bad json') return new Response('invalid JSON', { status: 200 });
+    if (prompt === 'read failure') return new Response(new ReadableStream({
+      start(controller) { controller.error(new Error(`body failed with ${secret}`)); },
+    }), { status: 206, headers: { 'x-token-count': '42' } });
     return new Promise<Response>((resolve) => { pending.set(prompt, resolve); });
   };
   const server = createServer(upstream).listen(0, '127.0.0.1');
@@ -322,10 +326,12 @@ test('debug logs failed and concurrent calls with their starting setting and no 
     await toggle(true);
     assert.deepEqual(await (await submit('network')).json(), { error: '请求失败' });
     assert.deepEqual(await (await submit('bad json')).json(), { error: '请求失败' });
+    assert.deepEqual(await (await submit('read failure')).json(), { error: '请求失败' });
     assert.match(logs.join('\n'), /\] error .*network failed with \[REDACTED\]/);
     assert.match(logs.join('\n'), /invalid JSON/);
+    assert.match(logs.join('\n'), /\] error .*"status":206.*"x-token-count":"42".*body failed with \[REDACTED\]/);
     assert.equal(logs.join('\n').includes(secret), false);
-    assert.equal(upstreamCalls, 5);
+    assert.equal(upstreamCalls, 6);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     console.log = originalLog;
