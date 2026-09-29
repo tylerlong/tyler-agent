@@ -77,12 +77,15 @@ export function createServer(fetchModel: typeof fetch = fetch) {
           ? field.replaceAll(apiKey, '[REDACTED]').replaceAll(escapedKey, '[REDACTED]')
           : field);
         if (shouldLog) console.log(`[OpenRouter #${id}] request ${redact({ time: new Date().toISOString(), url, method: 'POST', headers: { ...headers, authorization: '[REDACTED]' }, body })}`);
-        const upstream = await fetchModel(url, {
-          method: 'POST',
-          headers,
-          body,
-        });
-        const rawBody = await upstream.text();
+        let upstream: Response;
+        let rawBody: string;
+        try {
+          upstream = await fetchModel(url, { method: 'POST', headers, body });
+          rawBody = await upstream.text();
+        } catch (error) {
+          if (shouldLog) console.log(`[OpenRouter #${id}] error ${redact({ error: String(error), durationMs: Math.round(performance.now() - started) })}`);
+          throw error;
+        }
         if (shouldLog) {
           const responseHeaders = Object.fromEntries([...upstream.headers].map(([name, value]) => [
             name.replaceAll(apiKey, '[REDACTED]'),
