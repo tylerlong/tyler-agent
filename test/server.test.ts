@@ -82,3 +82,62 @@ test('invalid folders are rejected before the model request', async () => {
     server.close();
   }
 });
+
+test('configuration and upstream failures return safe errors without touching the folder', async () => {
+  const secret = 'test-secret-never-return';
+  const upstreamBody = `private upstream details ${secret}`;
+  let requests = 0;
+  const sentBodies: string[] = [];
+  let upstream: () => Promise<Response> = async () => Response.json({});
+  const server = createServer(async (_input, init) => {
+    requests++;
+    sentBodies.push(String(init?.body));
+    return upstream();
+  }).listen(0, '127.0.0.1');
+  const previousKey = process.env.OPENROUTER_API_KEY;
+  const previousModel = process.env.OPENROUTER_MODEL;
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    const submit = () => fetch(`http://127.0.0.1:${address.port}/api/task`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ folder: directory, prompt: '1 + 1 = ?' }),
+    });
+    const expectError = async (message: string) => {
+      const response = await submit();
+      assert.equal(response.status, 400);
+      const body = await response.text();
+      assert.equal(body === JSON.stringify({ error: message }), true);
+      assert.equal(body.includes(secret) || body.includes('private upstream details'), false);
+    };
+
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_MODEL = 'test-model';
+    await expectError('OpenRouter 配置缺失');
+    process.env.OPENROUTER_API_KEY = secret;
+    delete process.env.OPENROUTER_MODEL;
+    await expectError('OpenRouter 配置缺失');
+    assert.equal(requests, 0);
+
+    process.env.OPENROUTER_MODEL = 'test-model';
+    upstream = async () => new Response(upstreamBody, { status: 500 });
+    await expectError('OpenRouter 请求失败');
+    upstream = async () => { throw new Error(upstreamBody); };
+    await expectError('请求失败');
+    upstream = async () => new Response(upstreamBody, { status: 200 });
+    await expectError('请求失败');
+    upstream = async () => Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: '  ' }] }] });
+    await expectError('OpenRouter 没有返回文本答案');
+    assert.equal(requests, 4);
+    assert.equal(sentBodies.every((body) => body === JSON.stringify({ model: 'test-model', input: '1 + 1 = ?', stream: false })), true);
+    assert.equal(await readFile(file, 'utf8'), 'A teh example.');
+  } finally {
+    server.close();
+    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
+    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previousModel;
+  }
+});
