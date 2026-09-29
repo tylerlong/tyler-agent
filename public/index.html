@@ -17,7 +17,7 @@
 </head>
 <body>
   <h1>Tyler Agent</h1>
-  <p>输入 prompt，获取一次模型回答。目标文件夹目前只用于确认路径有效，不会读取或修改文件。</p>
+  <p>输入 prompt，可在同一段共享对话中继续追问。目标文件夹目前只用于确认路径有效，不会读取或修改文件。</p>
   <fieldset id="debug" disabled>
     <legend>OpenRouter 调试日志（服务端 terminal）</legend>
     <label><input type="radio" name="debug" value="false">关闭</label>
@@ -29,13 +29,29 @@
     <button>提交</button>
   </form>
   <p id="error" role="alert"></p>
-  <section id="result" hidden aria-live="polite">
-    <h2>回答</h2>
-    <pre id="answer"></pre>
+  <section aria-live="polite">
+    <h2>对话</h2>
+    <ol id="messages"></ol>
   </section>
   <script>
     const debug = document.querySelector('#debug');
     const error = document.querySelector('#error');
+    const messages = document.querySelector('#messages');
+    const loadChat = async () => {
+      const response = await fetch('/api/chat');
+      if (!response.ok) throw new Error('读取对话失败');
+      const data = await response.json();
+      messages.replaceChildren(...data.messages.map((message) => {
+        const item = document.createElement('li');
+        const label = document.createElement('strong');
+        label.textContent = message.role === 'user' ? '你' : 'Agent';
+        const content = document.createElement('pre');
+        content.textContent = message.content;
+        item.append(label, content);
+        return item;
+      }));
+    };
+    loadChat().catch(() => { error.textContent = '读取对话失败，请刷新页面重试'; });
     const showDebug = (enabled) => {
       debug.querySelector(`input[value="${enabled}"]`).checked = true;
     };
@@ -73,9 +89,7 @@
     document.querySelector('#task').addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
-      const result = document.querySelector('#result');
       error.textContent = '';
-      result.hidden = true;
       try {
         const response = await fetch('/api/task', {
           method: 'POST',
@@ -84,8 +98,8 @@
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '请求失败');
-        document.querySelector('#answer').textContent = data.answer;
-        result.hidden = false;
+        await loadChat();
+        form.elements.prompt.value = '';
       } catch (cause) {
         error.textContent = cause.message || '请求失败';
       }

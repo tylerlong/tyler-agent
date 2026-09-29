@@ -45,7 +45,7 @@ test('a prompt returns the model answer without sending the folder or changing f
     assert.equal(requests.length, 1);
     assert.equal(requests[0]?.url, 'https://openrouter.ai/api/v1/responses');
     assert.equal(requests[0]?.headers.get('authorization'), 'Bearer test-key');
-    assert.deepEqual(requests[0]?.body, { model: 'test-model', input: '1 + 1 = ?', stream: false });
+    assert.deepEqual(requests[0]?.body, { model: 'test-model', input: [{ role: 'user', content: '1 + 1 = ?' }], stream: false });
     assert.equal(await readFile(file, 'utf8'), 'A teh example.');
   } finally {
     server.close();
@@ -53,6 +53,66 @@ test('a prompt returns the model answer without sending the folder or changing f
     else process.env.OPENROUTER_API_KEY = previousKey;
     if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
     else process.env.OPENROUTER_MODEL = previousModel;
+  }
+});
+
+test('successful turns form one shared conversation across requests and server instances', async () => {
+  const previousKey = process.env.OPENROUTER_API_KEY;
+  const previousModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_API_KEY = 'test-key';
+  process.env.OPENROUTER_MODEL = 'test-model';
+  const sent: unknown[] = [];
+  const answers = ['11', '22'];
+  const upstream: typeof fetch = async (_url, init) => {
+    sent.push(JSON.parse(String(init?.body)));
+    return Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: answers.shift() }] }] });
+  };
+  const server = createServer(upstream).listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}`;
+    const getHistory = () => fetch(`${base}/api/chat`).then((response) => response.json());
+    const submit = (folder: string, prompt: string) => fetch(`${base}/api/task`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folder, prompt }),
+    });
+    assert.deepEqual(await getHistory(), { messages: [] });
+    assert.deepEqual(await (await submit(directory, '5 + 6?')).json(), { answer: '11' });
+    assert.deepEqual(await getHistory(), { messages: [{ role: 'user', content: '5 + 6?' }, { role: 'assistant', content: '11' }] });
+    assert.deepEqual(await (await submit(tmpdir(), 'double it?')).json(), { answer: '22' });
+    assert.deepEqual(sent, [
+      { model: 'test-model', input: [{ role: 'user', content: '5 + 6?' }], stream: false },
+      { model: 'test-model', input: [
+        { role: 'user', content: '5 + 6?' }, { role: 'assistant', content: '11' }, { role: 'user', content: 'double it?' },
+      ], stream: false },
+    ]);
+    assert.deepEqual(await getHistory(), { messages: [
+      { role: 'user', content: '5 + 6?' }, { role: 'assistant', content: '11' },
+      { role: 'user', content: 'double it?' }, { role: 'assistant', content: '22' },
+    ] });
+    const failed = await submit(directory, 'one more?');
+    assert.equal(failed.status, 400);
+    assert.deepEqual(await failed.json(), { error: 'OpenRouter 没有返回文本答案' });
+    assert.deepEqual(await getHistory(), { messages: [
+      { role: 'user', content: '5 + 6?' }, { role: 'assistant', content: '11' },
+      { role: 'user', content: 'double it?' }, { role: 'assistant', content: '22' },
+    ] });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = previousKey;
+    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previousModel;
+  }
+  const restarted = createServer(upstream).listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => restarted.once('listening', resolve));
+    const address = restarted.address();
+    assert(address && typeof address !== 'string');
+    assert.deepEqual(await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(), { messages: [] });
+  } finally {
+    restarted.close();
   }
 });
 
@@ -98,6 +158,7 @@ test('debug setting is shared by clients, resets with server, and logs a success
     assert.match(record, /"method": "POST"/);
     assert.match(record, /body:\n\{\n  "model": "test-model"/);
     assert.match(record, /1 \+ 1 = \?/);
+    assert.match(record, /"role": "assistant",\n\s+"content": "2"/);
     assert.match(record, /"status": 200/);
     assert.match(record, /body:\n\{\n  "output": \[/);
     assert.match(record, /output_text/);
@@ -210,7 +271,8 @@ test('configuration and upstream failures return safe errors without touching th
     upstream = async () => Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: '  ' }] }] });
     await expectError('OpenRouter 没有返回文本答案');
     assert.equal(requests, 4);
-    assert.equal(sentBodies.every((body) => body === JSON.stringify({ model: 'test-model', input: '1 + 1 = ?', stream: false })), true);
+    assert.equal(sentBodies.every((body) => body === JSON.stringify({ model: 'test-model', input: [{ role: 'user', content: '1 + 1 = ?' }], stream: false })), true);
+    assert.deepEqual(await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(), { messages: [] });
     assert.equal(await readFile(file, 'utf8'), 'A teh example.');
   } finally {
     server.close();
@@ -234,7 +296,7 @@ test('debug logs failed and concurrent calls with their starting setting and no 
   let upstreamCalls = 0;
   const upstream: typeof fetch = async (_url, init) => {
     upstreamCalls++;
-    const prompt = (JSON.parse(String(init?.body)) as { input: string }).input;
+    const prompt = (JSON.parse(String(init?.body)) as { input: Array<{ content: string }> }).input.at(-1)!.content;
     if (prompt === 'network') throw new Error(`network failed with ${secret}`);
     if (prompt === 'bad json') return new Response('invalid JSON', { status: 200 });
     if (prompt === 'read failure') return new Response(new ReadableStream({

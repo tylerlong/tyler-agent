@@ -17,6 +17,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 export function createServer(fetchModel: typeof fetch = fetch) {
   let debugEnabled = false;
   let callId = 0;
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   return createHttpServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/') {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -27,6 +28,12 @@ export function createServer(fetchModel: typeof fetch = fetch) {
     if (request.url === '/api/debug' && request.method === 'GET') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
       response.end(JSON.stringify({ enabled: debugEnabled }));
+      return;
+    }
+
+    if (request.url === '/api/chat' && request.method === 'GET') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ messages }));
       return;
     }
 
@@ -68,7 +75,7 @@ export function createServer(fetchModel: typeof fetch = fetch) {
           authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
         };
-        const body = JSON.stringify({ model, input: input.prompt, stream: false });
+        const body = JSON.stringify({ model, input: [...messages, { role: 'user', content: input.prompt }], stream: false });
         const shouldLog = debugEnabled;
         const id = shouldLog ? ++callId : 0;
         const started = performance.now();
@@ -103,6 +110,7 @@ export function createServer(fetchModel: typeof fetch = fetch) {
             : []).join('\n').trim()
           : '';
         if (!answer) throw new SafeResponseError('OpenRouter 没有返回文本答案');
+        messages.push({ role: 'user', content: input.prompt }, { role: 'assistant', content: answer });
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify({ answer }));
       } catch (error) {
