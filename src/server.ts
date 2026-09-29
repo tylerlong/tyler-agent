@@ -4,7 +4,7 @@ import {
 	type IncomingMessage,
 } from "node:http";
 
-const page = new URL("../public/index.html", import.meta.url);
+const page = new URL("../dist/index.html", import.meta.url);
 
 class SafeResponseError extends Error {}
 
@@ -28,6 +28,25 @@ export function createServer(
 			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
 			response.end(await readFile(page));
 			return;
+		}
+
+		if (request.method === "GET" && request.url?.startsWith("/assets/")) {
+			const filename = request.url.slice("/assets/".length);
+			if (/^[\w.-]+\.(?:js|css)$/.test(filename)) {
+				try {
+					const asset = new URL(`../dist/assets/${filename}`, import.meta.url);
+					const contents = await readFile(asset);
+					response.writeHead(200, {
+						"content-type": filename.endsWith(".js")
+							? "text/javascript; charset=utf-8"
+							: "text/css; charset=utf-8",
+					});
+					response.end(contents);
+					return;
+				} catch {
+					// Missing assets fall through to 404.
+				}
+			}
 		}
 
 		if (request.url === "/api/debug" && request.method === "GET") {

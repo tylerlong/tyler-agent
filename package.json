@@ -6,16 +6,27 @@
 		"node": ">=24"
 	},
 	"scripts": {
-		"start": "node --env-file-if-exists=.env src/server.ts --debug",
-		"format": "biome check . --write",
-		"format:check": "biome check .",
+		"start": "pnpm build && node --env-file-if-exists=.env src/server.ts --debug",
+		"build": "vite build",
+		"format": "biome check . --write --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true",
+		"format:check": "biome check . --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true",
 		"typecheck": "tsc --noEmit",
-		"test": "node --test test/*.test.ts"
+		"test": "pnpm build && node --test test/*.test.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.14",
+		"@tailwindcss/vite": "^4.3.3",
 		"@types/node": "^24.0.0",
-		"typescript": "^5.9.0"
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"@vitejs/plugin-react": "^6.1.1",
+		"tailwindcss": "^4.3.3",
+		"typescript": "^5.9.0",
+		"vite": "^8.3.1"
 	},
-	"packageManager": "pnpm@11.22.0"
+	"packageManager": "pnpm@11.22.0",
+	"dependencies": {
+		"react": "^19.3.0",
+		"react-dom": "^19.3.0"
+	}
 }

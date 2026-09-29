@@ -1,6 +1,6 @@
 # Tyler Agent
 
-这是一个 TypeScript/Node.js 网页项目。提交 prompt 后，Node.js 直接调用 OpenRouter Responses API，并在网页显示共享对话。
+这是一个 TypeScript/Node.js 网页项目。React 页面由 Vite 和 Tailwind 构建，Node.js 提供页面并直接调用 OpenRouter Responses API，在网页显示共享对话。
 
 ## 运行
 
@@ -18,7 +18,7 @@ pnpm install
 pnpm start
 ```
 
-打开 `http://127.0.0.1:3000`。也可通过 `PORT` 环境变量修改端口。填写运行服务的电脑上的目标文件夹路径和 prompt（例如 `1 + 1 等于几？`），然后提交。
+`pnpm start` 会先构建前端再启动服务，无需手动构建。打开 `http://127.0.0.1:3000`。也可通过 `PORT` 环境变量修改端口。填写运行服务的电脑上的目标文件夹路径和 prompt（例如 `1 + 1 等于几？`），然后提交。修改前端代码后重新运行 `pnpm start` 即可看到新页面。
 
 服务会确认目标文件夹存在且是文件夹，但不会发送文件夹路径、读取或修改文件。服务进程在内存中保存一段共享对话：每次成功的提问与文本回答都会加入历史，下次提问会把完整历史一同发送给模型。所有浏览器窗口共用这段历史；页面加载或刷新时读取最新内容，提交成功的窗口也会更新。其他已打开的窗口需要刷新才能看到新问答，服务重启后历史清空。
 
@@ -26,7 +26,7 @@ pnpm start
 
 ## OpenRouter 调试日志
 
-网页上的“OpenRouter 调试日志”单选项可开启或关闭服务端日志。开关默认关闭；如果希望启动时开启，运行 `pnpm start --debug`。设置由服务进程内存保存，所有连接到同一服务的浏览器窗口共用它。刷新页面会重新读取服务状态；重启服务后恢复为启动参数指定的状态。其他已打开的窗口不会实时更新，刷新后即可看到当前状态。
+网页上的“OpenRouter 调试日志”单选项可开启或关闭服务端日志。`pnpm start` 启动时默认开启；如果希望启动时关闭，先运行 `pnpm build`，再运行 `node --env-file-if-exists=.env src/server.ts`。设置由服务进程内存保存，所有连接到同一服务的浏览器窗口共用它。刷新页面会重新读取服务状态；重启服务后恢复为启动参数指定的状态。其他已打开的窗口不会实时更新，刷新后即可看到当前状态。
 
 开启后，在运行 `pnpm start` 的 terminal 查看每次 OpenRouter 调用的编号、请求 URL、method、body，以及响应 status、body 和耗时；headers 不输出。JSON body 会缩进显示，无法解析为 JSON 的 body 按原文显示。网络失败也会记录错误；调用开始时的开关状态决定该次是否记录。认证信息会被遮盖，但 prompt 和模型回答可能原样出现在本地 terminal 中。日志不发送到网页，也不会由应用写入文件。这些记录供排障和自行复现使用；再次调用不保证得到相同回答。
 
@@ -35,6 +35,7 @@ pnpm start
 ```sh
 pnpm format:check
 pnpm typecheck
+pnpm build
 pnpm test
 ```
 

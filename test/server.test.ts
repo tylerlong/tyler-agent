@@ -41,11 +41,20 @@ test("a prompt returns the model answer without sending the folder or changing f
 		const page = await fetch(base);
 		assert.equal(page.status, 200);
 		const html = await page.text();
-		assert.match(html, /name="folder"/);
-		assert.match(html, /name="prompt"/);
-		assert.match(html, /name="debug" value="false"/);
-		assert.match(html, /name="debug" value="true"/);
 		assert.match(html, /Tyler Agent/);
+		const scriptPath = html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
+		const stylePath = html.match(/href="(\/assets\/[^"]+\.css)"/)?.[1];
+		assert(scriptPath);
+		assert(stylePath);
+		const script = await fetch(`${base}${scriptPath}`);
+		const style = await fetch(`${base}${stylePath}`);
+		assert.equal(script.status, 200);
+		assert.equal(style.status, 200);
+		assert.match(script.headers.get("content-type") ?? "", /javascript/);
+		assert.match(style.headers.get("content-type") ?? "", /css/);
+		assert.match(await script.text(), /目标文件夹/);
+		assert.equal((await style.text()).length > 0, true);
+		assert.equal((await fetch(`${base}/assets/missing.js`)).status, 404);
 
 		const response = await fetch(`${base}/api/task`, {
 			method: "POST",
