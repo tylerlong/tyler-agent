@@ -1,9 +1,25 @@
 # Typos Agent
 
-这是一个用 TypeScript 实现的简单 agent，用来练习模型如何通过本地工具完成任务。
+这是一个 TypeScript/Node.js 网页原型，用来逐步构建修正目标文件夹中 typos 的 agent。
 
-启动程序时，指定一个目标文件夹并输入 prompt，例如：“找出这个文件夹里的 typos 并修正它们。”程序直接通过 HTTP 调用 OpenRouter API，不使用 OpenRouter SDK 或其他 agent 框架。
+## 运行
 
-程序在本地定义并执行文件工具，例如 `listFiles`、`readFile` 和 `patchFile`。模型根据 prompt 决定调用哪些工具；程序把工具调用结果发回模型，继续这个循环，直到模型完成任务并给出总结。修改只作用于指定文件夹，完成后可以查看文件差异。
+需要 Node.js 24 和 pnpm 11。
 
-第一版的目标是跑通这个最小闭环，清楚地看到每次 API 请求、模型返回的工具调用，以及本地执行结果。
+```sh
+pnpm install
+pnpm start
+```
+
+在浏览器打开 `http://127.0.0.1:3000`，填写运行服务的电脑上的目标文件夹路径和 prompt，然后提交。也可通过 `PORT` 环境变量修改端口。
+
+当前服务只验证目标文件夹存在且是文件夹，随后返回固定的 `example.txt` 修改前后示例。网页标注“演示结果，未修改文件”。服务不会读取目标文件夹中的文件内容、修改文件或调用 OpenRouter。
+
+## 检查
+
+```sh
+pnpm typecheck
+pnpm test
+```
+
+后续将由 Node.js 直接通过 HTTP 调用 OpenRouter API，并在本地提供 `listFiles`、`readFile`、`patchFile` 等工具，让模型根据 prompt 修正真实文件。
