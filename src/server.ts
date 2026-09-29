@@ -1,10 +1,72 @@
+import { mkdirSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import {
 	createServer as createHttpServer,
 	type IncomingMessage,
 } from "node:http";
+import { dirname, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 const page = new URL("../dist/index.html", import.meta.url);
+const defaultDatabasePath = fileURLToPath(
+	new URL("../data/tyler-agent.sqlite", import.meta.url),
+);
+
+type Message = { role: "user" | "assistant"; content: string };
+
+function openDatabase(path: string, createDefaultDirectory: boolean) {
+	if (createDefaultDirectory) mkdirSync(dirname(path), { recursive: true });
+	const database = new DatabaseSync(path);
+	try {
+		database.exec(`
+			CREATE TABLE IF NOT EXISTS turns (
+				id INTEGER PRIMARY KEY,
+				user_content TEXT NOT NULL,
+				assistant_content TEXT NOT NULL
+			);
+			CREATE TABLE IF NOT EXISTS settings (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				folder TEXT NOT NULL
+			);
+		`);
+		database.prepare(
+			"SELECT user_content, assistant_content FROM turns ORDER BY id",
+		);
+		database.prepare("SELECT folder FROM settings WHERE id = 1");
+		database.exec(`
+			SAVEPOINT startup_check;
+			INSERT INTO settings (id, folder) VALUES (1, '')
+				ON CONFLICT(id) DO UPDATE SET folder = excluded.folder;
+			INSERT INTO turns (user_content, assistant_content) VALUES ('', '');
+			ROLLBACK TO startup_check;
+			RELEASE startup_check;
+		`);
+		return database;
+	} catch (error) {
+		database.close();
+		throw error;
+	}
+}
+
+function readMessages(database: DatabaseSync): Message[] {
+	return database
+		.prepare("SELECT user_content, assistant_content FROM turns ORDER BY id")
+		.all()
+		.flatMap((row) => [
+			{ role: "user" as const, content: String(row.user_content) },
+			{ role: "assistant" as const, content: String(row.assistant_content) },
+		]);
+}
+
+function saveTurn(database: DatabaseSync, prompt: string, answer: string) {
+	database
+		.prepare(
+			"INSERT INTO turns (user_content, assistant_content) VALUES (?, ?)",
+		)
+		.run(prompt, answer);
+}
 
 class SafeResponseError extends Error {}
 
@@ -20,9 +82,13 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 export function createServer(
 	fetchModel: typeof fetch = fetch,
 	debugEnabled = false,
+	databasePath?: string,
 ) {
+	const database = openDatabase(
+		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
+		databasePath === undefined,
+	);
 	let callId = 0;
-	const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
 	return createHttpServer(async (request, response) => {
 		if (request.method === "GET" && request.url === "/") {
 			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -61,7 +127,14 @@ export function createServer(
 			response.writeHead(200, {
 				"content-type": "application/json; charset=utf-8",
 			});
-			response.end(JSON.stringify({ messages }));
+			response.end(
+				JSON.stringify({
+					messages: readMessages(database),
+					folder:
+						database.prepare("SELECT folder FROM settings WHERE id = 1").get()
+							?.folder ?? null,
+				}),
+			);
 			return;
 		}
 
@@ -115,6 +188,12 @@ export function createServer(
 				}
 				if (!folder.isDirectory())
 					throw new SafeResponseError("目标路径不是文件夹");
+				database
+					.prepare(
+						"INSERT INTO settings (id, folder) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET folder = excluded.folder",
+					)
+					.run(input.folder);
+				const messages = readMessages(database);
 				const apiKey = process.env.OPENROUTER_API_KEY;
 				const model = process.env.OPENROUTER_MODEL;
 				if (!apiKey || !model)
@@ -204,10 +283,7 @@ export function createServer(
 							.trim()
 					: "";
 				if (!answer) throw new SafeResponseError("OpenRouter 没有返回文本答案");
-				messages.push(
-					{ role: "user", content: input.prompt },
-					{ role: "assistant", content: answer },
-				);
+				saveTurn(database, input.prompt, answer);
 				response.writeHead(200, {
 					"content-type": "application/json; charset=utf-8",
 				});
@@ -228,12 +304,20 @@ export function createServer(
 
 		response.writeHead(404);
 		response.end();
-	});
+	}).on("close", () => database.close());
 }
 
 if (import.meta.main) {
 	const port = Number(process.env.PORT ?? 3000);
-	createServer(fetch, process.argv.includes("--debug")).listen(
+	const { values } = parseArgs({
+		args: process.argv.slice(2),
+		options: {
+			debug: { type: "boolean" },
+			db: { type: "string" },
+		},
+	});
+	if (values.db === "") throw new Error("--db requires a database file path");
+	createServer(fetch, values.debug ?? false, values.db).listen(
 		port,
 		"127.0.0.1",
 		() => {

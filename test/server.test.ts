@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { after, test } from "node:test";
 import { createServer } from "../src/server.ts";
 
@@ -9,6 +12,12 @@ const directory = await mkdtemp(join(tmpdir(), "tyler-agent-"));
 const file = join(directory, "note.txt");
 await writeFile(file, "A teh example.");
 after(() => rm(directory, { recursive: true, force: true }));
+const testDatabase = () => join(directory, `${randomUUID()}.sqlite`);
+const testServer = (
+	fetchModel: typeof fetch = fetch,
+	debugEnabled = false,
+	databasePath = testDatabase(),
+) => createServer(fetchModel, debugEnabled, databasePath);
 
 test("a prompt returns the model answer without sending the folder or changing files", async () => {
 	const requests: Array<{ url: string; headers: Headers; body: unknown }> = [];
@@ -28,7 +37,7 @@ test("a prompt returns the model answer without sending the folder or changing f
 			],
 		});
 	};
-	const server = createServer(upstream).listen(0, "127.0.0.1");
+	const server = testServer(upstream).listen(0, "127.0.0.1");
 	const previousKey = process.env.OPENROUTER_API_KEY;
 	const previousModel = process.env.OPENROUTER_MODEL;
 	process.env.OPENROUTER_API_KEY = "test-key";
@@ -82,6 +91,7 @@ test("a prompt returns the model answer without sending the folder or changing f
 });
 
 test("successful turns form one shared conversation across requests and server instances", async () => {
+	const databasePath = testDatabase();
 	const previousKey = process.env.OPENROUTER_API_KEY;
 	const previousModel = process.env.OPENROUTER_MODEL;
 	process.env.OPENROUTER_API_KEY = "test-key";
@@ -99,7 +109,10 @@ test("successful turns form one shared conversation across requests and server i
 			],
 		});
 	};
-	const server = createServer(upstream).listen(0, "127.0.0.1");
+	const server = testServer(upstream, false, databasePath).listen(
+		0,
+		"127.0.0.1",
+	);
 	try {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
 		const address = server.address();
@@ -113,7 +126,7 @@ test("successful turns form one shared conversation across requests and server i
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ folder, prompt }),
 			});
-		assert.deepEqual(await getHistory(), { messages: [] });
+		assert.deepEqual(await getHistory(), { messages: [], folder: null });
 		assert.deepEqual(await (await submit(directory, "5 + 6?")).json(), {
 			answer: "11",
 		});
@@ -122,6 +135,7 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "user", content: "5 + 6?" },
 				{ role: "assistant", content: "11" },
 			],
+			folder: directory,
 		});
 		assert.deepEqual(await (await submit(tmpdir(), "double it?")).json(), {
 			answer: "22",
@@ -149,6 +163,7 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "user", content: "double it?" },
 				{ role: "assistant", content: "22" },
 			],
+			folder: tmpdir(),
 		});
 		const failed = await submit(directory, "one more?");
 		assert.equal(failed.status, 400);
@@ -162,6 +177,18 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "user", content: "double it?" },
 				{ role: "assistant", content: "22" },
 			],
+			folder: directory,
+		});
+		const invalid = await submit(join(directory, "missing"), "bad folder");
+		assert.equal(invalid.status, 400);
+		assert.deepEqual(await getHistory(), {
+			messages: [
+				{ role: "user", content: "5 + 6?" },
+				{ role: "assistant", content: "11" },
+				{ role: "user", content: "double it?" },
+				{ role: "assistant", content: "22" },
+			],
+			folder: directory,
 		});
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -170,17 +197,150 @@ test("successful turns form one shared conversation across requests and server i
 		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
 		else process.env.OPENROUTER_MODEL = previousModel;
 	}
-	const restarted = createServer(upstream).listen(0, "127.0.0.1");
+	process.env.OPENROUTER_API_KEY = "test-key";
+	process.env.OPENROUTER_MODEL = "test-model";
+	const restarted = testServer(upstream, false, databasePath).listen(
+		0,
+		"127.0.0.1",
+	);
 	try {
 		await new Promise<void>((resolve) => restarted.once("listening", resolve));
 		const address = restarted.address();
 		assert(address && typeof address !== "string");
+		const base = `http://127.0.0.1:${address.port}`;
+		assert.deepEqual(await (await fetch(`${base}/api/chat`)).json(), {
+			messages: [
+				{ role: "user", content: "5 + 6?" },
+				{ role: "assistant", content: "11" },
+				{ role: "user", content: "double it?" },
+				{ role: "assistant", content: "22" },
+			],
+			folder: directory,
+		});
+		answers.push("33");
 		assert.deepEqual(
-			await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(),
-			{ messages: [] },
+			await (
+				await fetch(`${base}/api/task`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ folder: directory, prompt: "again?" }),
+				})
+			).json(),
+			{ answer: "33" },
 		);
+		assert.deepEqual(sent.at(-1), {
+			model: "test-model",
+			input: [
+				{ role: "user", content: "5 + 6?" },
+				{ role: "assistant", content: "11" },
+				{ role: "user", content: "double it?" },
+				{ role: "assistant", content: "22" },
+				{ role: "user", content: "again?" },
+			],
+			stream: false,
+		});
 	} finally {
 		restarted.close();
+		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+		else process.env.OPENROUTER_API_KEY = previousKey;
+		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+		else process.env.OPENROUTER_MODEL = previousModel;
+	}
+	const isolated = testServer(upstream).listen(0, "127.0.0.1");
+	try {
+		await new Promise<void>((resolve) => isolated.once("listening", resolve));
+		const address = isolated.address();
+		assert(address && typeof address !== "string");
+		assert.deepEqual(
+			await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(),
+			{ messages: [], folder: null },
+		);
+	} finally {
+		isolated.close();
+	}
+});
+
+test("database startup and turn writes fail without reporting success", async () => {
+	const invalidPath = join(directory, "missing-parent", "chat.sqlite");
+	assert.throws(() => testServer(fetch, false, invalidPath));
+	const incompatiblePath = testDatabase();
+	const incompatible = new DatabaseSync(incompatiblePath);
+	incompatible.exec("CREATE TABLE turns (id INTEGER PRIMARY KEY, wrong TEXT)");
+	incompatible.close();
+	assert.throws(() => testServer(fetch, false, incompatiblePath));
+	const noIdPath = testDatabase();
+	const noId = new DatabaseSync(noIdPath);
+	noId.exec(
+		"CREATE TABLE turns (user_content TEXT NOT NULL, assistant_content TEXT NOT NULL)",
+	);
+	noId.close();
+	assert.throws(() => testServer(fetch, false, noIdPath));
+	const extraColumnPath = testDatabase();
+	const extraColumn = new DatabaseSync(extraColumnPath);
+	extraColumn.exec(
+		"CREATE TABLE turns (id INTEGER PRIMARY KEY, user_content TEXT NOT NULL, assistant_content TEXT NOT NULL, extra TEXT NOT NULL)",
+	);
+	extraColumn.close();
+	assert.throws(() => testServer(fetch, false, extraColumnPath));
+	const readOnlyPath = testDatabase();
+	const readOnly = testServer(fetch, false, readOnlyPath);
+	readOnly.close();
+	await chmod(readOnlyPath, 0o444);
+	try {
+		assert.throws(() => testServer(fetch, false, readOnlyPath));
+	} finally {
+		await chmod(readOnlyPath, 0o644);
+	}
+	const result = spawnSync(
+		process.execPath,
+		["src/server.ts", "--db", invalidPath],
+		{ cwd: new URL("..", import.meta.url), encoding: "utf8" },
+	);
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /SQLITE_CANTOPEN|unable to open database/);
+
+	const databasePath = testDatabase();
+	const previousKey = process.env.OPENROUTER_API_KEY;
+	const previousModel = process.env.OPENROUTER_MODEL;
+	process.env.OPENROUTER_API_KEY = "test-key";
+	process.env.OPENROUTER_MODEL = "test-model";
+	const server = testServer(
+		async () =>
+			Response.json({
+				output: [
+					{ type: "message", content: [{ type: "output_text", text: "2" }] },
+				],
+			}),
+		false,
+		databasePath,
+	).listen(0, "127.0.0.1");
+	try {
+		await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		const base = `http://127.0.0.1:${address.port}`;
+		const database = new DatabaseSync(databasePath);
+		database.exec(
+			"CREATE TRIGGER refuse_turn BEFORE INSERT ON turns BEGIN SELECT RAISE(ABORT, 'write denied'); END",
+		);
+		database.close();
+		const response = await fetch(`${base}/api/task`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ folder: directory, prompt: "1 + 1?" }),
+		});
+		assert.equal(response.status, 400);
+		assert.deepEqual(await response.json(), { error: "请求失败" });
+		assert.deepEqual(await (await fetch(`${base}/api/chat`)).json(), {
+			messages: [],
+			folder: directory,
+		});
+	} finally {
+		server.close();
+		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+		else process.env.OPENROUTER_API_KEY = previousKey;
+		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+		else process.env.OPENROUTER_MODEL = previousModel;
 	}
 });
 
@@ -214,7 +374,7 @@ test("debug setting is shared by clients, resets with server, and logs a success
 				},
 			},
 		);
-	const server = createServer(upstream).listen(0, "127.0.0.1");
+	const server = testServer(upstream).listen(0, "127.0.0.1");
 	try {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
 		const address = server.address();
@@ -295,7 +455,7 @@ test("debug setting is shared by clients, resets with server, and logs a success
 		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
 		else process.env.OPENROUTER_MODEL = previousModel;
 	}
-	const restarted = createServer(upstream).listen(0, "127.0.0.1");
+	const restarted = testServer(upstream).listen(0, "127.0.0.1");
 	try {
 		await new Promise<void>((resolve) => restarted.once("listening", resolve));
 		const address = restarted.address();
@@ -310,7 +470,7 @@ test("debug setting is shared by clients, resets with server, and logs a success
 });
 
 test("debug can start enabled", async () => {
-	const server = createServer(fetch, true).listen(0, "127.0.0.1");
+	const server = testServer(fetch, true).listen(0, "127.0.0.1");
 	try {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
 		const address = server.address();
@@ -326,7 +486,7 @@ test("debug can start enabled", async () => {
 
 test("invalid folders are rejected before the model request", async () => {
 	let requests = 0;
-	const server = createServer(async () => {
+	const server = testServer(async () => {
 		requests++;
 		throw new Error("model should not be called");
 	}).listen(0, "127.0.0.1");
@@ -362,7 +522,7 @@ test("configuration and upstream failures return safe errors without touching th
 	let requests = 0;
 	const sentBodies: string[] = [];
 	let upstream: () => Promise<Response> = async () => Response.json({});
-	const server = createServer(async (_input, init) => {
+	const server = testServer(async (_input, init) => {
 		requests++;
 		sentBodies.push(String(init?.body));
 		return upstream();
@@ -429,7 +589,7 @@ test("configuration and upstream failures return safe errors without touching th
 		);
 		assert.deepEqual(
 			await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(),
-			{ messages: [] },
+			{ messages: [], folder: directory },
 		);
 		assert.equal(await readFile(file, "utf8"), "A teh example.");
 	} finally {
@@ -477,7 +637,7 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 			pending.set(prompt, resolve);
 		});
 	};
-	const server = createServer(upstream).listen(0, "127.0.0.1");
+	const server = testServer(upstream).listen(0, "127.0.0.1");
 	try {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
 		const address = server.address();

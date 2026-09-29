@@ -1,14 +1,14 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
 type Message = { role: "user" | "assistant"; content: string };
+type ChatState = { messages: Message[]; folder: string | null };
 
-async function fetchChat(): Promise<Message[]> {
+async function fetchChat(): Promise<ChatState> {
 	const response = await fetch("/api/chat");
 	if (!response.ok) throw new Error("读取对话失败");
-	const data: { messages: Message[] } = await response.json();
-	return data.messages;
+	return response.json();
 }
 
 async function fetchDebug(): Promise<boolean> {
@@ -20,6 +20,7 @@ async function fetchDebug(): Promise<boolean> {
 
 function App() {
 	const [folder, setFolder] = useState("");
+	const folderEdited = useRef(false);
 	const [prompt, setPrompt] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [debugEnabled, setDebugEnabled] = useState<boolean | null>(null);
@@ -29,7 +30,10 @@ function App() {
 
 	useEffect(() => {
 		fetchChat()
-			.then(setMessages)
+			.then(({ messages, folder }) => {
+				setMessages(messages);
+				if (!folderEdited.current) setFolder(folder ?? "");
+			})
 			.catch(() => setError("读取对话失败，请刷新页面重试"));
 		fetchDebug()
 			.then(setDebugEnabled)
@@ -73,7 +77,7 @@ function App() {
 			});
 			const data: { error?: string } = await response.json();
 			if (!response.ok) throw new Error(data.error || "请求失败");
-			setMessages(await fetchChat());
+			setMessages((await fetchChat()).messages);
 			setPrompt("");
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : "请求失败");
@@ -124,7 +128,10 @@ function App() {
 						className={control}
 						name="folder"
 						value={folder}
-						onChange={(event) => setFolder(event.target.value)}
+						onChange={(event) => {
+							folderEdited.current = true;
+							setFolder(event.target.value);
+						}}
 						required
 					/>
 				</label>
