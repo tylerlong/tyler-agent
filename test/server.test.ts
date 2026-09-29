@@ -39,3 +39,27 @@ test('valid directory returns a clearly simulated result without changing files'
     server.close();
   }
 });
+
+test('missing paths and files return clear errors without changing files', async () => {
+  const server = createServer().listen(0, '127.0.0.1');
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    for (const [folder, message] of [
+      [join(directory, 'missing'), '目标文件夹不存在'],
+      [file, '目标路径不是文件夹'],
+    ]) {
+      const response: Response = await fetch(`http://127.0.0.1:${address.port}/api/demo`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ folder, prompt: 'Fix typos' }),
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: message });
+    }
+    assert.equal(await readFile(file, 'utf8'), 'A teh example.');
+  } finally {
+    server.close();
+  }
+});

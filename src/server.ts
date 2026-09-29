@@ -26,7 +26,14 @@ export function createServer() {
         if (!input || typeof input !== 'object' || !('folder' in input) || typeof input.folder !== 'string' || !input.folder.trim() || !('prompt' in input) || typeof input.prompt !== 'string' || !input.prompt.trim()) {
           throw new Error('请填写目标文件夹和 prompt');
         }
-        if (!(await stat(input.folder)).isDirectory()) throw new Error('目标路径不是文件夹');
+        let folder;
+        try {
+          folder = await stat(input.folder);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('目标文件夹不存在');
+          throw error;
+        }
+        if (!folder.isDirectory()) throw new Error('目标路径不是文件夹');
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify({
           notice: '演示结果，未修改文件',
