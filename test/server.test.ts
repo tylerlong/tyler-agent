@@ -93,16 +93,17 @@ test('debug setting is shared by clients, resets with server, and logs a success
     assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), { enabled: true });
     assert.deepEqual(await (await submit()).json(), { answer: '2' });
     const record = logs.join('\n');
+    assert.match(record, /\[OpenRouter #1\] request\n\{/);
     assert.match(record, /https:\/\/openrouter\.ai\/api\/v1\/responses/);
-    assert.match(record, /"method":"POST"/);
-    assert.match(record, /"content-type":"application\/json"/);
+    assert.match(record, /"method": "POST"/);
+    assert.match(record, /body:\n\{\n  "model": "test-model"/);
     assert.match(record, /1 \+ 1 = \?/);
-    assert.match(record, /raw-header/);
-    assert.match(record, /"x-token-count":"42"/);
-    assert.match(record, /"status":200/);
+    assert.match(record, /"status": 200/);
+    assert.match(record, /body:\n\{\n  "output": \[/);
     assert.match(record, /output_text/);
-    assert.match(record, /"durationMs":/);
+    assert.match(record, /"durationMs": /);
     assert.match(record, /\[REDACTED\]/);
+    assert.doesNotMatch(record, /"headers":|raw-header|x-token-count|x-api-key/);
     assert.doesNotMatch(record, new RegExp(secret));
     assert.equal(record.includes(JSON.stringify(secret).slice(1, -1)), false);
     assert.equal(record.includes('another-token'), false);
@@ -129,35 +130,6 @@ test('debug setting is shared by clients, resets with server, and logs a success
     assert.deepEqual(await (await fetch(`http://127.0.0.1:${address.port}/api/debug`)).json(), { enabled: false });
   } finally {
     restarted.close();
-  }
-});
-
-test('a credential in a response header name is hidden', async () => {
-  const previousKey = process.env.OPENROUTER_API_KEY;
-  const previousModel = process.env.OPENROUTER_MODEL;
-  process.env.OPENROUTER_API_KEY = 'fake-key';
-  process.env.OPENROUTER_MODEL = 'test-model';
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (...values) => { logs.push(values.join(' ')); };
-  const server = createServer(async () => Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: '2' }] }] }, { headers: { 'fake-key': 'echo' } })).listen(0, '127.0.0.1');
-  try {
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    const address = server.address();
-    assert(address && typeof address !== 'string');
-    const base = `http://127.0.0.1:${address.port}`;
-    await fetch(`${base}/api/debug`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
-    const response = await fetch(`${base}/api/task`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folder: directory, prompt: '1 + 1 = ?' }) });
-    assert.deepEqual(await response.json(), { answer: '2' });
-    assert.equal(logs.join('\n').includes('fake-key'), false);
-    assert.match(logs.join('\n'), /\[REDACTED\]/);
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    console.log = originalLog;
-    if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-    else process.env.OPENROUTER_API_KEY = previousKey;
-    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-    else process.env.OPENROUTER_MODEL = previousModel;
   }
 });
 
@@ -306,16 +278,17 @@ test('debug logs failed and concurrent calls with their starting setting and no 
     assert.deepEqual(await (await first).json(), { answer: 'first answer' });
     assert.deepEqual(await (await second).json(), { error: 'OpenRouter 请求失败' });
     assert.equal(upstreamCalls, 2);
-    const requestLines = logs.filter((line) => line.includes('] request '));
-    const responseLines = logs.filter((line) => line.includes('] response '));
+    const requestLines = logs.filter((line) => line.includes('] request\n'));
+    const responseLines = logs.filter((line) => line.includes('] response\n'));
     assert.equal(requestLines.length, 2);
     assert.equal(responseLines.length, 2);
     const firstId = /\[OpenRouter #(\d+)\]/.exec(requestLines.find((line) => line.includes('first'))!)?.[1];
     const secondId = /\[OpenRouter #(\d+)\]/.exec(requestLines.find((line) => line.includes('second'))!)?.[1];
     assert(firstId && secondId && firstId !== secondId);
     assert.match(responseLines.find((line) => line.includes(`#${firstId}]`))!, /first answer/);
-    assert.match(responseLines.find((line) => line.includes(`#${secondId}]`))!, /"status":502/);
-    assert.match(responseLines.find((line) => line.includes(`#${secondId}]`))!, /"body":"failure \[REDACTED\]"/);
+    assert.match(responseLines.find((line) => line.includes(`#${secondId}]`))!, /"status": 502/);
+    assert.match(responseLines.find((line) => line.includes(`#${secondId}]`))!, /body:\nfailure \[REDACTED\]/);
+    assert.doesNotMatch(logs.join('\n'), /"headers":|x-debug/);
     assert.equal(logs.join('\n').includes(secret), false);
     const count = logs.length;
     const unlogged = submit('unlogged');
@@ -327,9 +300,12 @@ test('debug logs failed and concurrent calls with their starting setting and no 
     assert.deepEqual(await (await submit('network')).json(), { error: '请求失败' });
     assert.deepEqual(await (await submit('bad json')).json(), { error: '请求失败' });
     assert.deepEqual(await (await submit('read failure')).json(), { error: '请求失败' });
-    assert.match(logs.join('\n'), /\] error .*network failed with \[REDACTED\]/);
-    assert.match(logs.join('\n'), /invalid JSON/);
-    assert.match(logs.join('\n'), /\] error .*"status":206.*"x-token-count":"42".*body failed with \[REDACTED\]/);
+    assert.match(logs.join('\n'), /network failed with \[REDACTED\]/);
+    assert.match(logs.join('\n'), /body:\ninvalid JSON/);
+    const readFailure = logs.find((line) => line.includes('body failed with [REDACTED]'))!;
+    assert.match(readFailure, /\] error\n/);
+    assert.match(readFailure, /"status": 206/);
+    assert.doesNotMatch(readFailure, /x-token-count/);
     assert.equal(logs.join('\n').includes(secret), false);
     assert.equal(upstreamCalls, 6);
   } finally {

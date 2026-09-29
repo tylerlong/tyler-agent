@@ -73,25 +73,26 @@ export function createServer(fetchModel: typeof fetch = fetch) {
         const id = shouldLog ? ++callId : 0;
         const started = performance.now();
         const escapedKey = JSON.stringify(apiKey).slice(1, -1);
-        const redact = (value: unknown) => JSON.stringify(value, (_key, field: unknown) => typeof field === 'string'
-          ? field.replaceAll(apiKey, '[REDACTED]').replaceAll(escapedKey, '[REDACTED]')
-          : field);
-        const responseHeaders = (result: Response) => Object.fromEntries([...result.headers].map(([name, value]) => [
-          name.replaceAll(apiKey, '[REDACTED]'),
-          /^(?:authorization|proxy-authorization|cookie|set-cookie)$|(?:^|[-_])(?:token|key|secret)$/i.test(name) ? '[REDACTED]' : value,
-        ]));
-        if (shouldLog) console.log(`[OpenRouter #${id}] request ${redact({ time: new Date().toISOString(), url, method: 'POST', headers: { ...headers, authorization: '[REDACTED]' }, body })}`);
+        const redact = (value: string) => value.replaceAll(apiKey, '[REDACTED]').replaceAll(escapedKey, '[REDACTED]');
+        const pretty = (value: unknown) => redact(JSON.stringify(value, null, 2));
+        const displayBody = (raw: string) => {
+          try { return pretty(JSON.parse(raw)); } catch { return redact(raw); }
+        };
+        const log = (kind: string, details: unknown, raw?: string) => {
+          console.log(`[OpenRouter #${id}] ${kind}\n${pretty(details)}${raw === undefined ? '' : `\nbody:\n${displayBody(raw)}`}`);
+        };
+        if (shouldLog) log('request', { time: new Date().toISOString(), url, method: 'POST' }, body);
         let upstream: Response | undefined;
         let rawBody: string;
         try {
           upstream = await fetchModel(url, { method: 'POST', headers, body });
           rawBody = await upstream.text();
         } catch (error) {
-          if (shouldLog) console.log(`[OpenRouter #${id}] error ${redact({ ...(upstream && { status: upstream.status, headers: responseHeaders(upstream) }), error: String(error), durationMs: Math.round(performance.now() - started) })}`);
+          if (shouldLog) log('error', { ...(upstream && { status: upstream.status }), error: String(error), durationMs: Math.round(performance.now() - started) });
           throw error;
         }
         if (shouldLog) {
-          console.log(`[OpenRouter #${id}] response ${redact({ status: upstream.status, headers: responseHeaders(upstream), body: rawBody, durationMs: Math.round(performance.now() - started) })}`);
+          log('response', { status: upstream.status, durationMs: Math.round(performance.now() - started) }, rawBody);
         }
         if (!upstream.ok) throw new SafeResponseError('OpenRouter 请求失败');
         const data: unknown = JSON.parse(rawBody);
