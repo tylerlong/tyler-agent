@@ -1,19 +1,26 @@
-# Typos Agent
+# Tyler Agent
 
-这是一个 TypeScript/Node.js 网页原型，用来逐步构建修正目标文件夹中 typos 的 agent。
+这是一个 TypeScript/Node.js 网页项目。当前功能是提交一次 prompt，经 Node.js 直接调用 OpenRouter Responses API，并在网页显示文本回答。
 
 ## 运行
 
-需要 Node.js 24 和 pnpm 11。
+需要 Node.js 24 和 pnpm 11。先在项目根目录创建 `.env`：
+
+```dotenv
+OPENROUTER_API_KEY=你的密钥
+OPENROUTER_MODEL=z-ai/glm-5.3-flash
+```
+
+`.env` 已被 Git 忽略，密钥只由 Node.js 读取，不发送到浏览器。
 
 ```sh
 pnpm install
 pnpm start
 ```
 
-在浏览器打开 `http://127.0.0.1:3000`，填写运行服务的电脑上的目标文件夹路径和 prompt，然后提交。也可通过 `PORT` 环境变量修改端口。
+打开 `http://127.0.0.1:3000`。也可通过 `PORT` 环境变量修改端口。填写运行服务的电脑上的目标文件夹路径和 prompt（例如 `1 + 1 等于几？`），然后提交。
 
-当前服务只验证目标文件夹存在且是文件夹，随后返回固定的 `example.txt` 修改前后示例。网页标注“演示结果，未修改文件”。服务不会读取目标文件夹中的文件内容、修改文件或调用 OpenRouter。
+服务会确认目标文件夹存在且是文件夹。目前只把 prompt 发送给模型；不会发送文件夹路径、读取或修改文件，也没有工具调用、多轮对话或历史记录。每次提交都是独立的非流式请求。
 
 ## 检查
 
@@ -22,4 +29,4 @@ pnpm typecheck
 pnpm test
 ```
 
-后续将由 Node.js 直接通过 HTTP 调用 OpenRouter API，并在本地提供 `listFiles`、`readFile`、`patchFile` 等工具，让模型根据 prompt 修正真实文件。
+自动测试模拟 OpenRouter 响应，不需要真实密钥或付费请求。后续再添加受目标文件夹约束的本地文件工具，例如 `listFiles`、`readFile` 和 `patchFile`。

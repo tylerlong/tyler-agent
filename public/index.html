@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Typos Agent 演示</title>
+  <title>Tyler Agent</title>
   <style>
     body { max-width: 42rem; margin: 3rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui, sans-serif; }
     label { display: block; margin: 1rem 0; }
@@ -13,19 +13,17 @@
   </style>
 </head>
 <body>
-  <h1>Typos Agent 演示</h1>
-  <p>目前只验证网页与本地服务之间的任务流程。</p>
+  <h1>Tyler Agent</h1>
+  <p>输入 prompt，获取一次模型回答。目标文件夹目前只用于确认路径有效，不会读取或修改文件。</p>
   <form id="task">
     <label>目标文件夹（运行服务的电脑上的路径）<input name="folder" required></label>
-    <label>Prompt<textarea name="prompt" required>找出这个文件夹里的 typos 并修正它们。</textarea></label>
+    <label>Prompt<textarea name="prompt" required></textarea></label>
     <button>提交</button>
   </form>
   <p id="error" role="alert"></p>
   <section id="result" hidden aria-live="polite">
-    <h2 id="notice"></h2>
-    <p>示例文件：<span id="filename"></span></p>
-    <h3>修改前</h3><pre id="before"></pre>
-    <h3>修改后</h3><pre id="after"></pre>
+    <h2>回答</h2>
+    <pre id="answer"></pre>
   </section>
   <script>
     document.querySelector('#task').addEventListener('submit', async (event) => {
@@ -36,17 +34,14 @@
       error.textContent = '';
       result.hidden = true;
       try {
-        const response = await fetch('/api/demo', {
+        const response = await fetch('/api/task', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(Object.fromEntries(new FormData(form))),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '请求失败');
-        document.querySelector('#notice').textContent = data.notice;
-        document.querySelector('#filename').textContent = data.file;
-        document.querySelector('#before').textContent = data.before;
-        document.querySelector('#after').textContent = data.after;
+        document.querySelector('#answer').textContent = data.answer;
         result.hidden = false;
       } catch (cause) {
         error.textContent = cause.message || '请求失败';

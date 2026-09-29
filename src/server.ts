@@ -12,7 +12,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(body);
 }
 
-export function createServer() {
+export function createServer(fetchModel: typeof fetch = fetch) {
   return createHttpServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/') {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -20,7 +20,7 @@ export function createServer() {
       return;
     }
 
-    if (request.method === 'POST' && request.url === '/api/demo') {
+    if (request.method === 'POST' && request.url === '/api/task') {
       try {
         const input = await readJson(request);
         if (!input || typeof input !== 'object' || !('folder' in input) || typeof input.folder !== 'string' || !input.folder.trim() || !('prompt' in input) || typeof input.prompt !== 'string' || !input.prompt.trim()) {
@@ -34,13 +34,28 @@ export function createServer() {
           throw error;
         }
         if (!folder.isDirectory()) throw new Error('目标路径不是文件夹');
+        const apiKey = process.env.OPENROUTER_API_KEY;
+        const model = process.env.OPENROUTER_MODEL;
+        if (!apiKey || !model) throw new Error('OpenRouter 配置缺失');
+        const upstream = await fetchModel('https://openrouter.ai/api/v1/responses', {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ model, input: input.prompt, stream: false }),
+        });
+        if (!upstream.ok) throw new Error('OpenRouter 请求失败');
+        const data: unknown = await upstream.json();
+        const output = data && typeof data === 'object' && 'output' in data ? data.output : null;
+        const answer = Array.isArray(output)
+          ? output.flatMap((item) => item.type === 'message' && Array.isArray(item.content)
+            ? item.content.filter((part: { type?: string; text?: unknown }) => part.type === 'output_text' && typeof part.text === 'string').map((part: { text: string }) => part.text)
+            : []).join('\n').trim()
+          : '';
+        if (!answer) throw new Error('OpenRouter 没有返回文本答案');
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-        response.end(JSON.stringify({
-          notice: '演示结果，未修改文件',
-          file: 'example.txt',
-          before: 'A teh example.',
-          after: 'A the example.',
-        }));
+        response.end(JSON.stringify({ answer }));
       } catch (error) {
         response.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify({ error: error instanceof Error ? error.message : '请求无效' }));

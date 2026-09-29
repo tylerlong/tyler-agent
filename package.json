@@ -6,7 +6,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node src/server.ts",
+    "start": "node --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts"
   },
