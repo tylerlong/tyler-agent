@@ -7,8 +7,8 @@
 	},
 	"scripts": {
 		"start": "node --env-file-if-exists=.env src/server.ts --debug",
-		"format": "biome format --write .",
-		"format:check": "biome format .",
+		"format": "biome check . --write",
+		"format:check": "biome check .",
 		"typecheck": "tsc --noEmit",
 		"test": "node --test test/*.test.ts"
 	},

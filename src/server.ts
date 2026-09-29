@@ -1,8 +1,8 @@
+import { readFile, stat } from "node:fs/promises";
 import {
 	createServer as createHttpServer,
 	type IncomingMessage,
 } from "node:http";
-import { readFile, stat } from "node:fs/promises";
 
 const page = new URL("../public/index.html", import.meta.url);
 
@@ -86,7 +86,7 @@ export function createServer(
 				) {
 					throw new SafeResponseError("请填写目标文件夹和 prompt");
 				}
-				let folder;
+				let folder: Awaited<ReturnType<typeof stat>>;
 				try {
 					folder = await stat(input.folder);
 				} catch (error) {

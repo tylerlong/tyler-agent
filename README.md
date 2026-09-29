@@ -38,6 +38,6 @@ pnpm typecheck
 pnpm test
 ```
 
-使用 `pnpm format` 按 Biome 默认规则格式化 TypeScript 和 JSON；HTML、Markdown 与 YAML 不在当前格式化范围内。项目没有 Biome 配置文件。
+使用 `pnpm format` 运行 Biome 默认的 `check --write`，格式化、检查并修复受支持的文件；项目没有 Biome 配置文件。
 
 自动测试模拟 OpenRouter 响应，不需要真实密钥或付费请求。后续再添加受目标文件夹约束的本地文件工具，例如 `listFiles`、`readFile` 和 `patchFile`。

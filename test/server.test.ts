@@ -249,11 +249,11 @@ test("debug setting is shared by clients, resets with server, and logs a success
 		assert.match(record, /\[OpenRouter #1\] request\n\{/);
 		assert.match(record, /https:\/\/openrouter\.ai\/api\/v1\/responses/);
 		assert.match(record, /"method": "POST"/);
-		assert.match(record, /body:\n\{\n  "model": "test-model"/);
+		assert.match(record, /body:\n\{\n {2}"model": "test-model"/);
 		assert.match(record, /1 \+ 1 = \?/);
 		assert.match(record, /"role": "assistant",\n\s+"content": "2"/);
 		assert.match(record, /"status": 200/);
-		assert.match(record, /body:\n\{\n  "output": \[/);
+		assert.match(record, /body:\n\{\n {2}"output": \[/);
 		assert.match(record, /output_text/);
 		assert.match(record, /"durationMs": /);
 		assert.match(record, /\[REDACTED\]/);
@@ -447,9 +447,11 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 	let upstreamCalls = 0;
 	const upstream: typeof fetch = async (_url, init) => {
 		upstreamCalls++;
-		const prompt = (
+		const lastInput = (
 			JSON.parse(String(init?.body)) as { input: Array<{ content: string }> }
-		).input.at(-1)!.content;
+		).input.at(-1);
+		assert(lastInput);
+		const prompt = lastInput.content;
 		if (prompt === "network") throw new Error(`network failed with ${secret}`);
 		if (prompt === "bad json")
 			return new Response("invalid JSON", { status: 200 });
@@ -487,7 +489,9 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 		const waitFor = async (prompt: string) => {
 			while (!pending.has(prompt))
 				await new Promise((resolve) => setTimeout(resolve, 1));
-			return pending.get(prompt)!;
+			const resolve = pending.get(prompt);
+			assert(resolve);
+			return resolve;
 		};
 		await toggle(true);
 		assert.deepEqual(
@@ -541,24 +545,22 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 		assert.equal(requestLines.length, 2);
 		assert.equal(responseLines.length, 2);
 		const firstId = /\[OpenRouter #(\d+)\]/.exec(
-			requestLines.find((line) => line.includes("first"))!,
+			requestLines.find((line) => line.includes("first")) ?? "",
 		)?.[1];
 		const secondId = /\[OpenRouter #(\d+)\]/.exec(
-			requestLines.find((line) => line.includes("second"))!,
+			requestLines.find((line) => line.includes("second")) ?? "",
 		)?.[1];
 		assert(firstId && secondId && firstId !== secondId);
-		assert.match(
-			responseLines.find((line) => line.includes(`#${firstId}]`))!,
-			/first answer/,
+		const firstResponse = responseLines.find((line) =>
+			line.includes(`#${firstId}]`),
 		);
-		assert.match(
-			responseLines.find((line) => line.includes(`#${secondId}]`))!,
-			/"status": 502/,
+		const secondResponse = responseLines.find((line) =>
+			line.includes(`#${secondId}]`),
 		);
-		assert.match(
-			responseLines.find((line) => line.includes(`#${secondId}]`))!,
-			/body:\nfailure \[REDACTED\]/,
-		);
+		assert(firstResponse && secondResponse);
+		assert.match(firstResponse, /first answer/);
+		assert.match(secondResponse, /"status": 502/);
+		assert.match(secondResponse, /body:\nfailure \[REDACTED\]/);
 		assert.doesNotMatch(logs.join("\n"), /"headers":|x-debug/);
 		assert.equal(logs.join("\n").includes(secret), false);
 		const count = logs.length;
@@ -587,7 +589,8 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 		assert.match(logs.join("\n"), /body:\ninvalid JSON/);
 		const readFailure = logs.find((line) =>
 			line.includes("body failed with [REDACTED]"),
-		)!;
+		);
+		assert(readFailure);
 		assert.match(readFailure, /\] error\n/);
 		assert.match(readFailure, /"status": 206/);
 		assert.doesNotMatch(readFailure, /x-token-count/);
