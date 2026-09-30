@@ -125,7 +125,8 @@ test("all model and database failures preserve complete history and release chat
 	};
 	let server = createServer(fake, false, path).listen(0, "127.0.0.1");
 	async function base() {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
+		if (!server.listening)
+			await new Promise<void>((resolve) => server.once("listening", resolve));
 		const address = server.address();
 		assert(address && typeof address !== "string");
 		return `http://127.0.0.1:${address.port}`;
