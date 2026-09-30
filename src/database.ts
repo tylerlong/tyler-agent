@@ -72,6 +72,12 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			db.prepare("PRAGMA foreign_key_check").all().length
 		)
 			throw new Error("Corrupt database");
+		if (
+			version === 3 &&
+			db.prepare("SELECT COUNT(*)=1 AND MIN(id)=1 AS valid FROM settings").get()
+				?.valid !== 1
+		)
+			throw new Error("Corrupt database");
 		db.exec(
 			`SAVEPOINT startup_check; INSERT INTO projects(name,created_at) VALUES ('startup',0); ROLLBACK TO startup_check; RELEASE startup_check;`,
 		);

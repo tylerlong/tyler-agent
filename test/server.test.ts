@@ -162,6 +162,10 @@ test("legacy schema resets once and invalid or read-only databases fail at start
 		} finally {
 			await chmod(path, 0o644);
 		}
+		const damagedSettings = new DatabaseSync(path);
+		damagedSettings.exec("DELETE FROM settings WHERE id=1");
+		damagedSettings.close();
+		assert.throws(() => createServer(fetch, path), /Corrupt database/);
 		const missing = join(directory, "missing", "db.sqlite");
 		assert.throws(() => createServer(fetch, missing));
 		const result = spawnSync(
