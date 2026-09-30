@@ -184,6 +184,7 @@ function App() {
 	const [directoryError, setDirectoryError] = useState("");
 	const [loadingDirectory, setLoadingDirectory] = useState(false);
 	const directoryRevision = useRef(0);
+	const directoryInitialized = useRef(false);
 	async function browse(path?: string) {
 		const revision = ++directoryRevision.current;
 		setLoadingDirectory(true);
@@ -203,6 +204,7 @@ function App() {
 		}
 	}
 	function resetDirectory() {
+		directoryInitialized.current = false;
 		++directoryRevision.current;
 		setDirectory(null);
 		setDirectoryError("");
@@ -464,7 +466,10 @@ function App() {
 								disabled={saving}
 								onClick={() => {
 									folderDialog.current?.showModal();
-									if (!loadingDirectory) void browse(directory?.path);
+									if (!directoryInitialized.current) {
+										directoryInitialized.current = true;
+										void browse();
+									}
 								}}
 							>
 								添加文件夹
@@ -526,9 +531,19 @@ function App() {
 					))}
 				</ul>
 				{directoryError && (
-					<p role="alert" className="mt-4 text-red-700">
-						{directoryError}
-					</p>
+					<div className="mt-4">
+						<p role="alert" className="text-red-700">
+							{directoryError}
+						</p>
+						<button
+							type="button"
+							className={button}
+							disabled={loadingDirectory}
+							onClick={() => void browse(directory?.path)}
+						>
+							重试
+						</button>
+					</div>
 				)}
 				<div className="mt-4 flex justify-end gap-3">
 					<button

@@ -69,7 +69,9 @@ test("real directory picker selects one folder at a time, preserves position and
 		})
 		.click();
 	await add.click();
-	await expect(picker.getByRole("alert")).toHaveText("目标文件夹不存在");
+	await expect(picker.getByLabel("当前目录")).toHaveText(
+		join(app.folder, "Zulu"),
+	);
 	await picker.getByRole("button", { name: "返回上级" }).click();
 	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
 	await picker.getByRole("button", { name: "选择此目录" }).click();
@@ -150,4 +152,45 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	);
 	await picker.getByRole("button", { name: "取消" }).click();
 	await expect(add).toBeFocused();
+});
+
+test("showing a hidden picker sends no new browse request and preserves a navigation error", async ({
+	page,
+	app,
+}) => {
+	await mkdir(join(app.folder, "Gone"));
+	let reads = 0;
+	page.on("request", (request) => {
+		if (new URL(request.url()).pathname === "/api/directories") reads++;
+	});
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "新建 project", exact: true }).click();
+	const project = page.getByRole("dialog", {
+		name: "新建 project",
+		exact: true,
+	});
+	const picker = page.getByRole("dialog", { name: "选择文件夹", exact: true });
+	const add = project.getByRole("button", { name: "添加文件夹" });
+	await add.click();
+	await expect(
+		picker.getByRole("button", { name: "选择此目录" }),
+	).toBeEnabled();
+	await rm(join(app.folder, "Gone"), { recursive: true });
+	await picker.getByRole("button", { name: "Gone", exact: true }).click();
+	await expect(picker.getByRole("alert")).toHaveText("目标文件夹不存在");
+	expect(reads).toBe(2);
+	await page.keyboard.press("Escape");
+	await add.click();
+	await expect(picker.getByRole("alert")).toHaveText("目标文件夹不存在");
+	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
+	await expect(
+		picker.getByRole("button", { name: "选择此目录" }),
+	).toBeEnabled();
+	expect(reads).toBe(2);
+	await picker.getByRole("button", { name: "重试", exact: true }).click();
+	await expect(picker.getByRole("alert")).toHaveCount(0);
+	await expect(
+		picker.getByRole("button", { name: "选择此目录" }),
+	).toBeEnabled();
+	expect(reads).toBe(3);
 });
