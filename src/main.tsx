@@ -128,13 +128,18 @@ function App() {
 	const [error, setError] = useState("");
 	const [debugEnabled, setDebugEnabled] = useState<boolean | null>(null);
 	const [debugPending, setDebugPending] = useState(false);
+	const [debugError, setDebugError] = useState("");
+	const settingsDialog = useRef<HTMLDialogElement>(null);
 	const [debugState] = useState(() =>
 		createDebugState(
 			async () => (await api("/api/debug")).enabled,
 			async (enabled) => {
 				await api("/api/debug", "PUT", { enabled });
 			},
-			setDebugEnabled,
+			(enabled) => {
+				setDebugEnabled(enabled);
+				setDebugError(enabled === null ? "读取日志设置失败，请重试" : "");
+			},
 		),
 	);
 	const refreshRevision = useRef(0);
@@ -147,8 +152,7 @@ function App() {
 			if (revision === refreshRevision.current)
 				setError(cause instanceof Error ? cause.message : "读取列表失败");
 		}
-		if (!(await debugState.refresh()))
-			setError("读取日志设置失败，请刷新页面重试");
+		await debugState.refresh();
 	}, [debugState]);
 	useEffect(() => {
 		void refresh();
@@ -174,36 +178,38 @@ function App() {
 	const [modalError, setModalError] = useState("");
 	const [saving, setSaving] = useState(false);
 	function openModal(projectId: number | null) {
-		setCreatingProject(projectId);
-		setName("");
-		setFolders("");
-		setModalError("");
+		if (projectId !== creatingProject) {
+			setCreatingProject(projectId);
+			setName("");
+			setFolders("");
+			setModalError("");
+		}
 		dialog.current?.showModal();
 	}
 	async function create(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
+		if (saving) return;
+		const target = creatingProject;
+		const input = { name, folders: folders.split("\n") };
 		setSaving(true);
 		setModalError("");
 		try {
-			if (creatingProject === null) {
-				await api("/api/projects", "POST", {
-					name,
-					folders: folders.split("\n"),
-				});
+			if (target === null) {
+				await api("/api/projects", "POST", input);
 			} else {
-				const chat = await api(
-					`/api/projects/${creatingProject}/chats`,
-					"POST",
-					{ name },
-				);
+				const chat = await api(`/api/projects/${target}/chats`, "POST", {
+					name: input.name,
+				});
 				selectChat(chat.id);
 				setCollapsed((current) => {
 					const next = new Set(current);
-					next.delete(creatingProject);
+					next.delete(target);
 					return next;
 				});
 			}
 			await refresh();
+			setName("");
+			setFolders("");
 			dialog.current?.close();
 		} catch (cause) {
 			setModalError(cause instanceof Error ? cause.message : "创建失败");
@@ -225,6 +231,7 @@ function App() {
 				<button
 					type="button"
 					className={button}
+					disabled={saving && creatingProject !== null}
 					onClick={() => openModal(null)}
 				>
 					新建 project
@@ -254,6 +261,7 @@ function App() {
 								<button
 									type="button"
 									className={button}
+									disabled={saving && creatingProject !== project.id}
 									onClick={() => openModal(project.id)}
 								>
 									新建 chat
@@ -279,39 +287,26 @@ function App() {
 						</section>
 					))}
 				</nav>
-				<fieldset
-					className="mt-6 border-t border-slate-300 pt-4 disabled:opacity-60"
-					disabled={debugEnabled === null || debugPending}
+				<button
+					type="button"
+					className={`${button} mt-6 self-start`}
+					aria-label="设置"
+					title="设置"
+					onClick={() => settingsDialog.current?.showModal()}
 				>
-					<legend className="text-sm font-medium">
-						OpenRouter 调试日志（服务端 terminal）
-					</legend>
-					<div className="mt-2 flex gap-6">
-						{[
-							{ label: "关闭", enabled: false },
-							{ label: "开启", enabled: true },
-						].map(({ label, enabled }) => (
-							<label key={label} className="flex items-center gap-2">
-								<input
-									type="radio"
-									name="debug"
-									checked={debugEnabled === enabled}
-									onChange={async () => {
-										setDebugPending(true);
-										try {
-											const result = await debugState.save(enabled);
-											if (result !== "saved")
-												setError("无法确认日志设置，请重试");
-										} finally {
-											setDebugPending(false);
-										}
-									}}
-								/>
-								{label}
-							</label>
-						))}
-					</div>
-				</fieldset>
+					<svg
+						aria-hidden="true"
+						width="24"
+						height="24"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+					>
+						<path d="m9 3-1 3-3 1-2 3 2 2-2 2 2 3 3 1 1 3h6l1-3 3-1 2-3-2-2 2-2-2-3-3-1-1-3Z" />
+						<circle cx="12" cy="12" r="3" />
+					</svg>
+				</button>
 				{error && (
 					<p role="alert" className="mt-4 text-red-700">
 						{error}
@@ -387,9 +382,6 @@ function App() {
 			</section>
 			<dialog
 				ref={dialog}
-				onCancel={(event) => {
-					if (saving) event.preventDefault();
-				}}
 				aria-labelledby="create-title"
 				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
 			>
@@ -402,6 +394,7 @@ function App() {
 						<input
 							className={control}
 							name="name"
+							disabled={saving}
 							value={name}
 							onChange={(event) => setName(event.target.value)}
 							required
@@ -413,6 +406,7 @@ function App() {
 							<textarea
 								className={control}
 								rows={4}
+								disabled={saving}
 								value={folders}
 								onChange={(event) => setFolders(event.target.value)}
 								required
@@ -428,7 +422,6 @@ function App() {
 						<button
 							className={button}
 							type="button"
-							disabled={saving}
 							onClick={() => dialog.current?.close()}
 						>
 							取消
@@ -438,6 +431,72 @@ function App() {
 						</button>
 					</div>
 				</form>
+			</dialog>
+			<dialog
+				ref={settingsDialog}
+				aria-labelledby="settings-title"
+				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
+			>
+				<h2 id="settings-title" className="text-xl font-semibold">
+					设置
+				</h2>
+				<fieldset
+					className="mt-4 disabled:opacity-60"
+					disabled={debugEnabled === null || debugPending}
+				>
+					<legend className="text-sm font-medium">
+						OpenRouter 调试日志（服务端 terminal）
+					</legend>
+					<div className="mt-2 flex gap-6">
+						{[
+							{ label: "关闭", enabled: false },
+							{ label: "开启", enabled: true },
+						].map(({ label, enabled }) => (
+							<label key={label} className="flex items-center gap-2">
+								<input
+									type="radio"
+									name="debug"
+									checked={debugEnabled === enabled}
+									onChange={async () => {
+										setDebugPending(true);
+										try {
+											const result = await debugState.save(enabled);
+											if (result !== "saved")
+												setDebugError("无法确认日志设置，请重试");
+											else setDebugError("");
+										} finally {
+											setDebugPending(false);
+										}
+									}}
+								/>
+								{label}
+							</label>
+						))}
+					</div>
+				</fieldset>
+				{debugError && (
+					<p role="alert" className="mt-4 text-red-700">
+						{debugError}
+					</p>
+				)}
+				<div className="mt-4 flex justify-end gap-3">
+					{debugError && (
+						<button
+							type="button"
+							className={button}
+							onClick={() => void debugState.refresh()}
+						>
+							重试
+						</button>
+					)}
+					<button
+						type="button"
+						className={button}
+						onClick={() => settingsDialog.current?.close()}
+					>
+						关闭
+					</button>
+				</div>
 			</dialog>
 		</main>
 	);
