@@ -13,16 +13,15 @@ test("two clients receive state invalidations and a reconnect reads the latest s
 	const previousModel = process.env.OPENROUTER_MODEL;
 	process.env.OPENROUTER_API_KEY = "test-key";
 	process.env.OPENROUTER_MODEL = "test-model";
+	let finishUpstream: ((response: Response) => void) | undefined;
+	let upstreamCalls = 0;
 	const server = createServer(
-		async () =>
-			Response.json({
-				output: [
-					{
-						type: "message",
-						content: [{ type: "output_text", text: "answer" }],
-					},
-				],
-			}),
+		async () => {
+			upstreamCalls++;
+			return new Promise<Response>((resolve) => {
+				finishUpstream = resolve;
+			});
+		},
 		false,
 		databasePath,
 	).listen(0, "127.0.0.1");
@@ -77,13 +76,46 @@ test("two clients receive state invalidations and a reconnect reads the latest s
 			enabled: true,
 		});
 
-		const task = await fetch(`${base}/api/task`, {
+		const task = fetch(`${base}/api/task`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ folder: directory, prompt: "question" }),
 		});
-		assert.equal(task.status, 200);
 		for (const client of [first, second]) {
+			assert.equal(await client.nextFrame(), "data: changed");
+			assert.equal(await client.nextFrame(), "data: changed");
+		}
+		assert.deepEqual(await (await fetch(`${base}/api/chat`)).json(), {
+			messages: [],
+			folder: directory,
+			busy: true,
+		});
+		const rejected = await fetch(`${base}/api/task`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ folder: directory, prompt: "rejected" }),
+		});
+		assert.equal(rejected.status, 409);
+		assert.deepEqual(await rejected.json(), {
+			error: "已有请求正在进行中",
+		});
+		assert.equal(upstreamCalls, 1);
+		first.controller.abort();
+		const reconnected = await connect();
+		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, true);
+		assert(finishUpstream);
+		finishUpstream(
+			Response.json({
+				output: [
+					{
+						type: "message",
+						content: [{ type: "output_text", text: "answer" }],
+					},
+				],
+			}),
+		);
+		assert.equal((await task).status, 200);
+		for (const client of [second, reconnected]) {
 			assert.equal(await client.nextFrame(), "data: changed");
 			assert.equal(await client.nextFrame(), "data: changed");
 		}
@@ -93,16 +125,29 @@ test("two clients receive state invalidations and a reconnect reads the latest s
 				{ role: "assistant", content: "answer" },
 			],
 			folder: directory,
+			busy: false,
 		});
 
-		first.controller.abort();
-		const reconnected = await connect();
+		const failedTask = fetch(`${base}/api/task`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ folder: directory, prompt: "failure" }),
+		});
+		for (const client of [second, reconnected])
+			assert.equal(await client.nextFrame(), "data: changed");
+		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, true);
+		assert(finishUpstream);
+		finishUpstream(new Response("unavailable", { status: 503 }));
+		assert.equal((await failedTask).status, 400);
+		for (const client of [second, reconnected])
+			assert.equal(await client.nextFrame(), "data: changed");
 		assert.deepEqual(await (await fetch(`${base}/api/chat`)).json(), {
 			messages: [
 				{ role: "user", content: "question" },
 				{ role: "assistant", content: "answer" },
 			],
 			folder: directory,
+			busy: false,
 		});
 		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
 			enabled: true,

@@ -126,7 +126,11 @@ test("successful turns form one shared conversation across requests and server i
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ folder, prompt }),
 			});
-		assert.deepEqual(await getHistory(), { messages: [], folder: null });
+		assert.deepEqual(await getHistory(), {
+			messages: [],
+			folder: null,
+			busy: false,
+		});
 		assert.deepEqual(await (await submit(directory, "5 + 6?")).json(), {
 			answer: "11",
 		});
@@ -136,6 +140,7 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "assistant", content: "11" },
 			],
 			folder: directory,
+			busy: false,
 		});
 		assert.deepEqual(await (await submit(tmpdir(), "double it?")).json(), {
 			answer: "22",
@@ -164,6 +169,7 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "assistant", content: "22" },
 			],
 			folder: tmpdir(),
+			busy: false,
 		});
 		const failed = await submit(directory, "one more?");
 		assert.equal(failed.status, 400);
@@ -178,6 +184,7 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "assistant", content: "22" },
 			],
 			folder: directory,
+			busy: false,
 		});
 		const invalid = await submit(join(directory, "missing"), "bad folder");
 		assert.equal(invalid.status, 400);
@@ -189,6 +196,7 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "assistant", content: "22" },
 			],
 			folder: directory,
+			busy: false,
 		});
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -216,6 +224,7 @@ test("successful turns form one shared conversation across requests and server i
 				{ role: "assistant", content: "22" },
 			],
 			folder: directory,
+			busy: false,
 		});
 		answers.push("33");
 		assert.deepEqual(
@@ -253,7 +262,7 @@ test("successful turns form one shared conversation across requests and server i
 		assert(address && typeof address !== "string");
 		assert.deepEqual(
 			await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(),
-			{ messages: [], folder: null },
+			{ messages: [], folder: null, busy: false },
 		);
 	} finally {
 		isolated.close();
@@ -334,6 +343,7 @@ test("database startup and turn writes fail without reporting success", async ()
 		assert.deepEqual(await (await fetch(`${base}/api/chat`)).json(), {
 			messages: [],
 			folder: directory,
+			busy: false,
 		});
 	} finally {
 		server.close();
@@ -589,7 +599,7 @@ test("configuration and upstream failures return safe errors without touching th
 		);
 		assert.deepEqual(
 			await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(),
-			{ messages: [], folder: directory },
+			{ messages: [], folder: directory, busy: false },
 		);
 		assert.equal(await readFile(file, "utf8"), "A teh example.");
 	} finally {
@@ -601,7 +611,7 @@ test("configuration and upstream failures return safe errors without touching th
 	}
 });
 
-test("debug logs failed and concurrent calls with their starting setting and no credentials", async () => {
+test("debug logs failed calls, rejects concurrency, and preserves credentials", async () => {
 	const secret = "fake-debug-key";
 	const previousKey = process.env.OPENROUTER_API_KEY;
 	const previousModel = process.env.OPENROUTER_MODEL;
@@ -684,16 +694,15 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 		assert.equal(logs.length, 0);
 		assert.equal(upstreamCalls, 0);
 		const first = submit("first");
-		const second = submit("second");
 		const resolveFirst = await waitFor("first");
-		const resolveSecond = await waitFor("second");
+		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, true);
+		const rejected = await submit("second");
+		assert.equal(rejected.status, 409);
+		assert.deepEqual(await rejected.json(), {
+			error: "已有请求正在进行中",
+		});
+		assert.equal(upstreamCalls, 1);
 		await toggle(false);
-		resolveSecond(
-			new Response(`failure ${secret}`, {
-				status: 502,
-				headers: { "x-debug": secret },
-			}),
-		);
 		resolveFirst(
 			Response.json({
 				output: [
@@ -705,9 +714,27 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 			}),
 		);
 		assert.deepEqual(await (await first).json(), { answer: "first answer" });
+		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, false);
+		await toggle(true);
+		const second = submit("second");
+		const resolveSecond = await waitFor("second");
+		resolveSecond(
+			new Response(`failure ${secret}`, {
+				status: 502,
+				headers: { "x-debug": secret },
+			}),
+		);
 		assert.deepEqual(await (await second).json(), {
 			error: "OpenRouter 请求失败",
 		});
+		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, false);
+		assert.deepEqual(
+			(await (await fetch(`${base}/api/chat`)).json()).messages,
+			[
+				{ role: "user", content: "first" },
+				{ role: "assistant", content: "first answer" },
+			],
+		);
 		assert.equal(upstreamCalls, 2);
 		const requestLines = logs.filter((line) => line.includes("] request\n"));
 		const responseLines = logs.filter((line) => line.includes("] response\n"));
@@ -733,6 +760,7 @@ test("debug logs failed and concurrent calls with their starting setting and no 
 		assert.doesNotMatch(logs.join("\n"), /"headers":|x-debug/);
 		assert.equal(logs.join("\n").includes(secret), false);
 		const count = logs.length;
+		await toggle(false);
 		const unlogged = submit("unlogged");
 		(await waitFor("unlogged"))(
 			Response.json({

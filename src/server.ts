@@ -90,6 +90,7 @@ export function createServer(
 		databasePath === undefined,
 	);
 	let callId = 0;
+	let busy = false;
 	const subscribers = new Set<ServerResponse>();
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
@@ -146,6 +147,7 @@ export function createServer(
 			response.end(
 				JSON.stringify({
 					messages: readMessages(database),
+					busy,
 					folder:
 						database.prepare("SELECT folder FROM settings WHERE id = 1").get()
 							?.folder ?? null,
@@ -182,6 +184,15 @@ export function createServer(
 		}
 
 		if (request.method === "POST" && request.url === "/api/task") {
+			if (busy) {
+				response.writeHead(409, {
+					"content-type": "application/json; charset=utf-8",
+				});
+				response.end(JSON.stringify({ error: "已有请求正在进行中" }));
+				return;
+			}
+			busy = true;
+			notifyChange();
 			try {
 				const input = await readJson(request);
 				if (
@@ -321,6 +332,9 @@ export function createServer(
 							error instanceof SafeResponseError ? error.message : "请求失败",
 					}),
 				);
+			} finally {
+				busy = false;
+				notifyChange();
 			}
 			return;
 		}

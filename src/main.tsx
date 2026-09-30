@@ -9,7 +9,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 
 type Message = { role: "user" | "assistant"; content: string };
-type ChatState = { messages: Message[]; folder: string | null };
+type ChatState = { messages: Message[]; folder: string | null; busy: boolean };
 
 async function fetchChat(): Promise<ChatState> {
 	const response = await fetch("/api/chat");
@@ -31,6 +31,7 @@ function App() {
 	const [savedFolder, setSavedFolder] = useState<string | null>(null);
 	const [prompt, setPrompt] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
+	const [busy, setBusy] = useState<boolean | null>(null);
 	const [debugEnabled, setDebugEnabled] = useState<boolean | null>(null);
 	const [debugPending, setDebugPending] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
@@ -44,12 +45,14 @@ function App() {
 			const state = await fetchChat();
 			if (current !== chatRefresh.current) return;
 			setMessages(state.messages);
+			setBusy(state.busy);
 			setSavedFolder(state.folder);
 			if (!folderEdited.current) setFolder(state.folder ?? "");
 			return true;
 		} catch {
 			if (current === chatRefresh.current)
 				setError("读取对话失败，请刷新页面重试");
+			if (current === chatRefresh.current) setBusy(null);
 			return false;
 		}
 	}, []);
@@ -198,9 +201,9 @@ function App() {
 				<button
 					className="rounded-md bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800 disabled:opacity-60"
 					type="submit"
-					disabled={submitting}
+					disabled={busy !== false || submitting}
 				>
-					{submitting ? "提交中…" : "提交"}
+					{busy ? "提交中…" : "提交"}
 				</button>
 			</form>
 			<p className="mt-4 text-red-700" role="alert">
