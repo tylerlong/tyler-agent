@@ -228,7 +228,7 @@ test("settings read errors remain in settings and a successful reread clears the
 	await expect(modal.getByLabel("开启", { exact: true })).toBeChecked();
 });
 
-test("debug saves both states across server restarts and fresh browsers without changing sidebar width", async ({
+test("settings preserve each other across server restarts and fresh browsers", async ({
 	page,
 	browser,
 	app,
@@ -239,6 +239,7 @@ test("debug saves both states across server restarts and fresh browsers without 
 	await page.request.put(`${app.url}/api/sidebar-width`, {
 		data: { width: 420 },
 	});
+	let width = 420;
 	for (const enabled of [false, true]) {
 		await page.getByLabel(enabled ? "开启" : "关闭", { exact: true }).click();
 		await expect
@@ -248,6 +249,15 @@ test("debug saves both states across server restarts and fresh browsers without 
 						.enabled,
 			)
 			.toBe(enabled);
+		const savedWidth = await page.request.get(`${app.url}/api/sidebar-width`);
+		expect((await savedWidth.json()).width).toBe(width);
+		if (!enabled) {
+			width = 480;
+			const saved = await page.request.put(`${app.url}/api/sidebar-width`, {
+				data: { width },
+			});
+			expect(saved.ok()).toBe(true);
+		}
 		await app.restart();
 		const fresh = await browser.newContext();
 		try {
@@ -255,7 +265,7 @@ test("debug saves both states across server restarts and fresh browsers without 
 			await reopened.goto(app.url);
 			await expect(
 				reopened.getByRole("complementary", { name: "Projects" }),
-			).toHaveCSS("width", "420px");
+			).toHaveCSS("width", `${width}px`);
 			await reopened.getByRole("button", { name: "设置", exact: true }).click();
 			await expect(
 				reopened.getByLabel(enabled ? "开启" : "关闭", { exact: true }),
