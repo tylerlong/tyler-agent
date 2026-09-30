@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { listProjects, openDatabase } from "./database.ts";
+import { ModelError, requestModel } from "./openrouter.ts";
 
 const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
@@ -44,7 +45,7 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 export function createServer(
-	_fetchModel: typeof fetch = fetch,
+	fetchModel: typeof fetch = fetch,
 	debugEnabled = false,
 	databasePath?: string,
 ) {
@@ -52,6 +53,33 @@ export function createServer(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
 		databasePath === undefined,
 	);
+	const busy = new Set<number>();
+	const projects = () =>
+		listProjects(database).map((project) => ({
+			...project,
+			chats: project.chats.map((chat) => ({
+				...chat,
+				busy: busy.has(Number(chat.id)),
+			})),
+		}));
+	const messages = (id: number) =>
+		database
+			.prepare(
+				"SELECT id, user_content, assistant_content FROM turns WHERE chat_id=? ORDER BY id",
+			)
+			.all(id)
+			.flatMap((row) => [
+				{
+					id: `${row.id}-user`,
+					role: "user" as const,
+					content: String(row.user_content),
+				},
+				{
+					id: `${row.id}-assistant`,
+					role: "assistant" as const,
+					content: String(row.assistant_content),
+				},
+			]);
 	const subscribers = new Set<ServerResponse>();
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
@@ -118,7 +146,7 @@ export function createServer(
 			return;
 		}
 		if (path === "/api/projects" && request.method === "GET") {
-			json(response, 200, { projects: listProjects(database) });
+			json(response, 200, { projects: projects() });
 			return;
 		}
 		if (path === "/api/projects" && request.method === "POST") {
@@ -180,6 +208,71 @@ export function createServer(
 					error:
 						error instanceof InputError ? error.message : "创建 project 失败",
 				});
+			}
+			return;
+		}
+		const chatRoute = path.match(/^\/api\/chats\/(\d+)$/);
+		if (chatRoute && (request.method === "GET" || request.method === "POST")) {
+			const id = Number(chatRoute[1]);
+			if (!database.prepare("SELECT id FROM chats WHERE id=?").get(id)) {
+				json(response, 404, { error: "Chat 不存在" });
+				return;
+			}
+			if (request.method === "GET") {
+				json(response, 200, { messages: messages(id), busy: busy.has(id) });
+				return;
+			}
+			let locked = false;
+			try {
+				const input = await readJson(request);
+				if (typeof input.prompt !== "string" || !input.prompt.trim())
+					throw new InputError("Prompt 不得为空");
+				if (busy.has(id)) {
+					json(response, 409, { error: "Chat 正在处理请求" });
+					return;
+				}
+				busy.add(id);
+				locked = true;
+				notifyChange();
+				let answer: string;
+				try {
+					answer = await requestModel(
+						messages(id).map(({ role, content }) => ({ role, content })),
+						input.prompt,
+						fetchModel,
+						debugEnabled,
+					);
+				} catch (error) {
+					throw new ModelError(
+						error instanceof ModelError ? error.message : "OpenRouter 请求失败",
+					);
+				}
+				database
+					.prepare(
+						"INSERT INTO turns(chat_id,user_content,assistant_content) VALUES (?,?,?)",
+					)
+					.run(id, input.prompt, answer);
+				json(response, 200, { answer });
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError
+						? 400
+						: error instanceof ModelError
+							? 502
+							: 500,
+					{
+						error:
+							error instanceof InputError || error instanceof ModelError
+								? error.message
+								: "保存回答失败",
+					},
+				);
+			} finally {
+				if (locked) {
+					busy.delete(id);
+					notifyChange();
+				}
 			}
 			return;
 		}

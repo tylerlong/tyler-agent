@@ -7,10 +7,27 @@ import { createServer } from "../src/server.ts";
 
 test("two SSE clients see creations and debug changes; reconnection reads current shared state", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-sse-"));
-	const server = createServer(fetch, true, join(directory, "db.sqlite")).listen(
-		0,
-		"127.0.0.1",
-	);
+	process.env.OPENROUTER_API_KEY = "test";
+	process.env.OPENROUTER_MODEL = "test";
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const server = createServer(
+		async () => {
+			await held;
+			return Response.json({
+				output: [
+					{
+						type: "message",
+						content: [{ type: "output_text", text: "answer" }],
+					},
+				],
+			});
+		},
+		false,
+		join(directory, "db.sqlite"),
+	).listen(0, "127.0.0.1");
 	const controllers: AbortController[] = [];
 	try {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -43,7 +60,7 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 		const first = await connect();
 		const second = await connect();
 		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: true,
+			enabled: false,
 		});
 		const project = await (
 			await fetch(`${base}/api/projects`, {
@@ -56,15 +73,33 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 			"data: changed",
 			"data: changed",
 		]);
-		await fetch(`${base}/api/projects/${project.id}/chats`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "Question" }),
-		});
+		const chat = await (
+			await fetch(`${base}/api/projects/${project.id}/chats`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ name: "Question" }),
+			})
+		).json();
 		assert.deepEqual(await Promise.all([first.next(), second.next()]), [
 			"data: changed",
 			"data: changed",
 		]);
+		const pending = fetch(`${base}/api/chats/${chat.id}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ prompt: "question" }),
+		});
+		await Promise.all([first.next(), second.next()]);
+		assert.equal(
+			(await (await fetch(`${base}/api/chats/${chat.id}`)).json()).busy,
+			true,
+		);
+		release();
+		assert.equal((await pending).status, 200);
+		await Promise.all([first.next(), second.next()]);
+		const shared = await (await fetch(`${base}/api/chats/${chat.id}`)).json();
+		assert.equal(shared.busy, false);
+		assert.equal(shared.messages.length, 2);
 		first.controller.abort();
 		const reconnected = await connect();
 		assert.equal(
@@ -75,14 +110,14 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 		await fetch(`${base}/api/debug`, {
 			method: "PUT",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ enabled: false }),
+			body: JSON.stringify({ enabled: true }),
 		});
 		assert.deepEqual(await Promise.all([second.next(), reconnected.next()]), [
 			"data: changed",
 			"data: changed",
 		]);
 		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: false,
+			enabled: true,
 		});
 		assert.equal(
 			(

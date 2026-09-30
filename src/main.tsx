@@ -14,6 +14,7 @@ type Chat = {
 	name: string;
 	createdAt: number;
 	lastQuestionAt: number | null;
+	busy: boolean;
 };
 type Project = { id: number; name: string; folders: string[]; chats: Chat[] };
 async function api(path: string, method = "GET", input?: unknown) {
@@ -34,9 +35,94 @@ const control =
 	"mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600";
 const button =
 	"rounded-md border border-slate-300 px-3 py-2 hover:bg-slate-100 disabled:opacity-50";
+const urlChat = () => {
+	const value = new URL(location.href).searchParams.get("chat");
+	return value && /^\d+$/.test(value) ? Number(value) : null;
+};
+
 function App() {
 	const [projects, setProjects] = useState<Project[]>([]);
-	const [selected, setSelected] = useState<number | null>(null);
+	const [selected, setSelected] = useState<number | null>(urlChat);
+	const selectedRef = useRef(selected);
+	selectedRef.current = selected;
+	const [chatState, setChatState] = useState<{
+		id: number;
+		messages: { id: string; role: string; content: string }[];
+		busy: boolean;
+	} | null>(null);
+	const chatRevision = useRef(0);
+	const [drafts, setDrafts] = useState<Record<number, string>>({});
+	const draftVersions = useRef<Record<number, number>>({});
+	const [chatErrors, setChatErrors] = useState<Record<number, string>>({});
+	const [submitting, setSubmitting] = useState<Set<number>>(() => new Set());
+	function selectChat(id: number) {
+		const url = new URL(location.href);
+		url.searchParams.set("chat", String(id));
+		history.pushState(null, "", url);
+		setSelected(id);
+	}
+	const refreshChat = useCallback(async () => {
+		const id = selectedRef.current;
+		const revision = ++chatRevision.current;
+		if (id === null) {
+			setChatState(null);
+			return;
+		}
+		try {
+			const data = await api(`/api/chats/${id}`);
+			if (revision === chatRevision.current && selectedRef.current === id) {
+				setChatState({ id, ...data });
+			}
+		} catch (cause) {
+			if (revision === chatRevision.current && selectedRef.current === id) {
+				setChatState(null);
+				setChatErrors((current) => ({
+					...current,
+					[id]: cause instanceof Error ? cause.message : "读取对话失败",
+				}));
+			}
+		}
+	}, []);
+	useEffect(() => {
+		selectedRef.current = selected;
+		void refreshChat();
+	}, [selected, refreshChat]);
+	useEffect(() => {
+		const pop = () => setSelected(urlChat());
+		window.addEventListener("popstate", pop);
+		return () => window.removeEventListener("popstate", pop);
+	}, []);
+	async function submit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		const id = selected;
+		if (
+			id === null ||
+			chatState?.id !== id ||
+			chatState.busy ||
+			submitting.has(id)
+		)
+			return;
+		const prompt = drafts[id] ?? "";
+		const version = draftVersions.current[id] ?? 0;
+		setSubmitting((current) => new Set(current).add(id));
+		try {
+			await api(`/api/chats/${id}`, "POST", { prompt });
+			if ((draftVersions.current[id] ?? 0) === version)
+				setDrafts((current) => ({ ...current, [id]: "" }));
+		} catch (cause) {
+			setChatErrors((current) => ({
+				...current,
+				[id]: cause instanceof Error ? cause.message : "提问失败",
+			}));
+		} finally {
+			setSubmitting((current) => {
+				const next = new Set(current);
+				next.delete(id);
+				return next;
+			});
+			void refreshChat();
+		}
+	}
 	const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
 	const [error, setError] = useState("");
 	const [debugEnabled, setDebugEnabled] = useState<boolean | null>(null);
@@ -66,10 +152,20 @@ function App() {
 	useEffect(() => {
 		void refresh();
 		const events = new EventSource("/api/events");
-		events.onopen = () => void refresh();
-		events.onmessage = () => void refresh();
+		events.onopen = () => {
+			void refresh();
+			void refreshChat();
+		};
+		events.onmessage = () => {
+			void refresh();
+			void refreshChat();
+		};
+		events.onerror = () => {
+			++chatRevision.current;
+			setChatState(null);
+		};
 		return () => events.close();
-	}, [refresh]);
+	}, [refresh, refreshChat]);
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [creatingProject, setCreatingProject] = useState<number | null>(null);
 	const [name, setName] = useState("");
@@ -99,7 +195,7 @@ function App() {
 					"POST",
 					{ name },
 				);
-				setSelected(chat.id);
+				selectChat(chat.id);
 				setCollapsed((current) => {
 					const next = new Set(current);
 					next.delete(creatingProject);
@@ -170,9 +266,10 @@ function App() {
 												type="button"
 												aria-current={selected === chat.id ? "page" : undefined}
 												className={`w-full rounded px-3 py-2 text-left break-words ${selected === chat.id ? "bg-blue-100" : "hover:bg-slate-200"}`}
-												onClick={() => setSelected(chat.id)}
+												onClick={() => selectChat(chat.id)}
 											>
 												{chat.name}
+												{chat.busy && <span>（运行中）</span>}
 											</button>
 										</li>
 									))}
@@ -220,6 +317,9 @@ function App() {
 					</p>
 				)}
 			</aside>
+			{selected !== null && !chat && chatErrors[selected] && (
+				<p role="alert">{chatErrors[selected]}</p>
+			)}
 			<section aria-label="Chat" className="min-w-0 flex-1 px-6 py-10">
 				{project && chat && (
 					<div className="mx-auto max-w-2xl">
@@ -233,7 +333,52 @@ function App() {
 								</li>
 							))}
 						</ul>
-						<p className="mt-6 text-slate-600">提问功能将在下一步提供。</p>
+						<div role="log" aria-label="聊天历史" className="mt-6 space-y-4">
+							{chatState?.id === chat.id &&
+								chatState.messages.map((message) => (
+									<p key={message.id} className="whitespace-pre-wrap">
+										<strong>
+											{message.role === "user" ? "你" : "Agent"}：
+										</strong>
+										{message.content}
+									</p>
+								))}
+						</div>
+						<form className="mt-6" onSubmit={submit}>
+							<label className="block">
+								Prompt
+								<textarea
+									className={control}
+									rows={4}
+									value={drafts[chat.id] ?? ""}
+									onChange={(event) => {
+										draftVersions.current[chat.id] =
+											(draftVersions.current[chat.id] ?? 0) + 1;
+										setDrafts((current) => ({
+											...current,
+											[chat.id]: event.target.value,
+										}));
+									}}
+									required
+								/>
+							</label>
+							<button
+								type="submit"
+								className={`${button} mt-4`}
+								disabled={
+									chatState?.id !== chat.id ||
+									chatState.busy ||
+									submitting.has(chat.id)
+								}
+							>
+								提交
+							</button>
+							{chatErrors[chat.id] && (
+								<p role="alert" className="mt-4 text-red-700">
+									{chatErrors[chat.id]}
+								</p>
+							)}
+						</form>
 					</div>
 				)}
 			</section>
