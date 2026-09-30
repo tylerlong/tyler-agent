@@ -576,54 +576,88 @@ function App() {
 			<dialog
 				ref={folderDialog}
 				aria-labelledby="folder-title"
-				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
+				className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-lg border border-slate-300 p-6 backdrop:bg-black/40 open:flex open:flex-col"
 			>
-				<h2 id="folder-title" className="text-xl font-semibold">
-					选择文件夹
-				</h2>
-				<section aria-label="当前目录" className="mt-4 break-all">
-					{directory?.path}
-				</section>
-				<button
-					type="button"
-					className={`${button} mt-2`}
-					disabled={!directory?.parent}
-					onClick={() => {
-						if (directory?.parent) void browse(directory.parent);
-					}}
+				<header className="shrink-0">
+					<h2 id="folder-title" className="text-xl font-semibold">
+						选择文件夹
+					</h2>
+					<div className="mt-4 flex items-start gap-3">
+						<section
+							aria-label="当前目录"
+							className="min-w-0 flex-1 break-all font-mono"
+						>
+							{directory?.path}
+						</section>
+
+						<button
+							type="button"
+							className={`${button} shrink-0`}
+							disabled={
+								loadingDirectory ||
+								!directory ||
+								saving ||
+								folders.includes(directory.path)
+							}
+							onClick={() => {
+								if (directory)
+									setFolders((current) => [...current, directory.path]);
+								folderDialog.current?.close();
+							}}
+						>
+							{directory && folders.includes(directory.path)
+								? "已添加"
+								: "选择此目录"}
+						</button>
+					</div>
+					{loadingDirectory && <p role="status">加载中…</p>}
+
+					{directoryError && (
+						<div className="mt-4">
+							<p role="alert" className="text-red-700">
+								{directoryError}
+							</p>
+							<button
+								type="button"
+								className={button}
+								disabled={loadingDirectory}
+								onClick={() => void browse(directory?.path)}
+							>
+								重试
+							</button>
+						</div>
+					)}
+				</header>
+				<ul
+					aria-label="子目录"
+					className="my-4 min-h-0 overflow-y-auto font-mono"
 				>
-					返回上级
-				</button>
-				{loadingDirectory && <p role="status">加载中…</p>}
-				<ul aria-label="子目录" className="mt-4 space-y-2">
+					<li>
+						<button
+							type="button"
+							aria-label="返回上级"
+							className="text-left hover:underline disabled:text-slate-400 disabled:no-underline"
+							disabled={!directory?.parent}
+							onClick={() => {
+								if (directory?.parent) void browse(directory.parent);
+							}}
+						>
+							..
+						</button>
+					</li>
 					{directory?.directories.map((child) => (
 						<li key={child.path}>
 							<button
 								type="button"
-								className={button}
+								className="break-all text-left hover:underline"
 								onClick={() => void browse(child.path)}
 							>
-								{child.name}
+								{child.name}/
 							</button>
 						</li>
 					))}
 				</ul>
-				{directoryError && (
-					<div className="mt-4">
-						<p role="alert" className="text-red-700">
-							{directoryError}
-						</p>
-						<button
-							type="button"
-							className={button}
-							disabled={loadingDirectory}
-							onClick={() => void browse(directory?.path)}
-						>
-							重试
-						</button>
-					</div>
-				)}
-				<div className="mt-4 flex justify-end gap-3">
+				<footer className="flex shrink-0 justify-end">
 					<button
 						type="button"
 						className={button}
@@ -631,26 +665,7 @@ function App() {
 					>
 						取消
 					</button>
-					<button
-						type="button"
-						className={button}
-						disabled={
-							loadingDirectory ||
-							!directory ||
-							saving ||
-							folders.includes(directory.path)
-						}
-						onClick={() => {
-							if (directory)
-								setFolders((current) => [...current, directory.path]);
-							folderDialog.current?.close();
-						}}
-					>
-						{directory && folders.includes(directory.path)
-							? "已添加"
-							: "选择此目录"}
-					</button>
-				</div>
+				</footer>
 			</dialog>
 			<dialog
 				ref={settingsDialog}

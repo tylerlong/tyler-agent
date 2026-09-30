@@ -23,7 +23,7 @@ pnpm start --db /path/to/chat.sqlite
 
 ## 项目与对话
 
-左侧点击“新建 project”，输入非空名称，通过“添加文件夹”打开独立目录选择框。浏览的是 **server 机器**的目录，首次从 server 用户 home 开始，可进入子目录和返回上级；每次“选择此目录”添加一个绝对路径并关闭选择框。再次打开沿用当前浏览位置，可逐次添加多个目录，已选列表支持移除，重复路径不可再次选择。创建成功后清空表单，下一次新 project 从 home 开始；单纯显隐不重置输入或浏览位置。
+左侧点击“新建 project”，输入非空名称，通过“添加文件夹”打开独立目录选择框。浏览的是 **server 机器**的目录，首次从 server 用户 home 开始，路径和逐行可点击目录使用等宽字体，目录显示 `/` 后缀，首行 `..` 返回上级（根目录禁用），悬停显示下划线。路径旁可选择当前目录，header/footer 固定，只有中间目录列表滚动，长路径可换行；每次“选择此目录”添加一个绝对路径并关闭选择框。再次打开沿用当前浏览位置，可逐次添加多个目录，已选列表支持移除，重复路径不可再次选择。创建成功后清空表单，下一次新 project 从 home 开始；单纯显隐不重置输入或浏览位置。
 
 目录列表只枚举当前层的可见子目录，按名称排序，忽略普通文件和以 `.` 开头的项，不识别其他系统隐藏属性。可见目录符号链接允许浏览和选择；损坏链接跳过。允许浏览 server 用户有权限读取/进入的目录，home 只是起点；权限不足、目录缺失会显示错误并保留原视图。空目录仍可选择，加载中禁用选择但可随时关闭，关闭不会取消请求。浏览不读取文件内容、不更改文件、数据库或共享状态。
 
@@ -67,7 +67,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite，覆盖目录枚举、路径/权限错误及创建校验、宽度输入校验和旧项目数据库升级后的数据保留。Playwright Test 用真实 headless Chromium 验证面板实时拖动、固定宽度范围、结束请求数量、失焦与中断、双击恢复、失败不提示、重启 server 后新浏览器恢复和窗口宽度不同步，以及齿轮设置及错误重试、逐次目录选择、加载/提交中隐藏 modal、取消/Escape、焦点恢复、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库、目录及受控 home，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库或浏览真实 home。E2E 数据在结束时清理。
+`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite，覆盖目录枚举、路径/权限错误及创建校验、宽度输入校验和旧项目数据库升级后的数据保留。Playwright Test 用真实 headless Chromium 验证面板实时拖动、固定宽度范围、结束请求数量、失焦与中断、双击恢复、失败不提示、重启 server 后新浏览器恢复和窗口宽度不同步，以及齿轮设置及错误重试、逐次目录选择、加载/提交中隐藏 modal、点击取消、长列表实际滚动与固定头尾、长路径换行、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库、目录及受控 home，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库或浏览真实 home。E2E 数据在结束时清理。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。本地失败文件同样位于 `playwright-report/` 和 `test-results/`，两者已忽略。
 

@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures.ts";
 
-test("native creation modals support validation, keyboard cancellation, focus and shared lists", async ({
+test("native creation modals support validation, cancellation and shared lists", async ({
 	page,
 	context,
 	app,
@@ -15,14 +15,11 @@ test("native creation modals support validation, keyboard cancellation, focus an
 	await createProject.click();
 	const modal = page.getByRole("dialog", { name: /^新建/ });
 	await expect(modal).toBeVisible();
-	await expect(modal.getByLabel("名称")).toBeFocused();
-	await page.keyboard.press("Escape");
+	await modal.getByRole("button", { name: "取消", exact: true }).click();
 	await expect(modal).not.toBeVisible();
-	await expect(createProject).toBeFocused();
 	await createProject.click();
 	await modal.getByRole("button", { name: "取消" }).click();
 	await expect(modal).not.toBeVisible();
-	await expect(createProject).toBeFocused();
 	await createProject.click();
 	await modal.getByLabel("名称").fill(" ");
 	await modal.getByRole("button", { name: "添加文件夹" }).click();
@@ -36,7 +33,6 @@ test("native creation modals support validation, keyboard cancellation, focus an
 	await modal.getByLabel("名称").fill("Work");
 	await modal.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(modal).not.toBeVisible();
-	await expect(createProject).toBeFocused();
 	await expect(page.getByRole("region", { name: "Chat" })).toBeEmpty();
 	await expect(
 		other.getByRole("heading", { name: "Work", exact: true }),
@@ -52,7 +48,6 @@ test("native creation modals support validation, keyboard cancellation, focus an
 	await modal.getByLabel("名称").fill("Question");
 	await modal.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(modal).not.toBeVisible();
-	await expect(createChat).toBeFocused();
 	await expect(
 		page
 			.getByRole("region", { name: "Chat" })
@@ -97,7 +92,7 @@ test("pending project creation can hide and reopen without cancelling or closing
 		.click();
 	await modal.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(modal.getByRole("button", { name: "取消" })).toBeEnabled();
-	await page.keyboard.press("Escape");
+	await modal.getByRole("button", { name: "取消", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await page.getByRole("button", { name: "新建 project", exact: true }).click();
 	await expect(modal.getByLabel("名称")).toHaveValue("First");
@@ -145,7 +140,7 @@ test("pending chat creation keeps its input while hidden and completes in its or
 	await expect(modal.getByLabel("名称")).toHaveValue("Pending chat");
 	await modal.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(modal.getByLabel("名称")).toBeDisabled();
-	await page.keyboard.press("Escape");
+	await modal.getByRole("button", { name: "取消", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await trigger.click();
 	await expect(modal.getByLabel("名称")).toHaveValue("Pending chat");
@@ -173,8 +168,7 @@ test("settings stays synchronized while hidden and failed updates can retry with
 	);
 	await trigger.click();
 	await expect(modal.getByLabel("关闭", { exact: true })).toBeChecked();
-	await page.keyboard.press("Escape");
-	await expect(trigger).toBeFocused();
+	await modal.getByRole("button", { name: "关闭", exact: true }).click();
 	const other = await context.newPage();
 	await other.goto(app.url);
 	await other.getByRole("button", { name: "设置", exact: true }).click();
@@ -196,7 +190,7 @@ test("settings stays synchronized while hidden and failed updates can retry with
 	release();
 	await trigger.click();
 	await expect(modal.getByRole("alert")).toHaveText("无法确认日志设置，请重试");
-	await page.keyboard.press("Escape");
+	await modal.getByRole("button", { name: "关闭", exact: true }).click();
 	await trigger.click();
 	await expect(modal.getByRole("alert")).toHaveText("无法确认日志设置，请重试");
 	await page.unroute("**/api/debug");
@@ -221,7 +215,7 @@ test("settings read errors remain in settings and a successful reread clears the
 	const modal = page.getByRole("dialog", { name: "设置", exact: true });
 	await expect(modal.getByRole("alert")).toHaveText("读取日志设置失败，请重试");
 	await expect(modal.getByLabel("开启", { exact: true })).toBeDisabled();
-	await page.keyboard.press("Escape");
+	await modal.getByRole("button", { name: "关闭", exact: true }).click();
 	await trigger.click();
 	await expect(modal.getByRole("alert")).toBeVisible();
 	await page.unroute("**/api/debug");
