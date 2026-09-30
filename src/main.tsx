@@ -6,6 +6,7 @@ import {
 	useState,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { createDebugState } from "./debug-state.ts";
 import "./style.css";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -24,6 +25,15 @@ async function fetchDebug(): Promise<boolean> {
 	return data.enabled;
 }
 
+async function saveDebug(enabled: boolean) {
+	const response = await fetch("/api/debug", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ enabled }),
+	});
+	if (!response.ok) throw new Error("更新日志设置失败");
+}
+
 function App() {
 	const [folder, setFolder] = useState("");
 	const folderEdited = useRef(false);
@@ -37,7 +47,9 @@ function App() {
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState("");
 	const chatRefresh = useRef(0);
-	const debugRefresh = useRef(0);
+	const [debugState] = useState(() =>
+		createDebugState(fetchDebug, saveDebug, setDebugEnabled),
+	);
 
 	const refreshChat = useCallback(async () => {
 		const current = ++chatRefresh.current;
@@ -58,15 +70,9 @@ function App() {
 	}, []);
 
 	const refreshDebug = useCallback(async () => {
-		const current = ++debugRefresh.current;
-		try {
-			const enabled = await fetchDebug();
-			if (current === debugRefresh.current) setDebugEnabled(enabled);
-		} catch {
-			if (current === debugRefresh.current)
-				setError("读取日志设置失败，请刷新页面重试");
-		}
-	}, []);
+		if (!(await debugState.refresh()))
+			setError("读取日志设置失败，请刷新页面重试");
+	}, [debugState]);
 
 	useEffect(() => {
 		const refresh = () => {
@@ -84,22 +90,9 @@ function App() {
 		setDebugPending(true);
 		setError("");
 		try {
-			const response = await fetch("/api/debug", {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ enabled }),
-			});
-			if (!response.ok) throw new Error("更新日志设置失败");
-			const data: { enabled: boolean } = await response.json();
-			setDebugEnabled(data.enabled);
-		} catch {
-			try {
-				setDebugEnabled(await fetchDebug());
-				setError("更新日志设置失败，请重试");
-			} catch {
-				setDebugEnabled(null);
-				setError("无法确认日志设置，请刷新页面");
-			}
+			const result = await debugState.save(enabled);
+			if (result === "failed") setError("更新日志设置失败，请重试");
+			if (result === "unknown") setError("无法确认日志设置，请刷新页面");
 		} finally {
 			setDebugPending(false);
 		}
