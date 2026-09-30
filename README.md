@@ -59,7 +59,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite。Playwright Test 用真实 headless Chromium 验证 modal、取消/Escape、焦点恢复、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库与目录，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库。E2E 数据在结束时清理。
+`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite，覆盖目录枚举、路径/权限错误及创建校验。Playwright Test 用真实 headless Chromium 验证齿轮设置及错误重试、逐次目录选择、加载/提交中隐藏 modal、取消/Escape、焦点恢复、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库、目录及受控 home，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库或浏览真实 home。E2E 数据在结束时清理。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。本地失败文件同样位于 `playwright-report/` 和 `test-results/`，两者已忽略。
 
