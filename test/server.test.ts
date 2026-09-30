@@ -176,3 +176,104 @@ test("legacy schema resets once and invalid or read-only databases fail at start
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test("sidebar preference validates input and migrates v1 without losing user content", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-width-"));
+	const path = join(directory, "db.sqlite");
+	const db = new DatabaseSync(path);
+	db.exec(`
+		CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL);
+		CREATE TABLE folders (project_id INTEGER NOT NULL REFERENCES projects(id), path TEXT NOT NULL, PRIMARY KEY(project_id,path));
+		CREATE TABLE chats (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, last_question_at INTEGER);
+		CREATE TABLE turns (id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL REFERENCES chats(id), user_content TEXT NOT NULL, assistant_content TEXT NOT NULL);
+		INSERT INTO projects VALUES(7,'Existing project',100);
+		INSERT INTO folders VALUES(7,'/existing/folder');
+		INSERT INTO chats VALUES(9,7,'Existing chat',200,300);
+		INSERT INTO turns VALUES(11,9,'Existing question','Existing answer');
+		PRAGMA user_version = 1;
+	`);
+	db.close();
+	const server = createServer(fetch, false, path).listen(0, "127.0.0.1");
+	try {
+		await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		const base = `http://127.0.0.1:${address.port}`;
+		const width = async () =>
+			(await (await fetch(`${base}/api/sidebar-width`)).json()).width;
+		assert.equal(await width(), 320);
+		for (const input of [
+			{},
+			{ width: null },
+			{ width: "400" },
+			{ width: 239 },
+			{ width: 601 },
+			{ width: Number.POSITIVE_INFINITY },
+		]) {
+			assert.equal(
+				(
+					await fetch(`${base}/api/sidebar-width`, {
+						method: "PUT",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify(input),
+					})
+				).status,
+				400,
+			);
+			assert.equal(await width(), 320);
+		}
+		assert.equal(
+			(
+				await fetch(`${base}/api/sidebar-width`, {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: '{"width":1e309}',
+				})
+			).status,
+			400,
+		);
+		assert.equal(await width(), 320);
+		for (const value of [240, 400.5, 600]) {
+			assert.equal(
+				(
+					await fetch(`${base}/api/sidebar-width`, {
+						method: "PUT",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ width: value }),
+					})
+				).status,
+				200,
+			);
+			assert.equal(await width(), value);
+		}
+		assert.deepEqual(await (await fetch(`${base}/api/projects`)).json(), {
+			projects: [
+				{
+					id: 7,
+					name: "Existing project",
+					createdAt: 100,
+					folders: ["/existing/folder"],
+					chats: [
+						{
+							id: 9,
+							name: "Existing chat",
+							createdAt: 200,
+							lastQuestionAt: 300,
+							busy: false,
+						},
+					],
+				},
+			],
+		});
+		assert.deepEqual(await (await fetch(`${base}/api/chats/9`)).json(), {
+			messages: [
+				{ id: "11-user", role: "user", content: "Existing question" },
+				{ id: "11-assistant", role: "assistant", content: "Existing answer" },
+			],
+			busy: false,
+		});
+	} finally {
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});

@@ -10,6 +10,7 @@ export const test = base.extend<{
 		folder: string;
 		failModel: () => void;
 		disconnectClients: () => void;
+		restart: () => Promise<void>;
 		holdModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
@@ -36,30 +37,32 @@ export const test = base.extend<{
 		}
 		const originalHome = process.env.HOME;
 		process.env.HOME = folder;
-		const server = createServer(
-			async () => {
-				if (fail) {
-					fail = false;
-					return new Response("upstream failure", { status: 500 });
-				}
-				const current = gate;
-				gate = undefined;
-				if (current) {
-					current.entered();
-					await current.wait;
-				}
-				return Response.json({
-					output: [
-						{
-							type: "message",
-							content: [{ type: "output_text", text: "Test answer" }],
-						},
-					],
-				});
-			},
-			false,
-			join(folder, "db.sqlite"),
-		).listen(0, "127.0.0.1");
+		const start = () =>
+			createServer(
+				async () => {
+					if (fail) {
+						fail = false;
+						return new Response("upstream failure", { status: 500 });
+					}
+					const current = gate;
+					gate = undefined;
+					if (current) {
+						current.entered();
+						await current.wait;
+					}
+					return Response.json({
+						output: [
+							{
+								type: "message",
+								content: [{ type: "output_text", text: "Test answer" }],
+							},
+						],
+					});
+				},
+				false,
+				join(folder, "db.sqlite"),
+			).listen(0, "127.0.0.1");
+		let server = start();
 		if (originalHome === undefined) delete process.env.HOME;
 		else process.env.HOME = originalHome;
 		await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -67,13 +70,26 @@ export const test = base.extend<{
 		if (!address || typeof address === "string")
 			throw new Error("Missing test server address");
 		try {
-			await use({
+			const app = {
 				url: `http://127.0.0.1:${address.port}`,
 				folder,
 				holdModel,
 				failModel,
 				disconnectClients: () => server.closeAllConnections(),
-			});
+				restart: async () => {
+					server.closeAllConnections();
+					await new Promise<void>((resolve) => server.close(() => resolve()));
+					server = start();
+					await new Promise<void>((resolve) =>
+						server.once("listening", resolve),
+					);
+					const address = server.address();
+					if (!address || typeof address === "string")
+						throw new Error("Missing restarted server address");
+					app.url = `http://127.0.0.1:${address.port}`;
+				},
+			};
+			await use(app);
 		} finally {
 			server.closeAllConnections();
 			await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -7,7 +7,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 	const db = new DatabaseSync(path);
 	try {
 		db.exec("PRAGMA foreign_keys = ON");
-		const version = db.prepare("PRAGMA user_version").get()?.user_version;
+		let version = db.prepare("PRAGMA user_version").get()?.user_version;
 		const tables = db
 			.prepare(
 				"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
@@ -42,17 +42,23 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			version !== 1 ||
-			tables.join(",") !== "chats,folders,projects,turns"
+			(version !== 1 && version !== 2) ||
+			tables.join(",") !==
+				(version === 2
+					? "chats,folders,projects,sidebar_width,turns"
+					: "chats,folders,projects,turns")
 		) {
 			throw new Error("Unknown database schema");
 		}
+		if (version === 0) version = 1;
 		if (
 			columns("projects") !== "id,name,created_at" ||
 			columns("folders") !== "project_id,path" ||
 			columns("chats") !== "id,project_id,name,created_at,last_question_at" ||
 			columns("turns") !== "id,chat_id,user_content,assistant_content"
 		)
+			throw new Error("Invalid database schema");
+		if (version === 2 && columns("sidebar_width") !== "id,width")
 			throw new Error("Invalid database schema");
 		if (
 			db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok" ||
@@ -62,6 +68,19 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		db.exec(
 			`SAVEPOINT startup_check; INSERT INTO projects(name,created_at) VALUES ('startup',0); ROLLBACK TO startup_check; RELEASE startup_check;`,
 		);
+		if (version === 1) {
+			db.exec("BEGIN");
+			try {
+				db.exec(`
+     CREATE TABLE sidebar_width (id INTEGER PRIMARY KEY CHECK(id=1), width REAL NOT NULL CHECK(width BETWEEN 240 AND 600));
+     PRAGMA user_version = 2;
+     COMMIT;
+    `);
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
+		}
 		return db;
 	} catch (error) {
 		db.close();

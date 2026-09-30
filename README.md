@@ -43,6 +43,14 @@ project 至少需要一个文件夹。创建时 server 再次检查存在、可�
 
 新数据库自动建立数据表，不生成默认项目或对话。首次识别旧的单对话数据表时会事务性重建，**旧历史和最近文件夹将被丢弃**。新项目、文件夹和 chat 此后重启保留，不会每次启动清空。未知 schema 不自动重置。没有重命名、删除或编辑文件夹功能。
 
+## 左侧面板宽度
+
+用鼠标或触控板拖动左侧面板右边的分隔线，两个区域实时调整；双击恢复默认宽度。默认 320px，最小 240px，最大 600px，范围不随窗口大小变化；窄窗口可由用户扩大窗口。边界始终为 1px 灰线，hover 和拖动稍微加深，8px 透明区域用于抓取。
+
+拖动开始后移出边界仍可调整，松手、窗口失焦或异常中断时保留当前宽度并结束；拖动期间不选择文字，结束恢复正常操作。结束时仅保存改变后的宽度一次，双击保存默认值，不在移动过程中发送请求。
+
+宽度属于数据库对应的唯一用户，由 server 保存到 SQLite，重启 server 或使用新浏览器后恢复。新页面先显示默认宽度，读取成功应用保存值；不使用 localStorage。多个窗口共用最近成功保存的偏好，已打开窗口不实时同步，刷新或重新打开后读取最新值。读写失败不显示提示或自动重试；保存失败保留当前布局，读取失败保留默认，server 数据库读写失败只打印 terminal 日志。已有项目数据库升级时保留项目、文件夹、对话、历史与活动时间。
+
 ## OpenRouter 调试日志
 
 侧栏左下角的齿轮按钮打开“设置” modal，里面的全局日志开关修改后立即提交，无需保存；没有选中 chat 也能操作。读取或更新失败显示在设置框内，隐藏后错误仍可查看，成功重试或重新核对 server 后清除；列表和模型错误仍分别显示在列表和原 chat。隐藏中的设置继续同步 server 值。`pnpm start` 默认开启；关闭启动默认值可先 `pnpm build`，再运行 `node --env-file-if-exists=.env src/server.ts`。开关由 server 内存保存；所有页面共享，刷新/SSE 重连读取最新值；重启恢复启动参数值。
@@ -59,7 +67,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite，覆盖目录枚举、路径/权限错误及创建校验。Playwright Test 用真实 headless Chromium 验证齿轮设置及错误重试、逐次目录选择、加载/提交中隐藏 modal、取消/Escape、焦点恢复、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库、目录及受控 home，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库或浏览真实 home。E2E 数据在结束时清理。
+`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite，覆盖目录枚举、路径/权限错误及创建校验、宽度输入校验和旧项目数据库升级后的数据保留。Playwright Test 用真实 headless Chromium 验证面板实时拖动、固定宽度范围、结束请求数量、失焦与中断、双击恢复、失败不提示、重启 server 后新浏览器恢复和窗口宽度不同步，以及齿轮设置及错误重试、逐次目录选择、加载/提交中隐藏 modal、取消/Escape、焦点恢复、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库、目录及受控 home，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库或浏览真实 home。E2E 数据在结束时清理。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。本地失败文件同样位于 `playwright-report/` 和 `test-results/`，两者已忽略。
 

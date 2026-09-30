@@ -40,42 +40,40 @@ const urlChat = () => {
 	return value && /^\d+$/.test(value) ? Number(value) : null;
 };
 
+function saveSidebarWidth(width: number) {
+	void api("/api/sidebar-width", "PUT", { width }).catch(() => {});
+}
+
 function App() {
-	const [sidebarWidth, setSidebarWidth] = useState(() => {
-		try {
-			const saved = Number(localStorage.getItem("sidebar-width"));
-			return Number.isFinite(saved) && saved >= 240
-				? Math.min(600, saved)
-				: 320;
-		} catch {
-			return 320;
-		}
-	});
-	const [sidebarMax, setSidebarMax] = useState(() =>
-		Math.max(240, Math.min(600, window.innerWidth / 2)),
-	);
-	const visibleSidebarWidth = Math.min(sidebarWidth, sidebarMax);
+	const [sidebarWidth, setSidebarWidth] = useState(320);
+	const [sidebarDragging, setSidebarDragging] = useState(false);
 	const sidebarDrag = useRef<{
 		pointerId: number;
 		x: number;
+		startWidth: number;
 		width: number;
+		element: HTMLHRElement;
 	} | null>(null);
-	useEffect(() => {
-		const resize = () =>
-			setSidebarMax(Math.max(240, Math.min(600, window.innerWidth / 2)));
-		window.addEventListener("resize", resize);
-		return () => window.removeEventListener("resize", resize);
+	const finishSidebarDrag = useCallback(() => {
+		const drag = sidebarDrag.current;
+		if (!drag) return;
+		sidebarDrag.current = null;
+		document.body.classList.remove("sidebar-dragging");
+		setSidebarDragging(false);
+		if (drag.element.hasPointerCapture(drag.pointerId))
+			drag.element.releasePointerCapture(drag.pointerId);
+		if (drag.width !== drag.startWidth) saveSidebarWidth(drag.width);
 	}, []);
 	useEffect(() => {
-		try {
-			localStorage.setItem("sidebar-width", String(sidebarWidth));
-		} catch {
-			// Width remains adjustable when browser storage is unavailable.
-		}
-	}, [sidebarWidth]);
-	function resizeSidebar(width: number) {
-		setSidebarWidth(Math.max(240, Math.min(sidebarMax, width)));
-	}
+		void api("/api/sidebar-width")
+			.then(({ width }) => setSidebarWidth(width))
+			.catch(() => {});
+		window.addEventListener("blur", finishSidebarDrag);
+		return () => {
+			window.removeEventListener("blur", finishSidebarDrag);
+			finishSidebarDrag();
+		};
+	}, [finishSidebarDrag]);
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [selected, setSelected] = useState<number | null>(urlChat);
 	const selectedRef = useRef(selected);
@@ -298,8 +296,8 @@ function App() {
 			<aside
 				id="projects-panel"
 				aria-label="Projects"
-				style={{ width: visibleSidebarWidth }}
-				className="relative flex shrink-0 flex-col border-r border-slate-300 bg-slate-50 p-4"
+				style={{ width: sidebarWidth }}
+				className="relative flex shrink-0 flex-col bg-slate-50 p-4"
 			>
 				<h1 className="mb-4 text-xl font-semibold">Tyler Agent</h1>
 				<button
@@ -392,50 +390,46 @@ function App() {
 					</p>
 				)}
 				<hr
-					tabIndex={0}
 					aria-label="调整左侧面板宽度"
 					aria-orientation="vertical"
 					aria-controls="projects-panel"
-					aria-valuemin={240}
-					aria-valuemax={sidebarMax}
-					aria-valuenow={visibleSidebarWidth}
-					className="absolute inset-y-0 -right-1 z-10 m-0 h-auto w-2 border-0 cursor-col-resize touch-none select-none hover:bg-blue-300 focus-visible:bg-blue-300 focus-visible:outline-2 focus-visible:outline-blue-600"
+					className="sidebar-divider"
+					data-dragging={sidebarDragging}
 					onPointerDown={(event) => {
-						if (event.button !== 0 || !event.isPrimary) return;
+						if (
+							event.pointerType !== "mouse" ||
+							event.button !== 0 ||
+							!event.isPrimary
+						)
+							return;
 						event.preventDefault();
-						event.currentTarget.focus();
 						event.currentTarget.setPointerCapture(event.pointerId);
 						sidebarDrag.current = {
 							pointerId: event.pointerId,
 							x: event.clientX,
-							width: visibleSidebarWidth,
+							startWidth: sidebarWidth,
+							width: sidebarWidth,
+							element: event.currentTarget,
 						};
+						document.body.classList.add("sidebar-dragging");
+						setSidebarDragging(true);
 					}}
 					onPointerMove={(event) => {
 						const drag = sidebarDrag.current;
-						if (drag?.pointerId === event.pointerId)
-							resizeSidebar(drag.width + event.clientX - drag.x);
-					}}
-					onPointerUp={(event) => {
-						if (sidebarDrag.current?.pointerId === event.pointerId) {
-							sidebarDrag.current = null;
-							event.currentTarget.releasePointerCapture(event.pointerId);
+						if (drag?.pointerId === event.pointerId) {
+							drag.width = Math.max(
+								240,
+								Math.min(600, drag.startWidth + event.clientX - drag.x),
+							);
+							setSidebarWidth(drag.width);
 						}
 					}}
-					onLostPointerCapture={() => {
-						sidebarDrag.current = null;
-					}}
-					onKeyDown={(event) => {
-						const widths: Record<string, number> = {
-							ArrowLeft: visibleSidebarWidth - 10,
-							ArrowRight: visibleSidebarWidth + 10,
-							Home: 240,
-							End: sidebarMax,
-						};
-						if (Object.hasOwn(widths, event.key)) {
-							event.preventDefault();
-							resizeSidebar(widths[event.key]);
-						}
+					onPointerUp={finishSidebarDrag}
+					onPointerCancel={finishSidebarDrag}
+					onLostPointerCapture={finishSidebarDrag}
+					onDoubleClick={() => {
+						setSidebarWidth(320);
+						saveSidebarWidth(320);
 					}}
 				/>
 			</aside>

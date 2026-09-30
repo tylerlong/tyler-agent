@@ -1,1 +1,31 @@
 @import "tailwindcss";
+
+.sidebar-divider {
+	position: absolute;
+	inset-block: 0;
+	right: -4px;
+	z-index: 10;
+	width: 8px;
+	height: auto;
+	margin: 0;
+	border: 0;
+	background: transparent;
+	cursor: col-resize;
+}
+.sidebar-divider::before {
+	content: "";
+	position: absolute;
+	inset-block: 0;
+	left: 3px;
+	width: 1px;
+	background: var(--color-slate-300);
+}
+.sidebar-divider:hover::before,
+.sidebar-divider[data-dragging="true"]::before {
+	background: var(--color-slate-400);
+}
+.sidebar-dragging,
+.sidebar-dragging * {
+	cursor: col-resize;
+	user-select: none;
+}

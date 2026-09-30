@@ -129,6 +129,39 @@ export function createServer(
 			response.on("close", () => subscribers.delete(response));
 			return;
 		}
+		if (
+			path === "/api/sidebar-width" &&
+			(request.method === "GET" || request.method === "PUT")
+		) {
+			try {
+				if (request.method === "PUT") {
+					const { width } = await readJson(request);
+					if (
+						typeof width !== "number" ||
+						!Number.isFinite(width) ||
+						width < 240 ||
+						width > 600
+					)
+						throw new InputError("无效的面板宽度");
+					database
+						.prepare(
+							"INSERT INTO sidebar_width(id,width) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET width=excluded.width",
+						)
+						.run(width);
+				}
+				const width =
+					database.prepare("SELECT width FROM sidebar_width WHERE id=1").get()
+						?.width ?? 320;
+				json(response, 200, { width });
+			} catch (error) {
+				if (!(error instanceof InputError))
+					console.error("Sidebar width read/write failed", error);
+				json(response, error instanceof InputError ? 400 : 500, {
+					error: "面板宽度读写失败",
+				});
+			}
+			return;
+		}
 		if (path === "/api/debug" && request.method === "GET") {
 			json(response, 200, { enabled: debugEnabled });
 			return;
