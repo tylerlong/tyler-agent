@@ -41,6 +41,41 @@ const urlChat = () => {
 };
 
 function App() {
+	const [sidebarWidth, setSidebarWidth] = useState(() => {
+		try {
+			const saved = Number(localStorage.getItem("sidebar-width"));
+			return Number.isFinite(saved) && saved >= 240
+				? Math.min(600, saved)
+				: 320;
+		} catch {
+			return 320;
+		}
+	});
+	const [sidebarMax, setSidebarMax] = useState(() =>
+		Math.max(240, Math.min(600, window.innerWidth / 2)),
+	);
+	const visibleSidebarWidth = Math.min(sidebarWidth, sidebarMax);
+	const sidebarDrag = useRef<{
+		pointerId: number;
+		x: number;
+		width: number;
+	} | null>(null);
+	useEffect(() => {
+		const resize = () =>
+			setSidebarMax(Math.max(240, Math.min(600, window.innerWidth / 2)));
+		window.addEventListener("resize", resize);
+		return () => window.removeEventListener("resize", resize);
+	}, []);
+	useEffect(() => {
+		try {
+			localStorage.setItem("sidebar-width", String(sidebarWidth));
+		} catch {
+			// Width remains adjustable when browser storage is unavailable.
+		}
+	}, [sidebarWidth]);
+	function resizeSidebar(width: number) {
+		setSidebarWidth(Math.max(240, Math.min(sidebarMax, width)));
+	}
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [selected, setSelected] = useState<number | null>(urlChat);
 	const selectedRef = useRef(selected);
@@ -261,8 +296,10 @@ function App() {
 	return (
 		<main className="flex min-h-screen text-slate-900">
 			<aside
+				id="projects-panel"
 				aria-label="Projects"
-				className="flex w-80 shrink-0 flex-col border-r border-slate-300 bg-slate-50 p-4"
+				style={{ width: visibleSidebarWidth }}
+				className="relative flex shrink-0 flex-col border-r border-slate-300 bg-slate-50 p-4"
 			>
 				<h1 className="mb-4 text-xl font-semibold">Tyler Agent</h1>
 				<button
@@ -354,6 +391,53 @@ function App() {
 						{chatErrors[selected]}
 					</p>
 				)}
+				<hr
+					tabIndex={0}
+					aria-label="调整左侧面板宽度"
+					aria-orientation="vertical"
+					aria-controls="projects-panel"
+					aria-valuemin={240}
+					aria-valuemax={sidebarMax}
+					aria-valuenow={visibleSidebarWidth}
+					className="absolute inset-y-0 -right-1 z-10 m-0 h-auto w-2 border-0 cursor-col-resize touch-none select-none hover:bg-blue-300 focus-visible:bg-blue-300 focus-visible:outline-2 focus-visible:outline-blue-600"
+					onPointerDown={(event) => {
+						if (event.button !== 0 || !event.isPrimary) return;
+						event.preventDefault();
+						event.currentTarget.focus();
+						event.currentTarget.setPointerCapture(event.pointerId);
+						sidebarDrag.current = {
+							pointerId: event.pointerId,
+							x: event.clientX,
+							width: visibleSidebarWidth,
+						};
+					}}
+					onPointerMove={(event) => {
+						const drag = sidebarDrag.current;
+						if (drag?.pointerId === event.pointerId)
+							resizeSidebar(drag.width + event.clientX - drag.x);
+					}}
+					onPointerUp={(event) => {
+						if (sidebarDrag.current?.pointerId === event.pointerId) {
+							sidebarDrag.current = null;
+							event.currentTarget.releasePointerCapture(event.pointerId);
+						}
+					}}
+					onLostPointerCapture={() => {
+						sidebarDrag.current = null;
+					}}
+					onKeyDown={(event) => {
+						const widths: Record<string, number> = {
+							ArrowLeft: visibleSidebarWidth - 10,
+							ArrowRight: visibleSidebarWidth + 10,
+							Home: 240,
+							End: sidebarMax,
+						};
+						if (Object.hasOwn(widths, event.key)) {
+							event.preventDefault();
+							resizeSidebar(widths[event.key]);
+						}
+					}}
+				/>
 			</aside>
 			<section aria-label="Chat" className="min-w-0 flex-1 px-6 py-10">
 				{project && chat && (
