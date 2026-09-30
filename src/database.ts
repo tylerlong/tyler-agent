@@ -42,11 +42,13 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			(version !== 1 && version !== 2) ||
+			(version !== 1 && version !== 2 && version !== 3) ||
 			tables.join(",") !==
-				(version === 2
-					? "chats,folders,projects,sidebar_width,turns"
-					: "chats,folders,projects,turns")
+				(version === 3
+					? "chats,folders,projects,settings,turns"
+					: version === 2
+						? "chats,folders,projects,sidebar_width,turns"
+						: "chats,folders,projects,turns")
 		) {
 			throw new Error("Unknown database schema");
 		}
@@ -61,6 +63,11 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		if (version === 2 && columns("sidebar_width") !== "id,width")
 			throw new Error("Invalid database schema");
 		if (
+			version === 3 &&
+			columns("settings") !== "id,sidebar_width,debug_enabled"
+		)
+			throw new Error("Invalid database schema");
+		if (
 			db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok" ||
 			db.prepare("PRAGMA foreign_key_check").all().length
 		)
@@ -68,12 +75,14 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		db.exec(
 			`SAVEPOINT startup_check; INSERT INTO projects(name,created_at) VALUES ('startup',0); ROLLBACK TO startup_check; RELEASE startup_check;`,
 		);
-		if (version === 1) {
+		if (version !== 3) {
 			db.exec("BEGIN");
 			try {
 				db.exec(`
-     CREATE TABLE sidebar_width (id INTEGER PRIMARY KEY CHECK(id=1), width REAL NOT NULL CHECK(width BETWEEN 240 AND 600));
-     PRAGMA user_version = 2;
+     CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), debug_enabled INTEGER NOT NULL DEFAULT 1 CHECK(debug_enabled IN (0,1)));
+     INSERT INTO settings(id,sidebar_width) VALUES(1,${version === 2 ? "COALESCE((SELECT width FROM sidebar_width WHERE id=1),320)" : "320"});
+     ${version === 2 ? "DROP TABLE sidebar_width;" : ""}
+     PRAGMA user_version = 3;
      COMMIT;
     `);
 			} catch (error) {

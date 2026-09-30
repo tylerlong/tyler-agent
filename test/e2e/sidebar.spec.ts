@@ -129,6 +129,17 @@ test("blur ends drag and restores selection; other windows and project events ke
 		).toBeVisible();
 	await expect(sidebar(page)).toHaveCSS("width", "440px");
 	await expect(sidebar(other)).toHaveCSS("width", "320px");
+	await page.getByRole("button", { name: "设置", exact: true }).click();
+	await other.getByRole("button", { name: "设置", exact: true }).click();
+	await page.getByLabel("关闭", { exact: true }).click();
+	await expect(other.getByLabel("关闭", { exact: true })).toBeChecked();
+	await expect(sidebar(page)).toHaveCSS("width", "440px");
+	await expect(sidebar(other)).toHaveCSS("width", "320px");
+	for (const current of [page, other])
+		await current
+			.getByRole("dialog", { name: "设置", exact: true })
+			.getByRole("button", { name: "关闭", exact: true })
+			.click();
 	await other.reload();
 	await expect(sidebar(other)).toHaveCSS("width", "440px");
 	await drag(other, -50);

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "./fixtures.ts";
 
 test("native creation modals support validation, cancellation and shared lists", async ({
@@ -167,11 +169,13 @@ test("settings stays synchronized while hidden and failed updates can retry with
 		0,
 	);
 	await trigger.click();
-	await expect(modal.getByLabel("关闭", { exact: true })).toBeChecked();
+	await expect(modal.getByLabel("开启", { exact: true })).toBeChecked();
 	await modal.getByRole("button", { name: "关闭", exact: true }).click();
 	const other = await context.newPage();
 	await other.goto(app.url);
 	await other.getByRole("button", { name: "设置", exact: true }).click();
+	await other.getByLabel("关闭", { exact: true }).click();
+	await expect(other.getByLabel("关闭", { exact: true })).toBeChecked();
 	await other.getByLabel("开启", { exact: true }).click();
 	await trigger.click();
 	await expect(modal.getByLabel("开启", { exact: true })).toBeChecked();
@@ -221,5 +225,84 @@ test("settings read errors remain in settings and a successful reread clears the
 	await page.unroute("**/api/debug");
 	await modal.getByRole("button", { name: "重试", exact: true }).click();
 	await expect(modal.getByRole("alert")).toHaveCount(0);
-	await expect(modal.getByLabel("关闭", { exact: true })).toBeChecked();
+	await expect(modal.getByLabel("开启", { exact: true })).toBeChecked();
+});
+
+test("debug saves both states across server restarts and fresh browsers without changing sidebar width", async ({
+	page,
+	browser,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "设置", exact: true }).click();
+	await expect(page.getByLabel("开启", { exact: true })).toBeChecked();
+	await page.request.put(`${app.url}/api/sidebar-width`, {
+		data: { width: 420 },
+	});
+	for (const enabled of [false, true]) {
+		await page.getByLabel(enabled ? "开启" : "关闭", { exact: true }).click();
+		await expect
+			.poll(
+				async () =>
+					(await (await page.request.get(`${app.url}/api/debug`)).json())
+						.enabled,
+			)
+			.toBe(enabled);
+		await app.restart();
+		const fresh = await browser.newContext();
+		try {
+			const reopened = await fresh.newPage();
+			await reopened.goto(app.url);
+			await expect(
+				reopened.getByRole("complementary", { name: "Projects" }),
+			).toHaveCSS("width", "420px");
+			await reopened.getByRole("button", { name: "设置", exact: true }).click();
+			await expect(
+				reopened.getByLabel(enabled ? "开启" : "关闭", { exact: true }),
+			).toBeChecked();
+		} finally {
+			await fresh.close();
+		}
+		await page.goto(app.url);
+		await page.getByRole("button", { name: "设置", exact: true }).click();
+	}
+});
+
+test("database write failure preserves debug in both windows and retry saves it", async ({
+	page,
+	context,
+	app,
+}) => {
+	const database = new DatabaseSync(join(app.folder, "db.sqlite"));
+	try {
+		database.exec(`CREATE TRIGGER reject_debug BEFORE UPDATE OF debug_enabled ON settings
+			BEGIN SELECT RAISE(FAIL, 'test write failure'); END`);
+		await page.goto(app.url);
+		const other = await context.newPage();
+		await other.goto(app.url);
+		for (const current of [page, other]) {
+			await current.getByRole("button", { name: "设置", exact: true }).click();
+			await expect(current.getByLabel("开启", { exact: true })).toBeChecked();
+		}
+		await page.getByLabel("关闭", { exact: true }).click();
+		await expect(page.getByRole("alert")).toHaveText(
+			"无法确认日志设置，请重试",
+		);
+		for (const current of [page, other])
+			await expect(current.getByLabel("开启", { exact: true })).toBeChecked();
+		expect(
+			database.prepare("SELECT debug_enabled FROM settings").get()
+				?.debug_enabled,
+		).toBe(1);
+		database.exec("DROP TRIGGER reject_debug");
+		await page.getByLabel("关闭", { exact: true }).click();
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		await expect(other.getByLabel("关闭", { exact: true })).toBeChecked();
+		expect(
+			database.prepare("SELECT debug_enabled FROM settings").get()
+				?.debug_enabled,
+		).toBe(0);
+	} finally {
+		database.close();
+	}
 });

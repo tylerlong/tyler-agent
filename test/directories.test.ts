@@ -23,7 +23,7 @@ test("directory browsing uses isolated home, lexical paths and visible sorted di
 	await symlink(join(folder, "file.txt"), join(folder, "FileLink"));
 	const originalHome = process.env.HOME;
 	process.env.HOME = folder;
-	const server = createServer(fetch, false, join(folder, "db.sqlite")).listen(
+	const server = createServer(fetch, join(folder, "db.sqlite")).listen(
 		0,
 		"127.0.0.1",
 	);

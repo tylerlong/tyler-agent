@@ -112,6 +112,8 @@ test("empty and unknown selections keep layout; debug and missed updates recover
 		page.getByRole("region", { name: "Chat", exact: true }),
 	).toBeEmpty();
 	await page.getByRole("button", { name: "设置", exact: true }).click();
+	await expect(page.getByLabel("开启", { exact: true })).toBeChecked();
+	await page.getByLabel("关闭", { exact: true }).click();
 	await expect(page.getByLabel("关闭", { exact: true })).toBeChecked();
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=999`);

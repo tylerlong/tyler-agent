@@ -30,7 +30,6 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 				],
 			});
 		},
-		false,
 		join(directory, "db.sqlite"),
 	).listen(0, "127.0.0.1");
 	try {
@@ -123,7 +122,7 @@ test("all model and database failures preserve complete history and release chat
 			],
 		});
 	};
-	let server = createServer(fake, false, path).listen(0, "127.0.0.1");
+	let server = createServer(fake, path).listen(0, "127.0.0.1");
 	async function base() {
 		if (!server.listening)
 			await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -173,7 +172,7 @@ test("all model and database failures preserve complete history and release chat
 		assert.equal((await post(route, { prompt: "retry" })).status, 200);
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
-		server = createServer(fake, false, path).listen(0, "127.0.0.1");
+		server = createServer(fake, path).listen(0, "127.0.0.1");
 		url = await base();
 		const state = await (await fetch(url + route)).json();
 		assert.equal(state.messages.length, 4);

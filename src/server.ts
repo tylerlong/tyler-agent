@@ -47,12 +47,15 @@ function json(response: ServerResponse, status: number, body: unknown) {
 
 export function createServer(
 	fetchModel: typeof fetch = fetch,
-	debugEnabled = false,
 	databasePath?: string,
 ) {
 	const database = openDatabase(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
 		databasePath === undefined,
+	);
+	let debugEnabled = Boolean(
+		database.prepare("SELECT debug_enabled FROM settings WHERE id=1").get()
+			?.debug_enabled,
 	);
 	const home = homedir();
 	const busy = new Set<number>();
@@ -144,14 +147,13 @@ export function createServer(
 					)
 						throw new InputError("无效的面板宽度");
 					database
-						.prepare(
-							"INSERT INTO sidebar_width(id,width) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET width=excluded.width",
-						)
+						.prepare("UPDATE settings SET sidebar_width=? WHERE id=1")
 						.run(width);
 				}
 				const width =
-					database.prepare("SELECT width FROM sidebar_width WHERE id=1").get()
-						?.width ?? 320;
+					database
+						.prepare("SELECT sidebar_width AS width FROM settings WHERE id=1")
+						.get()?.width ?? 320;
 				json(response, 200, { width });
 			} catch (error) {
 				if (!(error instanceof InputError))
@@ -171,12 +173,20 @@ export function createServer(
 				const input = await readJson(request);
 				if (typeof input.enabled !== "boolean")
 					throw new InputError("无效的日志设置");
+				database
+					.prepare("UPDATE settings SET debug_enabled=? WHERE id=1")
+					.run(Number(input.enabled));
 				const changed = input.enabled !== debugEnabled;
 				debugEnabled = input.enabled;
 				json(response, 200, { enabled: debugEnabled });
 				if (changed) notifyChange();
-			} catch {
-				json(response, 400, { error: "无效的日志设置" });
+			} catch (error) {
+				if (!(error instanceof InputError))
+					console.error("Debug setting write failed", error);
+				json(response, error instanceof InputError ? 400 : 500, {
+					error:
+						error instanceof InputError ? "无效的日志设置" : "保存日志设置失败",
+				});
 			}
 			return;
 		}
@@ -409,13 +419,11 @@ export function createServer(
 if (import.meta.main) {
 	const { values } = parseArgs({
 		args: process.argv.slice(2),
-		options: { debug: { type: "boolean" }, db: { type: "string" } },
+		options: { db: { type: "string" } },
 	});
 	if (values.db === "") throw new Error("--db requires a database file path");
 	const port = Number(process.env.PORT ?? 3000);
-	createServer(fetch, values.debug ?? false, values.db).listen(
-		port,
-		"127.0.0.1",
-		() => console.log(`Open http://127.0.0.1:${port}`),
+	createServer(fetch, values.db).listen(port, "127.0.0.1", () =>
+		console.log(`Open http://127.0.0.1:${port}`),
 	);
 }

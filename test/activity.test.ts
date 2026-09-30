@@ -33,7 +33,7 @@ test("accepted questions sort immediately, failures count, rejected questions an
 			],
 		});
 	};
-	let server = createServer(model, false, path).listen(0, "127.0.0.1");
+	let server = createServer(model, path).listen(0, "127.0.0.1");
 	async function base() {
 		if (!server.listening)
 			await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -120,7 +120,7 @@ test("accepted questions sort immediately, failures count, rejected questions an
 			0,
 		);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
-		server = createServer(model, false, path).listen(0, "127.0.0.1");
+		server = createServer(model, path).listen(0, "127.0.0.1");
 		url = await base();
 		assert.deepEqual(await list(), projects);
 	} finally {

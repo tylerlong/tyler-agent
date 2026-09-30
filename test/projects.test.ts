@@ -8,7 +8,7 @@ import { createServer } from "../src/server.ts";
 test("projects and empty chats survive restart without default records", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-projects-"));
 	const path = join(directory, "app.sqlite");
-	let server = createServer(fetch, false, path).listen(0, "127.0.0.1");
+	let server = createServer(fetch, path).listen(0, "127.0.0.1");
 	async function base() {
 		if (!server.listening)
 			await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -38,7 +38,7 @@ test("projects and empty chats survive restart without default records", async (
 		).json();
 		assert.equal(chat.name, "Question");
 		await new Promise<void>((resolve) => server.close(() => resolve()));
-		server = createServer(fetch, false, path).listen(0, "127.0.0.1");
+		server = createServer(fetch, path).listen(0, "127.0.0.1");
 		const projects = (
 			await (await fetch(`${await base()}/api/projects`)).json()
 		).projects;

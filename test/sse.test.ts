@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
 
@@ -25,7 +26,6 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 				],
 			});
 		},
-		false,
 		join(directory, "db.sqlite"),
 	).listen(0, "127.0.0.1");
 	const controllers: AbortController[] = [];
@@ -76,7 +76,7 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 			return a;
 		}
 		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: false,
+			enabled: true,
 		});
 		const project = await (
 			await fetch(`${base}/api/projects`, {
@@ -134,17 +134,43 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 			).chats.length,
 			1,
 		);
+		const db = new DatabaseSync(join(directory, "db.sqlite"));
+		db.exec(
+			"CREATE TRIGGER reject_debug BEFORE UPDATE OF debug_enabled ON settings BEGIN SELECT RAISE(ABORT,'write failed'); END",
+		);
+		try {
+			assert.equal(
+				(
+					await fetch(`${base}/api/debug`, {
+						method: "PUT",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ enabled: false }),
+					})
+				).status,
+				500,
+			);
+			assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
+				enabled: true,
+			});
+			assert.equal(
+				db.prepare("SELECT debug_enabled FROM settings").get()?.debug_enabled,
+				1,
+			);
+		} finally {
+			db.exec("DROP TRIGGER reject_debug");
+			db.close();
+		}
 		await fetch(`${base}/api/debug`, {
 			method: "PUT",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ enabled: true }),
+			body: JSON.stringify({ enabled: false }),
 		});
 		assert.deepEqual(await Promise.all([second.next(), reconnected.next()]), [
 			"data: changed",
 			"data: changed",
 		]);
 		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: true,
+			enabled: false,
 		});
 		assert.equal(
 			(

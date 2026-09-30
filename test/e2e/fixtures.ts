@@ -59,7 +59,6 @@ export const test = base.extend<{
 						],
 					});
 				},
-				false,
 				join(folder, "db.sqlite"),
 			).listen(0, "127.0.0.1");
 		let server = start();

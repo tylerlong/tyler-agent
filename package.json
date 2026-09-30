@@ -6,7 +6,7 @@
 		"node": ">=24"
 	},
 	"scripts": {
-		"start": "pnpm build && node --env-file-if-exists=.env src/server.ts --debug",
+		"start": "pnpm build && node --env-file-if-exists=.env src/server.ts",
 		"build": "vite build",
 		"format": "biome check . --write --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true",
 		"format:check": "biome check . --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true",

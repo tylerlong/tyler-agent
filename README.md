@@ -1,6 +1,6 @@
 # Tyler Agent
 
-TypeScript/Node.js 本地网页应用。React SPA 由 Vite 和 Tailwind 构建，原生 Node HTTP server 使用 SQLite 保存项目与对话。
+TypeScript/Node.js 本地网页应用。React SPA 由 Vite 和 Tailwind 构建，原生 Node HTTP server 使用 SQLite 保存项目、对话与用户配置。
 
 ## 运行
 
@@ -39,9 +39,9 @@ project 至少需要一个文件夹。创建时 server 再次检查存在、可�
 
 列表按 server 接受合法提问的时间排序：chat 最近提问优先，project 按其 chat 中最新的活动优先。不等待模型回答，上游失败也保留活动时间；空 prompt、未知 chat 和 busy 拒绝不改变排序，回答完成不再次更新。未提问的 chat 使用创建时间，没有 chat 的 project 使用自身创建时间；时间相同时按 ID 倒序稳定排列。排序时间保存在 SQLite，重启保留。
 
-已提交的项目、文件夹、chat、成功历史和活动时间由 server 维护，是共享数据的唯一来源。创建、排序、历史、busy 和全局调试变化通过 SSE 通知所有页面重新读取，不整页刷新；初次加载、刷新和断线重连都会读取最新数据。SSE 通知和重连不改变本页选择、折叠与未提交草稿；整页刷新通过 URL 恢复选择，折叠与草稿重新初始化。busy 和调试开关只在 server 内存中，重启分别恢复空闲和启动参数值。
+已提交的项目、文件夹、chat、成功历史和活动时间由 server 维护，是共享数据的唯一来源。创建、排序、历史、busy 和全局调试变化通过 SSE 通知所有页面重新读取，不整页刷新；初次加载、刷新和断线重连都会读取最新数据。SSE 通知和重连不改变本页选择、折叠与未提交草稿；整页刷新通过 URL 恢复选择，折叠与草稿重新初始化。busy 只在 server 内存中，重启恢复空闲；调试开关保存在 SQLite，重启恢复保存值。
 
-新数据库自动建立数据表，不生成默认项目或对话。首次识别旧的单对话数据表时会事务性重建，**旧历史和最近文件夹将被丢弃**。新项目、文件夹和 chat 此后重启保留，不会每次启动清空。未知 schema 不自动重置。没有重命名、删除或编辑文件夹功能。
+新数据库自动建立数据表，不生成默认项目或对话。用户配置使用单行 `settings` 表，明确保存 `sidebar_width` 和 `debug_enabled`；默认宽度 320px、调试开启，修改任一项不覆盖另一项。已有项目数据库事务性升级，保留原有宽度和全部项目、文件夹、chat、成功历史及活动时间，移除旧 `sidebar_width` 表。首次识别旧的单对话数据表时会事务性重建，**旧历史和最近文件夹将被丢弃**。新项目、文件夹和 chat 此后重启保留，不会每次启动清空。未知 schema 不自动重置。没有重命名、删除或编辑文件夹功能。
 
 ## 左侧面板宽度
 
@@ -53,7 +53,7 @@ project 至少需要一个文件夹。创建时 server 再次检查存在、可�
 
 ## OpenRouter 调试日志
 
-侧栏左下角的齿轮按钮打开“设置” modal，里面的全局日志开关修改后立即提交，无需保存；没有选中 chat 也能操作。读取或更新失败显示在设置框内，隐藏后错误仍可查看，成功重试或重新核对 server 后清除；列表和模型错误仍分别显示在列表和原 chat。隐藏中的设置继续同步 server 值。`pnpm start` 默认开启；关闭启动默认值可先 `pnpm build`，再运行 `node --env-file-if-exists=.env src/server.ts`。开关由 server 内存保存；所有页面共享，刷新/SSE 重连读取最新值；重启恢复启动参数值。
+侧栏左下角的齿轮按钮打开“设置” modal，里面的全局日志开关修改后立即提交，无需保存；没有选中 chat 也能操作。读取或更新失败显示在设置框内，隐藏后错误仍可查看，成功重试或重新核对 server 后清除；列表和模型错误仍分别显示在列表和原 chat。隐藏中的设置继续同步 server 值。新数据库默认开启，开关保存在 SQLite；关闭或开启后重启均恢复保存值，不再支持 `--debug` 启动参数。保存成功后才修改实际日志状态并通知所有页面；保存失败不改变实际开关，可在设置框重试。所有页面共享，刷新/SSE 重连读取最新值，调试同步不改变各窗口面板宽度。
 
 模型提问使用 `.env` 中的 `OPENROUTER_API_KEY` 和 `OPENROUTER_MODEL`。`.env` 已被 Git 忽略，密钥不发送到浏览器。现有模型 HTTP 调用代码保留：日志在 server terminal 输出编号、URL、method、body、响应 status/body 和耗时，不打印 headers；JSON 缩进，非 JSON 原文输出，凭据遮盖，prompt/回答可能出现在本地日志。日志不写入文件或发送到页面。
 
@@ -67,7 +67,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite，覆盖目录枚举、路径/权限错误及创建校验、宽度输入校验和旧项目数据库升级后的数据保留。Playwright Test 用真实 headless Chromium 验证面板实时拖动、固定宽度范围、结束请求数量、失焦与中断、双击恢复、失败不提示、重启 server 后新浏览器恢复和窗口宽度不同步，以及齿轮设置及错误重试、逐次目录选择、加载/提交中隐藏 modal、点击取消、长列表实际滚动与固定头尾、长路径换行、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库、目录及受控 home，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库或浏览真实 home。E2E 数据在结束时清理。
+`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite，覆盖目录枚举、路径/权限错误及创建校验、宽度及 debug 输入校验、新配置默认值、旧项目数据库有/无宽度的兼容迁移及数据保留、debug 数据库保存失败不改变实际开关与广播状态。Playwright Test 用真实 headless Chromium 验证面板实时拖动、固定宽度范围、结束请求数量、失焦与中断、双击恢复、失败不提示、重启 server 后新浏览器恢复宽度与开启/关闭的 debug、选项互不覆盖和窗口宽度不同步，以及齿轮设置及错误重试、逐次目录选择、加载/提交中隐藏 modal、点击取消、长列表实际滚动与固定头尾、长路径换行、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库、目录及受控 home，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库或浏览真实 home。E2E 数据在结束时清理。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。本地失败文件同样位于 `playwright-report/` 和 `test-results/`，两者已忽略。
 
