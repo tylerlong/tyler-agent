@@ -1,4 +1,10 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+	type FormEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -21,24 +27,55 @@ async function fetchDebug(): Promise<boolean> {
 function App() {
 	const [folder, setFolder] = useState("");
 	const folderEdited = useRef(false);
+	const folderRevision = useRef(0);
+	const [savedFolder, setSavedFolder] = useState<string | null>(null);
 	const [prompt, setPrompt] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [debugEnabled, setDebugEnabled] = useState<boolean | null>(null);
 	const [debugPending, setDebugPending] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState("");
+	const chatRefresh = useRef(0);
+	const debugRefresh = useRef(0);
+
+	const refreshChat = useCallback(async () => {
+		const current = ++chatRefresh.current;
+		try {
+			const state = await fetchChat();
+			if (current !== chatRefresh.current) return;
+			setMessages(state.messages);
+			setSavedFolder(state.folder);
+			if (!folderEdited.current) setFolder(state.folder ?? "");
+			return true;
+		} catch {
+			if (current === chatRefresh.current)
+				setError("读取对话失败，请刷新页面重试");
+			return false;
+		}
+	}, []);
+
+	const refreshDebug = useCallback(async () => {
+		const current = ++debugRefresh.current;
+		try {
+			const enabled = await fetchDebug();
+			if (current === debugRefresh.current) setDebugEnabled(enabled);
+		} catch {
+			if (current === debugRefresh.current)
+				setError("读取日志设置失败，请刷新页面重试");
+		}
+	}, []);
 
 	useEffect(() => {
-		fetchChat()
-			.then(({ messages, folder }) => {
-				setMessages(messages);
-				if (!folderEdited.current) setFolder(folder ?? "");
-			})
-			.catch(() => setError("读取对话失败，请刷新页面重试"));
-		fetchDebug()
-			.then(setDebugEnabled)
-			.catch(() => setError("读取日志设置失败，请刷新页面重试"));
-	}, []);
+		const refresh = () => {
+			void refreshChat();
+			void refreshDebug();
+		};
+		refresh();
+		const events = new EventSource("/api/events");
+		events.onopen = refresh;
+		events.onmessage = refresh;
+		return () => events.close();
+	}, [refreshChat, refreshDebug]);
 
 	async function changeDebug(enabled: boolean) {
 		setDebugPending(true);
@@ -67,18 +104,26 @@ function App() {
 
 	async function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
+		const submittedFolder = folder;
+		const submittedPrompt = prompt;
+		const submittedFolderRevision = folderRevision.current;
 		setSubmitting(true);
 		setError("");
 		try {
 			const response = await fetch("/api/task", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ folder, prompt }),
+				body: JSON.stringify({
+					folder: submittedFolder,
+					prompt: submittedPrompt,
+				}),
 			});
 			const data: { error?: string } = await response.json();
 			if (!response.ok) throw new Error(data.error || "请求失败");
-			setMessages((await fetchChat()).messages);
-			setPrompt("");
+			if (folderRevision.current === submittedFolderRevision)
+				folderEdited.current = false;
+			if (await refreshChat())
+				setPrompt((current) => (current === submittedPrompt ? "" : current));
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : "请求失败");
 		} finally {
@@ -129,12 +174,16 @@ function App() {
 						name="folder"
 						value={folder}
 						onChange={(event) => {
+							folderRevision.current++;
 							folderEdited.current = true;
 							setFolder(event.target.value);
 						}}
 						required
 					/>
 				</label>
+				<p className="text-sm text-slate-600">
+					最近提交的目标文件夹：{savedFolder || "无"}
+				</p>
 				<label className="block font-medium">
 					Prompt
 					<textarea

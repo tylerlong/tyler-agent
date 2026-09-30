@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import {
 	createServer as createHttpServer,
 	type IncomingMessage,
+	type ServerResponse,
 } from "node:http";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -89,6 +90,10 @@ export function createServer(
 		databasePath === undefined,
 	);
 	let callId = 0;
+	const subscribers = new Set<ServerResponse>();
+	const notifyChange = () => {
+		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
+	};
 	return createHttpServer(async (request, response) => {
 		if (request.method === "GET" && request.url === "/") {
 			response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -113,6 +118,17 @@ export function createServer(
 					// Missing assets fall through to 404.
 				}
 			}
+		}
+
+		if (request.url === "/api/events" && request.method === "GET") {
+			response.writeHead(200, {
+				"content-type": "text/event-stream; charset=utf-8",
+				"cache-control": "no-cache",
+			});
+			response.write(": connected\n\n");
+			subscribers.add(response);
+			response.on("close", () => subscribers.delete(response));
+			return;
 		}
 
 		if (request.url === "/api/debug" && request.method === "GET") {
@@ -149,11 +165,13 @@ export function createServer(
 				) {
 					throw new SafeResponseError("无效的日志设置");
 				}
+				const changed = debugEnabled !== input.enabled;
 				debugEnabled = input.enabled;
 				response.writeHead(200, {
 					"content-type": "application/json; charset=utf-8",
 				});
 				response.end(JSON.stringify({ enabled: debugEnabled }));
+				if (changed) notifyChange();
 			} catch {
 				response.writeHead(400, {
 					"content-type": "application/json; charset=utf-8",
@@ -188,11 +206,15 @@ export function createServer(
 				}
 				if (!folder.isDirectory())
 					throw new SafeResponseError("目标路径不是文件夹");
+				const previousFolder = database
+					.prepare("SELECT folder FROM settings WHERE id = 1")
+					.get()?.folder;
 				database
 					.prepare(
 						"INSERT INTO settings (id, folder) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET folder = excluded.folder",
 					)
 					.run(input.folder);
+				if (previousFolder !== input.folder) notifyChange();
 				const messages = readMessages(database);
 				const apiKey = process.env.OPENROUTER_API_KEY;
 				const model = process.env.OPENROUTER_MODEL;
@@ -284,6 +306,7 @@ export function createServer(
 					: "";
 				if (!answer) throw new SafeResponseError("OpenRouter 没有返回文本答案");
 				saveTurn(database, input.prompt, answer);
+				notifyChange();
 				response.writeHead(200, {
 					"content-type": "application/json; charset=utf-8",
 				});
