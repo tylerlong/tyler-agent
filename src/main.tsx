@@ -105,6 +105,7 @@ function App() {
 		const prompt = drafts[id] ?? "";
 		const version = draftVersions.current[id] ?? 0;
 		setSubmitting((current) => new Set(current).add(id));
+		setChatErrors((current) => ({ ...current, [id]: "" }));
 		try {
 			await api(`/api/chats/${id}`, "POST", { prompt });
 			if ((draftVersions.current[id] ?? 0) === version)
@@ -316,10 +317,12 @@ function App() {
 						{error}
 					</p>
 				)}
+				{selected !== null && !chat && chatErrors[selected] && (
+					<p role="alert" className="mt-4 text-red-700">
+						{chatErrors[selected]}
+					</p>
+				)}
 			</aside>
-			{selected !== null && !chat && chatErrors[selected] && (
-				<p role="alert">{chatErrors[selected]}</p>
-			)}
 			<section aria-label="Chat" className="min-w-0 flex-1 px-6 py-10">
 				{project && chat && (
 					<div className="mx-auto max-w-2xl">

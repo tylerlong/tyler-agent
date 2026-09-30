@@ -8,6 +8,7 @@ export const test = base.extend<{
 	app: {
 		url: string;
 		folder: string;
+		failModel: () => void;
 		holdModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
@@ -15,6 +16,10 @@ export const test = base.extend<{
 		process.env.OPENROUTER_API_KEY = "test";
 		process.env.OPENROUTER_MODEL = "test";
 		const folder = await mkdtemp(join(tmpdir(), "agent-e2e-"));
+		let fail = false;
+		const failModel = () => {
+			fail = true;
+		};
 		let gate: { entered: () => void; wait: Promise<void> } | undefined;
 		function holdModel() {
 			let enter!: () => void;
@@ -30,6 +35,10 @@ export const test = base.extend<{
 		}
 		const server = createServer(
 			async () => {
+				if (fail) {
+					fail = false;
+					return new Response("upstream failure", { status: 500 });
+				}
 				const current = gate;
 				gate = undefined;
 				if (current) {
@@ -53,7 +62,12 @@ export const test = base.extend<{
 		if (!address || typeof address === "string")
 			throw new Error("Missing test server address");
 		try {
-			await use({ url: `http://127.0.0.1:${address.port}`, folder, holdModel });
+			await use({
+				url: `http://127.0.0.1:${address.port}`,
+				folder,
+				holdModel,
+				failModel,
+			});
 		} finally {
 			server.closeAllConnections();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
