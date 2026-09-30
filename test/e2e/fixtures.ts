@@ -9,6 +9,7 @@ export const test = base.extend<{
 		url: string;
 		folder: string;
 		failModel: () => void;
+		disconnectClients: () => void;
 		holdModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
@@ -67,6 +68,7 @@ export const test = base.extend<{
 				folder,
 				holdModel,
 				failModel,
+				disconnectClients: () => server.closeAllConnections(),
 			});
 		} finally {
 			server.closeAllConnections();

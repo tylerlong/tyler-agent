@@ -59,6 +59,22 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 		}
 		const first = await connect();
 		const second = await connect();
+		const sharedState = async (chatId?: number) => ({
+			projects: (await (await fetch(`${base}/api/projects`)).json()).projects,
+			debug: await (await fetch(`${base}/api/debug`)).json(),
+			chat:
+				chatId === undefined
+					? null
+					: await (await fetch(`${base}/api/chats/${chatId}`)).json(),
+		});
+		async function agree(chatId?: number) {
+			const [a, b] = await Promise.all([
+				sharedState(chatId),
+				sharedState(chatId),
+			]);
+			assert.deepEqual(a, b);
+			return a;
+		}
 		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
 			enabled: false,
 		});
@@ -73,6 +89,7 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 			"data: changed",
 			"data: changed",
 		]);
+		assert.equal((await agree()).projects[0].id, project.id);
 		const chat = await (
 			await fetch(`${base}/api/projects/${project.id}/chats`, {
 				method: "POST",
@@ -84,27 +101,37 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 			"data: changed",
 			"data: changed",
 		]);
+		assert.equal((await agree(chat.id)).projects[0].chats[0].id, chat.id);
 		const pending = fetch(`${base}/api/chats/${chat.id}`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ prompt: "question" }),
 		});
 		await Promise.all([first.next(), second.next()]);
-		assert.equal(
-			(await (await fetch(`${base}/api/chats/${chat.id}`)).json()).busy,
-			true,
-		);
+		const active = await agree(chat.id);
+		assert.equal(active.chat.busy, true);
+		assert.equal(typeof active.projects[0].chats[0].lastQuestionAt, "number");
 		release();
 		assert.equal((await pending).status, 200);
 		await Promise.all([first.next(), second.next()]);
-		const shared = await (await fetch(`${base}/api/chats/${chat.id}`)).json();
+		const shared = (await agree(chat.id)).chat;
 		assert.equal(shared.busy, false);
 		assert.equal(shared.messages.length, 2);
 		first.controller.abort();
+		await fetch(`${base}/api/projects`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ name: "Missed", folders: [directory] }),
+		});
+		await second.next();
 		const reconnected = await connect();
+		const restored = await agree(chat.id);
+		assert.equal(restored.projects.length, 2);
+		assert.equal(restored.chat.messages.length, 2);
 		assert.equal(
-			(await (await fetch(`${base}/api/projects`)).json()).projects[0].chats
-				.length,
+			(await (await fetch(`${base}/api/projects`)).json()).projects.find(
+				(p: { id: number }) => p.id === project.id,
+			).chats.length,
 			1,
 		);
 		await fetch(`${base}/api/debug`, {

@@ -72,7 +72,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 export function listProjects(db: DatabaseSync) {
 	return db
 		.prepare(
-			"SELECT id, name, created_at AS createdAt FROM projects ORDER BY id DESC",
+			"SELECT id, name, created_at AS createdAt FROM projects ORDER BY COALESCE((SELECT MAX(COALESCE(last_question_at, created_at)) FROM chats WHERE project_id = projects.id), created_at) DESC, id DESC",
 		)
 		.all()
 		.map((project) => ({
@@ -85,7 +85,7 @@ export function listProjects(db: DatabaseSync) {
 				.map((row) => row.path),
 			chats: db
 				.prepare(
-					"SELECT id, name, created_at AS createdAt, last_question_at AS lastQuestionAt FROM chats WHERE project_id = ? ORDER BY id DESC",
+					"SELECT id, name, created_at AS createdAt, last_question_at AS lastQuestionAt FROM chats WHERE project_id = ? ORDER BY COALESCE(last_question_at, created_at) DESC, id DESC",
 				)
 				.all(project.id),
 		}));

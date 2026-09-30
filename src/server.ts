@@ -233,6 +233,9 @@ export function createServer(
 				}
 				busy.add(id);
 				locked = true;
+				database
+					.prepare("UPDATE chats SET last_question_at=? WHERE id=?")
+					.run(Date.now(), id);
 				notifyChange();
 				let answer: string;
 				try {

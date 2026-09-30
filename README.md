@@ -31,6 +31,10 @@ pnpm start --db /path/to/chat.sqlite
 
 选择只保存在本页 URL 的 `?chat=<id>`，刷新和浏览器前进/后退恢复；无参数不自动选择，未知 ID 留空并报错。每个 chat 的草稿仅存在当前页内存，切换恢复、刷新丢失，不跨 tab 分享。请求时可以切换 chat；回答写回原 chat，不清除后来编辑或其他 chat 的草稿。SSE 重新读取历史/busy，不覆盖草稿或选择。
 
+列表按 server 接受合法提问的时间排序：chat 最近提问优先，project 按其 chat 中最新的活动优先。不等待模型回答，上游失败也保留活动时间；空 prompt、未知 chat 和 busy 拒绝不改变排序，回答完成不再次更新。未提问的 chat 使用创建时间，没有 chat 的 project 使用自身创建时间；时间相同时按 ID 倒序稳定排列。排序时间保存在 SQLite，重启保留。
+
+已提交的项目、文件夹、chat、成功历史和活动时间由 server 维护，是共享数据的唯一来源。创建、排序、历史、busy 和全局调试变化通过 SSE 通知所有页面重新读取，不整页刷新；初次加载、刷新和断线重连都会读取最新数据。SSE 通知和重连不改变本页选择、折叠与未提交草稿；整页刷新通过 URL 恢复选择，折叠与草稿重新初始化。busy 和调试开关只在 server 内存中，重启分别恢复空闲和启动参数值。
+
 新数据库自动建立数据表，不生成默认项目或对话。首次识别旧的单对话数据表时会事务性重建，**旧历史和最近文件夹将被丢弃**。新项目、文件夹和 chat 此后重启保留，不会每次启动清空。未知 schema 不自动重置。没有重命名、删除或编辑文件夹功能。
 
 ## OpenRouter 调试日志
@@ -49,6 +53,6 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite。Playwright Test 用真实 headless Chromium 验证 modal、取消/Escape、焦点恢复、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/busy/历史同步；使用隔离临时数据库与目录，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库。E2E 数据在结束时清理。
+`pnpm format` 使用 Biome 默认 `check --write`，没有配置文件。后端使用 `node:test`，HTTP 测试启动真实 server 和临时 SQLite。Playwright Test 用真实 headless Chromium 验证 modal、取消/Escape、焦点恢复、输入校验、URL 前进后退、独立历史/草稿、延迟回包归属和两个页面的创建/活动排序/busy/历史同步、同 chat 禁用与不同 chat 并行、断线重连、空页面和未知 chat 布局；使用隔离临时数据库与目录，假模型只注入 server 外部 OpenRouter 调用边界，无真实 API key/付费调用，也不会操作用户默认数据库。E2E 数据在结束时清理。
 
 GitHub CI 现有步骤运行格式、类型、构建和后端测试；Chromium E2E 安装及运行会在后续 CI 票接入。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。失败时本地报告在 `playwright-report/`，trace 在 `test-results/`，两者已忽略。
