@@ -200,7 +200,9 @@ test("directory list scrolls with fixed controls and long paths remain selectabl
 	for (let i = 0; i < 80; i++)
 		await mkdir(join(app.folder, `Folder${String(i).padStart(2, "0")}`));
 	const longName = "long-directory-name-".repeat(10);
-	await mkdir(join(app.folder, "Folder79", longName));
+	const nestedName = "nested-directory-".repeat(7);
+	const deepPath = join(app.folder, "Folder79", longName, nestedName);
+	await mkdir(join(deepPath, "Last"), { recursive: true });
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "新建 project", exact: true }).click();
 	const project = page.getByRole("dialog", {
@@ -246,8 +248,29 @@ test("directory list scrolls with fixed controls and long paths remain selectabl
 		),
 	).toBe(true);
 	await expect(select).toBeInViewport();
+	await page.setViewportSize({ width: 360, height: 600 });
+	await list
+		.getByRole("button", { name: `${nestedName}/`, exact: true })
+		.click();
+	await expect(path).toHaveText(deepPath);
+	await expect(path).toHaveAttribute("title", deepPath);
+	await expect(cancel).toBeInViewport({ ratio: 1 });
+	await expect(select).toBeInViewport({ ratio: 1 });
+	const listBox = await list.boundingBox();
+	if (!listBox) throw new Error("Missing directory list");
+	expect(listBox.height).toBeGreaterThanOrEqual(48);
+	await expect(
+		list.getByRole("button", { name: "Last/", exact: true }),
+	).toBeInViewport({ ratio: 1 });
+	await rm(join(deepPath, "Last"), { recursive: true });
+	await list.getByRole("button", { name: "Last/", exact: true }).click();
+	await expect(picker.getByRole("alert")).toHaveText("目标文件夹不存在");
+	await expect(cancel).toBeInViewport({ ratio: 1 });
+	await expect(select).toBeInViewport({ ratio: 1 });
+	await picker.getByRole("button", { name: "重试", exact: true }).click();
+	await expect(picker.getByRole("alert")).toHaveCount(0);
 	await select.click();
 	await expect(
 		project.getByRole("region", { name: "已选文件夹" }),
-	).toContainText(join(app.folder, "Folder79", longName));
+	).toContainText(deepPath);
 });

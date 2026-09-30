@@ -585,7 +585,8 @@ function App() {
 					<div className="mt-4 flex items-start gap-3">
 						<section
 							aria-label="当前目录"
-							className="min-w-0 flex-1 break-all font-mono"
+							title={directory?.path}
+							className="line-clamp-4 min-w-0 flex-1 break-all font-mono"
 						>
 							{directory?.path}
 						</section>
@@ -630,7 +631,7 @@ function App() {
 				</header>
 				<ul
 					aria-label="子目录"
-					className="my-4 min-h-0 overflow-y-auto font-mono"
+					className="my-4 min-h-12 overflow-y-auto font-mono"
 				>
 					<li>
 						<button
