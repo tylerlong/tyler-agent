@@ -15,6 +15,12 @@ test("two clients receive state invalidations and a reconnect reads the latest s
 	process.env.OPENROUTER_MODEL = "test-model";
 	let finishUpstream: ((response: Response) => void) | undefined;
 	let upstreamCalls = 0;
+	async function waitForUpstream(callCount: number) {
+		while (upstreamCalls < callCount)
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		assert(finishUpstream);
+		return finishUpstream;
+	}
 	const server = createServer(
 		async () => {
 			upstreamCalls++;
@@ -99,12 +105,12 @@ test("two clients receive state invalidations and a reconnect reads the latest s
 		assert.deepEqual(await rejected.json(), {
 			error: "已有请求正在进行中",
 		});
+		const finishFirstUpstream = await waitForUpstream(1);
 		assert.equal(upstreamCalls, 1);
 		first.controller.abort();
 		const reconnected = await connect();
 		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, true);
-		assert(finishUpstream);
-		finishUpstream(
+		finishFirstUpstream(
 			Response.json({
 				output: [
 					{
@@ -136,8 +142,7 @@ test("two clients receive state invalidations and a reconnect reads the latest s
 		for (const client of [second, reconnected])
 			assert.equal(await client.nextFrame(), "data: changed");
 		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, true);
-		assert(finishUpstream);
-		finishUpstream(new Response("unavailable", { status: 503 }));
+		(await waitForUpstream(2))(new Response("unavailable", { status: 503 }));
 		assert.equal((await failedTask).status, 400);
 		for (const client of [second, reconnected])
 			assert.equal(await client.nextFrame(), "data: changed");
