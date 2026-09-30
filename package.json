@@ -11,10 +11,12 @@
 		"format": "biome check . --write --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true",
 		"format:check": "biome check . --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true",
 		"typecheck": "tsc --noEmit",
-		"test": "pnpm build && node --test test/*.test.ts"
+		"test": "pnpm build && node --test test/*.test.ts",
+		"test:e2e": "pnpm build && playwright test"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.14",
+		"@playwright/test": "^1.63.0",
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/node": "^24.0.0",
 		"@types/react": "^19.3.0",

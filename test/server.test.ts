@@ -1,804 +1,178 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { after, test } from "node:test";
+import { test } from "node:test";
 import { createServer } from "../src/server.ts";
 
-const directory = await mkdtemp(join(tmpdir(), "tyler-agent-"));
-const file = join(directory, "note.txt");
-await writeFile(file, "A teh example.");
-after(() => rm(directory, { recursive: true, force: true }));
-const testDatabase = () => join(directory, `${randomUUID()}.sqlite`);
-const testServer = (
-	fetchModel: typeof fetch = fetch,
-	debugEnabled = false,
-	databasePath = testDatabase(),
-) => createServer(fetchModel, debugEnabled, databasePath);
-
-test("a prompt returns the model answer without sending the folder or changing files", async () => {
-	const requests: Array<{ url: string; headers: Headers; body: unknown }> = [];
-	const upstream: typeof fetch = async (input, init) => {
-		requests.push({
-			url: String(input),
-			headers: new Headers(init?.headers),
-			body: JSON.parse(String(init?.body)),
-		});
-		return Response.json({
-			output: [
-				{
-					type: "message",
-					role: "assistant",
-					content: [{ type: "output_text", text: "2" }],
-				},
-			],
-		});
-	};
-	const server = testServer(upstream).listen(0, "127.0.0.1");
-	const previousKey = process.env.OPENROUTER_API_KEY;
-	const previousModel = process.env.OPENROUTER_MODEL;
-	process.env.OPENROUTER_API_KEY = "test-key";
-	process.env.OPENROUTER_MODEL = "test-model";
-	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		const base = `http://127.0.0.1:${address.port}`;
-		const page = await fetch(base);
-		assert.equal(page.status, 200);
-		const html = await page.text();
-		assert.match(html, /Tyler Agent/);
-		const scriptPath = html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
-		const stylePath = html.match(/href="(\/assets\/[^"]+\.css)"/)?.[1];
-		assert(scriptPath);
-		assert(stylePath);
-		const script = await fetch(`${base}${scriptPath}`);
-		const style = await fetch(`${base}${stylePath}`);
-		assert.equal(script.status, 200);
-		assert.equal(style.status, 200);
-		assert.match(script.headers.get("content-type") ?? "", /javascript/);
-		assert.match(style.headers.get("content-type") ?? "", /css/);
-		assert.match(await script.text(), /目标文件夹/);
-		assert.equal((await style.text()).length > 0, true);
-		assert.equal((await fetch(`${base}/assets/missing.js`)).status, 404);
-
-		const response = await fetch(`${base}/api/task`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ folder: directory, prompt: "1 + 1 = ?" }),
-		});
-		assert.equal(response.status, 200);
-		assert.deepEqual(await response.json(), { answer: "2" });
-		assert.equal(requests.length, 1);
-		assert.equal(requests[0]?.url, "https://openrouter.ai/api/v1/responses");
-		assert.equal(requests[0]?.headers.get("authorization"), "Bearer test-key");
-		assert.deepEqual(requests[0]?.body, {
-			model: "test-model",
-			input: [{ role: "user", content: "1 + 1 = ?" }],
-			stream: false,
-		});
-		assert.equal(await readFile(file, "utf8"), "A teh example.");
-	} finally {
-		server.close();
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
-	}
-});
-
-test("successful turns form one shared conversation across requests and server instances", async () => {
-	const databasePath = testDatabase();
-	const previousKey = process.env.OPENROUTER_API_KEY;
-	const previousModel = process.env.OPENROUTER_MODEL;
-	process.env.OPENROUTER_API_KEY = "test-key";
-	process.env.OPENROUTER_MODEL = "test-model";
-	const sent: unknown[] = [];
-	const answers = ["11", "22"];
-	const upstream: typeof fetch = async (_url, init) => {
-		sent.push(JSON.parse(String(init?.body)));
-		return Response.json({
-			output: [
-				{
-					type: "message",
-					content: [{ type: "output_text", text: answers.shift() }],
-				},
-			],
-		});
-	};
-	const server = testServer(upstream, false, databasePath).listen(
-		0,
-		"127.0.0.1",
-	);
-	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		const base = `http://127.0.0.1:${address.port}`;
-		const getHistory = () =>
-			fetch(`${base}/api/chat`).then((response) => response.json());
-		const submit = (folder: string, prompt: string) =>
-			fetch(`${base}/api/task`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ folder, prompt }),
-			});
-		assert.deepEqual(await getHistory(), {
-			messages: [],
-			folder: null,
-			busy: false,
-		});
-		assert.deepEqual(await (await submit(directory, "5 + 6?")).json(), {
-			answer: "11",
-		});
-		assert.deepEqual(await getHistory(), {
-			messages: [
-				{ role: "user", content: "5 + 6?" },
-				{ role: "assistant", content: "11" },
-			],
-			folder: directory,
-			busy: false,
-		});
-		assert.deepEqual(await (await submit(tmpdir(), "double it?")).json(), {
-			answer: "22",
-		});
-		assert.deepEqual(sent, [
-			{
-				model: "test-model",
-				input: [{ role: "user", content: "5 + 6?" }],
-				stream: false,
-			},
-			{
-				model: "test-model",
-				input: [
-					{ role: "user", content: "5 + 6?" },
-					{ role: "assistant", content: "11" },
-					{ role: "user", content: "double it?" },
-				],
-				stream: false,
-			},
-		]);
-		assert.deepEqual(await getHistory(), {
-			messages: [
-				{ role: "user", content: "5 + 6?" },
-				{ role: "assistant", content: "11" },
-				{ role: "user", content: "double it?" },
-				{ role: "assistant", content: "22" },
-			],
-			folder: tmpdir(),
-			busy: false,
-		});
-		const failed = await submit(directory, "one more?");
-		assert.equal(failed.status, 400);
-		assert.deepEqual(await failed.json(), {
-			error: "OpenRouter 没有返回文本答案",
-		});
-		assert.deepEqual(await getHistory(), {
-			messages: [
-				{ role: "user", content: "5 + 6?" },
-				{ role: "assistant", content: "11" },
-				{ role: "user", content: "double it?" },
-				{ role: "assistant", content: "22" },
-			],
-			folder: directory,
-			busy: false,
-		});
-		const invalid = await submit(join(directory, "missing"), "bad folder");
-		assert.equal(invalid.status, 400);
-		assert.deepEqual(await getHistory(), {
-			messages: [
-				{ role: "user", content: "5 + 6?" },
-				{ role: "assistant", content: "11" },
-				{ role: "user", content: "double it?" },
-				{ role: "assistant", content: "22" },
-			],
-			folder: directory,
-			busy: false,
-		});
-	} finally {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
-	}
-	process.env.OPENROUTER_API_KEY = "test-key";
-	process.env.OPENROUTER_MODEL = "test-model";
-	const restarted = testServer(upstream, false, databasePath).listen(
-		0,
-		"127.0.0.1",
-	);
-	try {
-		await new Promise<void>((resolve) => restarted.once("listening", resolve));
-		const address = restarted.address();
-		assert(address && typeof address !== "string");
-		const base = `http://127.0.0.1:${address.port}`;
-		assert.deepEqual(await (await fetch(`${base}/api/chat`)).json(), {
-			messages: [
-				{ role: "user", content: "5 + 6?" },
-				{ role: "assistant", content: "11" },
-				{ role: "user", content: "double it?" },
-				{ role: "assistant", content: "22" },
-			],
-			folder: directory,
-			busy: false,
-		});
-		answers.push("33");
-		assert.deepEqual(
-			await (
-				await fetch(`${base}/api/task`, {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ folder: directory, prompt: "again?" }),
-				})
-			).json(),
-			{ answer: "33" },
-		);
-		assert.deepEqual(sent.at(-1), {
-			model: "test-model",
-			input: [
-				{ role: "user", content: "5 + 6?" },
-				{ role: "assistant", content: "11" },
-				{ role: "user", content: "double it?" },
-				{ role: "assistant", content: "22" },
-				{ role: "user", content: "again?" },
-			],
-			stream: false,
-		});
-	} finally {
-		restarted.close();
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
-	}
-	const isolated = testServer(upstream).listen(0, "127.0.0.1");
-	try {
-		await new Promise<void>((resolve) => isolated.once("listening", resolve));
-		const address = isolated.address();
-		assert(address && typeof address !== "string");
-		assert.deepEqual(
-			await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(),
-			{ messages: [], folder: null, busy: false },
-		);
-	} finally {
-		isolated.close();
-	}
-});
-
-test("database startup and turn writes fail without reporting success", async () => {
-	const invalidPath = join(directory, "missing-parent", "chat.sqlite");
-	assert.throws(() => testServer(fetch, false, invalidPath));
-	const incompatiblePath = testDatabase();
-	const incompatible = new DatabaseSync(incompatiblePath);
-	incompatible.exec("CREATE TABLE turns (id INTEGER PRIMARY KEY, wrong TEXT)");
-	incompatible.close();
-	assert.throws(() => testServer(fetch, false, incompatiblePath));
-	const noIdPath = testDatabase();
-	const noId = new DatabaseSync(noIdPath);
-	noId.exec(
-		"CREATE TABLE turns (user_content TEXT NOT NULL, assistant_content TEXT NOT NULL)",
-	);
-	noId.close();
-	assert.throws(() => testServer(fetch, false, noIdPath));
-	const extraColumnPath = testDatabase();
-	const extraColumn = new DatabaseSync(extraColumnPath);
-	extraColumn.exec(
-		"CREATE TABLE turns (id INTEGER PRIMARY KEY, user_content TEXT NOT NULL, assistant_content TEXT NOT NULL, extra TEXT NOT NULL)",
-	);
-	extraColumn.close();
-	assert.throws(() => testServer(fetch, false, extraColumnPath));
-	const readOnlyPath = testDatabase();
-	const readOnly = testServer(fetch, false, readOnlyPath);
-	readOnly.close();
-	await chmod(readOnlyPath, 0o444);
-	try {
-		assert.throws(() => testServer(fetch, false, readOnlyPath));
-	} finally {
-		await chmod(readOnlyPath, 0o644);
-	}
-	const result = spawnSync(
-		process.execPath,
-		["src/server.ts", "--db", invalidPath],
-		{ cwd: new URL("..", import.meta.url), encoding: "utf8" },
-	);
-	assert.notEqual(result.status, 0);
-	assert.match(result.stderr, /SQLITE_CANTOPEN|unable to open database/);
-
-	const databasePath = testDatabase();
-	const previousKey = process.env.OPENROUTER_API_KEY;
-	const previousModel = process.env.OPENROUTER_MODEL;
-	process.env.OPENROUTER_API_KEY = "test-key";
-	process.env.OPENROUTER_MODEL = "test-model";
-	const server = testServer(
-		async () =>
-			Response.json({
-				output: [
-					{ type: "message", content: [{ type: "output_text", text: "2" }] },
-				],
-			}),
+test("invalid project inputs never create partial records; duplicate names and empty chats are allowed", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-inputs-"));
+	const file = join(directory, "note.txt");
+	await writeFile(file, "unchanged");
+	const server = createServer(
+		async () => {
+			throw new Error("must not call model");
+		},
 		false,
-		databasePath,
+		join(directory, "db.sqlite"),
 	).listen(0, "127.0.0.1");
 	try {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
 		const address = server.address();
 		assert(address && typeof address !== "string");
 		const base = `http://127.0.0.1:${address.port}`;
-		const database = new DatabaseSync(databasePath);
-		database.exec(
-			"CREATE TRIGGER refuse_turn BEFORE INSERT ON turns BEGIN SELECT RAISE(ABORT, 'write denied'); END",
-		);
-		database.close();
-		const response = await fetch(`${base}/api/task`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ folder: directory, prompt: "1 + 1?" }),
-		});
-		assert.equal(response.status, 400);
-		assert.deepEqual(await response.json(), { error: "请求失败" });
-		assert.deepEqual(await (await fetch(`${base}/api/chat`)).json(), {
-			messages: [],
-			folder: directory,
-			busy: false,
-		});
-	} finally {
-		server.close();
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
-	}
-});
-
-test("debug setting is shared by clients, resets with server, and logs a successful exchange without credentials", async () => {
-	const secret = 'fake"secret-for-debug';
-	const previousKey = process.env.OPENROUTER_API_KEY;
-	const previousModel = process.env.OPENROUTER_MODEL;
-	process.env.OPENROUTER_API_KEY = secret;
-	process.env.OPENROUTER_MODEL = "test-model";
-	const logs: string[] = [];
-	const originalLog = console.log;
-	console.log = (...values) => {
-		logs.push(values.join(" "));
-	};
-	const upstream: typeof fetch = async () =>
-		new Response(
-			JSON.stringify({
-				output: [
-					{ type: "message", content: [{ type: "output_text", text: "2" }] },
-				],
-				echo: secret,
-			}),
-			{
-				status: 200,
-				headers: {
-					"content-type": "application/json",
-					"x-example": "raw-header",
-					"x-token-count": "42",
-					authorization: "Bearer another-token",
-					"x-api-key": "different-secret",
-				},
-			},
-		);
-	const server = testServer(upstream).listen(0, "127.0.0.1");
-	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		const base = `http://127.0.0.1:${address.port}`;
-		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: false,
-		});
-		const submit = () =>
-			fetch(`${base}/api/task`, {
+		const post = (path: string, body: unknown) =>
+			fetch(base + path, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ folder: directory, prompt: "1 + 1 = ?" }),
+				body: JSON.stringify(body),
 			});
-		assert.deepEqual(await (await submit()).json(), { answer: "2" });
-		assert.equal(logs.length, 0);
-		assert.deepEqual(
-			await (
-				await fetch(`${base}/api/debug`, {
-					method: "PUT",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ enabled: true }),
-				})
-			).json(),
-			{ enabled: true },
-		);
-		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: true,
-		});
-		const invalid = await fetch(`${base}/api/debug`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ enabled: "false" }),
-		});
-		assert.equal(invalid.status, 400);
-		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: true,
-		});
-		assert.deepEqual(await (await submit()).json(), { answer: "2" });
-		const record = logs.join("\n");
-		assert.match(record, /\[OpenRouter #1\] request\n\{/);
-		assert.match(record, /https:\/\/openrouter\.ai\/api\/v1\/responses/);
-		assert.match(record, /"method": "POST"/);
-		assert.match(record, /body:\n\{\n {2}"model": "test-model"/);
-		assert.match(record, /1 \+ 1 = \?/);
-		assert.match(record, /"role": "assistant",\n\s+"content": "2"/);
-		assert.match(record, /"status": 200/);
-		assert.match(record, /body:\n\{\n {2}"output": \[/);
-		assert.match(record, /output_text/);
-		assert.match(record, /"durationMs": /);
-		assert.match(record, /\[REDACTED\]/);
-		assert.doesNotMatch(
-			record,
-			/"headers":|raw-header|x-token-count|x-api-key/,
-		);
-		assert.doesNotMatch(record, new RegExp(secret));
-		assert.equal(record.includes(JSON.stringify(secret).slice(1, -1)), false);
-		assert.equal(record.includes("another-token"), false);
-		assert.equal(record.includes("different-secret"), false);
-		assert.deepEqual(
-			await (
-				await fetch(`${base}/api/debug`, {
-					method: "PUT",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ enabled: false }),
-				})
-			).json(),
-			{ enabled: false },
-		);
-		const count = logs.length;
-		await submit();
-		assert.equal(logs.length, count);
-	} finally {
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		console.log = originalLog;
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
-	}
-	const restarted = testServer(upstream).listen(0, "127.0.0.1");
-	try {
-		await new Promise<void>((resolve) => restarted.once("listening", resolve));
-		const address = restarted.address();
-		assert(address && typeof address !== "string");
-		assert.deepEqual(
-			await (await fetch(`http://127.0.0.1:${address.port}/api/debug`)).json(),
-			{ enabled: false },
-		);
-	} finally {
-		restarted.close();
-	}
-});
-
-test("debug can start enabled", async () => {
-	const server = testServer(fetch, true).listen(0, "127.0.0.1");
-	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		assert.deepEqual(
-			await (await fetch(`http://127.0.0.1:${address.port}/api/debug`)).json(),
-			{ enabled: true },
-		);
-	} finally {
-		server.close();
-	}
-});
-
-test("invalid folders are rejected before the model request", async () => {
-	let requests = 0;
-	const server = testServer(async () => {
-		requests++;
-		throw new Error("model should not be called");
-	}).listen(0, "127.0.0.1");
-	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		for (const [folder, message] of [
-			[join(directory, "missing"), "目标文件夹不存在"],
-			[file, "目标路径不是文件夹"],
+		for (const input of [
+			{ name: " ", folders: [directory] },
+			{ name: "Work", folders: [] },
+			{ name: "Work", folders: [" "] },
+			{ name: "Work", folders: [directory, join(directory, "missing")] },
+			{ name: "Work", folders: [file] },
+			{ name: "Work", folders: [directory, join(directory, ".")] },
 		]) {
-			const response: Response = await fetch(
-				`http://127.0.0.1:${address.port}/api/task`,
-				{
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ folder, prompt: "1 + 1 = ?" }),
-				},
-			);
-			assert.equal(response.status, 400);
-			assert.deepEqual(await response.json(), { error: message });
+			assert.equal((await post("/api/projects", input)).status, 400);
+			assert.deepEqual(await (await fetch(`${base}/api/projects`)).json(), {
+				projects: [],
+			});
 		}
-		assert.equal(requests, 0);
-		assert.equal(await readFile(file, "utf8"), "A teh example.");
-	} finally {
-		server.close();
-	}
-});
-
-test("configuration and upstream failures return safe errors without touching the folder", async () => {
-	const secret = "test-secret-never-return";
-	const upstreamBody = `private upstream details ${secret}`;
-	let requests = 0;
-	const sentBodies: string[] = [];
-	let upstream: () => Promise<Response> = async () => Response.json({});
-	const server = testServer(async (_input, init) => {
-		requests++;
-		sentBodies.push(String(init?.body));
-		return upstream();
-	}).listen(0, "127.0.0.1");
-	const previousKey = process.env.OPENROUTER_API_KEY;
-	const previousModel = process.env.OPENROUTER_MODEL;
-	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		const submit = () =>
-			fetch(`http://127.0.0.1:${address.port}/api/task`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ folder: directory, prompt: "1 + 1 = ?" }),
-			});
-		const expectError = async (message: string) => {
-			const response = await submit();
-			assert.equal(response.status, 400);
-			const body = await response.text();
-			assert.equal(body === JSON.stringify({ error: message }), true);
+		const locked = join(directory, "locked");
+		await mkdir(locked);
+		await chmod(locked, 0);
+		try {
 			assert.equal(
-				body.includes(secret) || body.includes("private upstream details"),
-				false,
+				(await post("/api/projects", { name: "Work", folders: [locked] }))
+					.status,
+				400,
 			);
-		};
-
-		delete process.env.OPENROUTER_API_KEY;
-		process.env.OPENROUTER_MODEL = "test-model";
-		await expectError("OpenRouter 配置缺失");
-		process.env.OPENROUTER_API_KEY = secret;
-		delete process.env.OPENROUTER_MODEL;
-		await expectError("OpenRouter 配置缺失");
-		assert.equal(requests, 0);
-
-		process.env.OPENROUTER_MODEL = "test-model";
-		upstream = async () => new Response(upstreamBody, { status: 500 });
-		await expectError("OpenRouter 请求失败");
-		upstream = async () => {
-			throw new Error(upstreamBody);
-		};
-		await expectError("请求失败");
-		upstream = async () => new Response(upstreamBody, { status: 200 });
-		await expectError("请求失败");
-		upstream = async () =>
-			Response.json({
-				output: [
-					{ type: "message", content: [{ type: "output_text", text: "  " }] },
-				],
-			});
-		await expectError("OpenRouter 没有返回文本答案");
-		assert.equal(requests, 4);
+		} finally {
+			await chmod(locked, 0o700);
+		}
+		for (let i = 0; i < 2; i++)
+			assert.equal(
+				(
+					await post("/api/projects", {
+						name: " Work ",
+						folders: [directory, locked],
+					})
+				).status,
+				201,
+			);
+		const projects = (await (await fetch(`${base}/api/projects`)).json())
+			.projects;
+		assert.equal(projects.length, 2);
+		assert.equal(projects[0].name, "Work");
 		assert.equal(
-			sentBodies.every(
-				(body) =>
-					body ===
-					JSON.stringify({
-						model: "test-model",
-						input: [{ role: "user", content: "1 + 1 = ?" }],
-						stream: false,
-					}),
-			),
-			true,
+			(await post("/api/projects/999/chats", { name: "Question" })).status,
+			404,
 		);
-		assert.deepEqual(
-			await (await fetch(`http://127.0.0.1:${address.port}/api/chat`)).json(),
-			{ messages: [], folder: directory, busy: false },
+		assert.equal(
+			(await post(`/api/projects/${projects[0].id}/chats`, { name: " " }))
+				.status,
+			400,
 		);
-		assert.equal(await readFile(file, "utf8"), "A teh example.");
-	} finally {
-		server.close();
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
-	}
-});
-
-test("debug logs failed calls, rejects concurrency, and preserves credentials", async () => {
-	const secret = "fake-debug-key";
-	const previousKey = process.env.OPENROUTER_API_KEY;
-	const previousModel = process.env.OPENROUTER_MODEL;
-	process.env.OPENROUTER_API_KEY = secret;
-	process.env.OPENROUTER_MODEL = "test-model";
-	const logs: string[] = [];
-	const originalLog = console.log;
-	console.log = (...values) => {
-		logs.push(values.join(" "));
-	};
-	const pending = new Map<string, (response: Response) => void>();
-	let upstreamCalls = 0;
-	const upstream: typeof fetch = async (_url, init) => {
-		upstreamCalls++;
-		const lastInput = (
-			JSON.parse(String(init?.body)) as { input: Array<{ content: string }> }
-		).input.at(-1);
-		assert(lastInput);
-		const prompt = lastInput.content;
-		if (prompt === "network") throw new Error(`network failed with ${secret}`);
-		if (prompt === "bad json")
-			return new Response("invalid JSON", { status: 200 });
-		if (prompt === "read failure")
-			return new Response(
-				new ReadableStream({
-					start(controller) {
-						controller.error(new Error(`body failed with ${secret}`));
-					},
-				}),
-				{ status: 206, headers: { "x-token-count": "42" } },
+		for (let i = 0; i < 2; i++)
+			assert.equal(
+				(
+					await post(`/api/projects/${projects[0].id}/chats`, {
+						name: " Question ",
+					})
+				).status,
+				201,
 			);
-		return new Promise<Response>((resolve) => {
-			pending.set(prompt, resolve);
-		});
-	};
-	const server = testServer(upstream).listen(0, "127.0.0.1");
-	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		const base = `http://127.0.0.1:${address.port}`;
-		const toggle = (enabled: boolean) =>
-			fetch(`${base}/api/debug`, {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ enabled }),
-			});
-		const submit = (prompt: string) =>
-			fetch(`${base}/api/task`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ folder: directory, prompt }),
-			});
-		const waitFor = async (prompt: string) => {
-			while (!pending.has(prompt))
-				await new Promise((resolve) => setTimeout(resolve, 1));
-			const resolve = pending.get(prompt);
-			assert(resolve);
-			return resolve;
-		};
-		await toggle(true);
-		assert.deepEqual(
-			await (
-				await fetch(`${base}/api/task`, {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
-						folder: join(directory, "missing"),
-						prompt: "invalid folder",
-					}),
-				})
-			).json(),
-			{ error: "目标文件夹不存在" },
-		);
-		delete process.env.OPENROUTER_API_KEY;
-		assert.deepEqual(await (await submit("missing key")).json(), {
-			error: "OpenRouter 配置缺失",
-		});
-		process.env.OPENROUTER_API_KEY = secret;
-		assert.equal(logs.length, 0);
-		assert.equal(upstreamCalls, 0);
-		const first = submit("first");
-		const resolveFirst = await waitFor("first");
-		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, true);
-		const rejected = await submit("second");
-		assert.equal(rejected.status, 409);
-		assert.deepEqual(await rejected.json(), {
-			error: "已有请求正在进行中",
-		});
-		assert.equal(upstreamCalls, 1);
-		await toggle(false);
-		resolveFirst(
-			Response.json({
-				output: [
-					{
-						type: "message",
-						content: [{ type: "output_text", text: "first answer" }],
-					},
-				],
-			}),
-		);
-		assert.deepEqual(await (await first).json(), { answer: "first answer" });
-		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, false);
-		await toggle(true);
-		const second = submit("second");
-		const resolveSecond = await waitFor("second");
-		resolveSecond(
-			new Response(`failure ${secret}`, {
-				status: 502,
-				headers: { "x-debug": secret },
-			}),
-		);
-		assert.deepEqual(await (await second).json(), {
-			error: "OpenRouter 请求失败",
-		});
-		assert.equal((await (await fetch(`${base}/api/chat`)).json()).busy, false);
-		assert.deepEqual(
-			(await (await fetch(`${base}/api/chat`)).json()).messages,
-			[
-				{ role: "user", content: "first" },
-				{ role: "assistant", content: "first answer" },
-			],
-		);
-		assert.equal(upstreamCalls, 2);
-		const requestLines = logs.filter((line) => line.includes("] request\n"));
-		const responseLines = logs.filter((line) => line.includes("] response\n"));
-		assert.equal(requestLines.length, 2);
-		assert.equal(responseLines.length, 2);
-		const firstId = /\[OpenRouter #(\d+)\]/.exec(
-			requestLines.find((line) => line.includes("first")) ?? "",
-		)?.[1];
-		const secondId = /\[OpenRouter #(\d+)\]/.exec(
-			requestLines.find((line) => line.includes("second")) ?? "",
-		)?.[1];
-		assert(firstId && secondId && firstId !== secondId);
-		const firstResponse = responseLines.find((line) =>
-			line.includes(`#${firstId}]`),
-		);
-		const secondResponse = responseLines.find((line) =>
-			line.includes(`#${secondId}]`),
-		);
-		assert(firstResponse && secondResponse);
-		assert.match(firstResponse, /first answer/);
-		assert.match(secondResponse, /"status": 502/);
-		assert.match(secondResponse, /body:\nfailure \[REDACTED\]/);
-		assert.doesNotMatch(logs.join("\n"), /"headers":|x-debug/);
-		assert.equal(logs.join("\n").includes(secret), false);
-		const count = logs.length;
-		await toggle(false);
-		const unlogged = submit("unlogged");
-		(await waitFor("unlogged"))(
-			Response.json({
-				output: [
-					{ type: "message", content: [{ type: "output_text", text: "done" }] },
-				],
-			}),
-		);
-		assert.deepEqual(await (await unlogged).json(), { answer: "done" });
-		assert.equal(logs.length, count);
-		assert.equal(upstreamCalls, 3);
-		await toggle(true);
-		assert.deepEqual(await (await submit("network")).json(), {
-			error: "请求失败",
-		});
-		assert.deepEqual(await (await submit("bad json")).json(), {
-			error: "请求失败",
-		});
-		assert.deepEqual(await (await submit("read failure")).json(), {
-			error: "请求失败",
-		});
-		assert.match(logs.join("\n"), /network failed with \[REDACTED\]/);
-		assert.match(logs.join("\n"), /body:\ninvalid JSON/);
-		const readFailure = logs.find((line) =>
-			line.includes("body failed with [REDACTED]"),
-		);
-		assert(readFailure);
-		assert.match(readFailure, /\] error\n/);
-		assert.match(readFailure, /"status": 206/);
-		assert.doesNotMatch(readFailure, /x-token-count/);
-		assert.equal(logs.join("\n").includes(secret), false);
-		assert.equal(upstreamCalls, 6);
+		const chats = (await (await fetch(`${base}/api/projects`)).json())
+			.projects[0].chats;
+		assert.equal(chats.length, 2);
+		assert.equal(chats[0].name, "Question");
+		assert.notEqual(chats[0].id, chats[1].id);
+		assert.equal((await fetch(`${base}/api/chat`)).status, 404);
+		assert.equal((await post("/api/task", { prompt: "old" })).status, 404);
+		const html = await (await fetch(`${base}/?chat=1`)).text();
+		const script = html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
+		assert(script);
+		assert.equal((await fetch(base + script)).status, 200);
+		assert.equal((await fetch(`${base}/assets/missing.js`)).status, 404);
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
-		console.log = originalLog;
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("legacy schema resets once and invalid or read-only databases fail at startup", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-schema-"));
+	const path = join(directory, "legacy.sqlite");
+	try {
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1),folder TEXT NOT NULL);CREATE TABLE turns(id INTEGER PRIMARY KEY,user_content TEXT NOT NULL,assistant_content TEXT NOT NULL);INSERT INTO turns(user_content,assistant_content)VALUES('old','answer');",
+		);
+		db.close();
+		const server = createServer(fetch, false, path).listen(0, "127.0.0.1");
+		await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		assert.deepEqual(
+			await (
+				await fetch(`http://127.0.0.1:${address.port}/api/projects`)
+			).json(),
+			{ projects: [] },
+		);
+		const created = await (
+			await fetch(`http://127.0.0.1:${address.port}/api/projects`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ name: "New", folders: ["."] }),
+			})
+		).json();
+		assert.deepEqual(created.folders, [process.cwd()]);
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		const restarted = createServer(fetch, false, path).listen(0, "127.0.0.1");
+		try {
+			await new Promise<void>((resolve) =>
+				restarted.once("listening", resolve),
+			);
+			const restartAddress = restarted.address();
+			assert(restartAddress && typeof restartAddress !== "string");
+			const saved = (
+				await (
+					await fetch(`http://127.0.0.1:${restartAddress.port}/api/projects`)
+				).json()
+			).projects;
+			assert.equal(saved[0].id, created.id);
+			assert.equal(saved[0].name, "New");
+		} finally {
+			await new Promise<void>((resolve) => restarted.close(() => resolve()));
+		}
+		const invalid = join(directory, "invalid.sqlite");
+		const bad = new DatabaseSync(invalid);
+		bad.exec("CREATE TABLE surprise(id INTEGER)");
+		bad.close();
+		assert.throws(() => createServer(fetch, false, invalid), /schema/);
+		const broken = join(directory, "broken.sqlite");
+		await writeFile(broken, "not a database");
+		assert.throws(() => createServer(fetch, false, broken));
+		await chmod(path, 0o444);
+		try {
+			assert.throws(() => createServer(fetch, false, path));
+		} finally {
+			await chmod(path, 0o644);
+		}
+		const missing = join(directory, "missing", "db.sqlite");
+		assert.throws(() => createServer(fetch, false, missing));
+		const result = spawnSync(
+			process.execPath,
+			["src/server.ts", "--db", missing],
+			{ cwd: new URL("..", import.meta.url), encoding: "utf8" },
+		);
+		assert.notEqual(result.status, 0);
+		assert.match(result.stderr, /unable to open database/);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
 	}
 });

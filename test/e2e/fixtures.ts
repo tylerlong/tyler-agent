@@ -1,0 +1,36 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test as base, expect } from "@playwright/test";
+import { createServer } from "../../src/server.ts";
+
+export const test = base.extend<{ app: { url: string; folder: string } }>({
+	app: async ({ browserName: _browserName }, use) => {
+		const folder = await mkdtemp(join(tmpdir(), "agent-e2e-"));
+		const server = createServer(
+			async () =>
+				Response.json({
+					output: [
+						{
+							type: "message",
+							content: [{ type: "output_text", text: "Test answer" }],
+						},
+					],
+				}),
+			false,
+			join(folder, "db.sqlite"),
+		).listen(0, "127.0.0.1");
+		await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		if (!address || typeof address === "string")
+			throw new Error("Missing test server address");
+		try {
+			await use({ url: `http://127.0.0.1:${address.port}`, folder });
+		} finally {
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			await rm(folder, { recursive: true, force: true });
+		}
+	},
+});
+export { expect };

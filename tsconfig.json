@@ -9,5 +9,11 @@
 		"allowImportingTsExtensions": true,
 		"types": ["node", "vite/client"]
 	},
-	"include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "vite.config.ts"]
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"test/**/*.ts",
+		"vite.config.ts",
+		"playwright.config.ts"
+	]
 }
