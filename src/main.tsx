@@ -239,6 +239,9 @@ function App() {
 			</section>
 			<dialog
 				ref={dialog}
+				onCancel={(event) => {
+					if (saving) event.preventDefault();
+				}}
 				aria-labelledby="create-title"
 				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
 			>
