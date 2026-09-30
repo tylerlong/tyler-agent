@@ -25,17 +25,15 @@ test("native creation modals support validation, keyboard cancellation, focus an
 	await expect(createProject).toBeFocused();
 	await createProject.click();
 	await modal.getByLabel("名称").fill(" ");
-	await modal.getByLabel("文件夹路径（每行一个）").fill(app.folder);
+	await modal.getByRole("button", { name: "添加文件夹" }).click();
+	await page
+		.getByRole("dialog", { name: "选择文件夹" })
+		.getByRole("button", { name: "选择此目录" })
+		.click();
 	await modal.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(modal.getByRole("alert")).toHaveText("名称不得为空");
 	await expect(modal).toBeVisible();
 	await modal.getByLabel("名称").fill("Work");
-	await modal
-		.getByLabel("文件夹路径（每行一个）")
-		.fill(`${app.folder}\n${app.folder}`);
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
-	await expect(modal.getByRole("alert")).toHaveText("文件夹路径重复");
-	await modal.getByLabel("文件夹路径（每行一个）").fill(app.folder);
 	await modal.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await expect(createProject).toBeFocused();
@@ -92,7 +90,11 @@ test("pending project creation can hide and reopen without cancelling or closing
 	await page.getByRole("button", { name: "新建 project", exact: true }).click();
 	const modal = page.getByRole("dialog", { name: /^新建/ });
 	await modal.getByLabel("名称").fill("First");
-	await modal.getByLabel("文件夹路径（每行一个）").fill(app.folder);
+	await modal.getByRole("button", { name: "添加文件夹" }).click();
+	await page
+		.getByRole("dialog", { name: "选择文件夹" })
+		.getByRole("button", { name: "选择此目录" })
+		.click();
 	await modal.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(modal.getByRole("button", { name: "取消" })).toBeEnabled();
 	await page.keyboard.press("Escape");

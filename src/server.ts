@@ -1,11 +1,12 @@
 import { constants } from "node:fs";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import {
 	createServer as createHttpServer,
 	type IncomingMessage,
 	type ServerResponse,
 } from "node:http";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { listProjects, openDatabase } from "./database.ts";
@@ -53,6 +54,7 @@ export function createServer(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
 		databasePath === undefined,
 	);
+	const home = homedir();
 	const busy = new Set<number>();
 	const projects = () =>
 		listProjects(database).map((project) => ({
@@ -142,6 +144,61 @@ export function createServer(
 				if (changed) notifyChange();
 			} catch {
 				json(response, 400, { error: "无效的日志设置" });
+			}
+			return;
+		}
+		if (path === "/api/directories" && request.method === "GET") {
+			try {
+				const paths = url.searchParams.getAll("path");
+				if (paths.length > 1 || (paths.length && !paths[0]?.trim()))
+					throw new InputError("无效的目录路径");
+				const current = resolve(paths[0]?.trim() ?? home);
+				if (!(await stat(current)).isDirectory())
+					throw new InputError("目标路径不是文件夹");
+				await access(current, constants.R_OK | constants.X_OK);
+				const entries = await readdir(current, { withFileTypes: true });
+				const directories = [];
+				for (const entry of entries) {
+					if (entry.name.startsWith(".")) continue;
+					const child = join(current, entry.name);
+					let directory = entry.isDirectory();
+					if (entry.isSymbolicLink()) {
+						try {
+							directory = (await stat(child)).isDirectory();
+						} catch {
+							continue;
+						}
+					}
+					if (directory) directories.push({ name: entry.name, path: child });
+				}
+				directories.sort((a, b) =>
+					a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+				);
+				json(response, 200, {
+					path: current,
+					parent: dirname(current) === current ? null : dirname(current),
+					directories,
+				});
+			} catch (error) {
+				const code = (error as NodeJS.ErrnoException).code;
+				json(
+					response,
+					error instanceof InputError
+						? 400
+						: code === "ENOENT"
+							? 404
+							: code === "EACCES" || code === "EPERM"
+								? 403
+								: 400,
+					{
+						error:
+							error instanceof InputError
+								? error.message
+								: code === "ENOENT"
+									? "目标文件夹不存在"
+									: "无法浏览目标文件夹",
+					},
+				);
 			}
 			return;
 		}

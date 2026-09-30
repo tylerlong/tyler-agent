@@ -174,14 +174,48 @@ function App() {
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [creatingProject, setCreatingProject] = useState<number | null>(null);
 	const [name, setName] = useState("");
-	const [folders, setFolders] = useState("");
+	const [folders, setFolders] = useState<string[]>([]);
+	const folderDialog = useRef<HTMLDialogElement>(null);
+	const [directory, setDirectory] = useState<{
+		path: string;
+		parent: string | null;
+		directories: { name: string; path: string }[];
+	} | null>(null);
+	const [directoryError, setDirectoryError] = useState("");
+	const [loadingDirectory, setLoadingDirectory] = useState(false);
+	const directoryRevision = useRef(0);
+	async function browse(path?: string) {
+		const revision = ++directoryRevision.current;
+		setLoadingDirectory(true);
+		setDirectoryError("");
+		try {
+			const data = await api(
+				`/api/directories${path === undefined ? "" : `?path=${encodeURIComponent(path)}`}`,
+			);
+			if (revision === directoryRevision.current) setDirectory(data);
+		} catch (cause) {
+			if (revision === directoryRevision.current)
+				setDirectoryError(
+					cause instanceof Error ? cause.message : "目录读取失败",
+				);
+		} finally {
+			if (revision === directoryRevision.current) setLoadingDirectory(false);
+		}
+	}
+	function resetDirectory() {
+		++directoryRevision.current;
+		setDirectory(null);
+		setDirectoryError("");
+		setLoadingDirectory(false);
+	}
 	const [modalError, setModalError] = useState("");
 	const [saving, setSaving] = useState(false);
 	function openModal(projectId: number | null) {
 		if (projectId !== creatingProject) {
 			setCreatingProject(projectId);
 			setName("");
-			setFolders("");
+			setFolders([]);
+			resetDirectory();
 			setModalError("");
 		}
 		dialog.current?.showModal();
@@ -190,7 +224,7 @@ function App() {
 		event.preventDefault();
 		if (saving) return;
 		const target = creatingProject;
-		const input = { name, folders: folders.split("\n") };
+		const input = { name, folders };
 		setSaving(true);
 		setModalError("");
 		try {
@@ -209,7 +243,8 @@ function App() {
 			}
 			await refresh();
 			setName("");
-			setFolders("");
+			setFolders([]);
+			resetDirectory();
 			dialog.current?.close();
 		} catch (cause) {
 			setModalError(cause instanceof Error ? cause.message : "创建失败");
@@ -401,17 +436,40 @@ function App() {
 						/>
 					</label>
 					{creatingProject === null && (
-						<label className="block">
-							文件夹路径（每行一个）
-							<textarea
-								className={control}
-								rows={4}
+						<section aria-label="已选文件夹">
+							<h3>目标文件夹</h3>
+							<ul>
+								{folders.map((folder) => (
+									<li key={folder} className="mt-2 flex items-center gap-2">
+										<span className="min-w-0 flex-1 break-all">{folder}</span>
+										<button
+											type="button"
+											className={button}
+											disabled={saving}
+											aria-label={`移除 ${folder}`}
+											onClick={() =>
+												setFolders((current) =>
+													current.filter((path) => path !== folder),
+												)
+											}
+										>
+											移除
+										</button>
+									</li>
+								))}
+							</ul>
+							<button
+								type="button"
+								className={`${button} mt-2`}
 								disabled={saving}
-								value={folders}
-								onChange={(event) => setFolders(event.target.value)}
-								required
-							/>
-						</label>
+								onClick={() => {
+									folderDialog.current?.showModal();
+									if (!loadingDirectory) void browse(directory?.path);
+								}}
+							>
+								添加文件夹
+							</button>
+						</section>
 					)}
 					{modalError && (
 						<p role="alert" className="text-red-700">
@@ -431,6 +489,75 @@ function App() {
 						</button>
 					</div>
 				</form>
+			</dialog>
+			<dialog
+				ref={folderDialog}
+				aria-labelledby="folder-title"
+				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
+			>
+				<h2 id="folder-title" className="text-xl font-semibold">
+					选择文件夹
+				</h2>
+				<section aria-label="当前目录" className="mt-4 break-all">
+					{directory?.path}
+				</section>
+				<button
+					type="button"
+					className={`${button} mt-2`}
+					disabled={!directory?.parent}
+					onClick={() => {
+						if (directory?.parent) void browse(directory.parent);
+					}}
+				>
+					返回上级
+				</button>
+				{loadingDirectory && <p role="status">加载中…</p>}
+				<ul aria-label="子目录" className="mt-4 space-y-2">
+					{directory?.directories.map((child) => (
+						<li key={child.path}>
+							<button
+								type="button"
+								className={button}
+								onClick={() => void browse(child.path)}
+							>
+								{child.name}
+							</button>
+						</li>
+					))}
+				</ul>
+				{directoryError && (
+					<p role="alert" className="mt-4 text-red-700">
+						{directoryError}
+					</p>
+				)}
+				<div className="mt-4 flex justify-end gap-3">
+					<button
+						type="button"
+						className={button}
+						onClick={() => folderDialog.current?.close()}
+					>
+						取消
+					</button>
+					<button
+						type="button"
+						className={button}
+						disabled={
+							loadingDirectory ||
+							!directory ||
+							saving ||
+							folders.includes(directory.path)
+						}
+						onClick={() => {
+							if (directory)
+								setFolders((current) => [...current, directory.path]);
+							folderDialog.current?.close();
+						}}
+					>
+						{directory && folders.includes(directory.path)
+							? "已添加"
+							: "选择此目录"}
+					</button>
+				</div>
 			</dialog>
 			<dialog
 				ref={settingsDialog}

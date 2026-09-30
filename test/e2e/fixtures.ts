@@ -34,6 +34,8 @@ export const test = base.extend<{
 			gate = { entered: enter, wait };
 			return { entered, release };
 		}
+		const originalHome = process.env.HOME;
+		process.env.HOME = folder;
 		const server = createServer(
 			async () => {
 				if (fail) {
@@ -58,6 +60,8 @@ export const test = base.extend<{
 			false,
 			join(folder, "db.sqlite"),
 		).listen(0, "127.0.0.1");
+		if (originalHome === undefined) delete process.env.HOME;
+		else process.env.HOME = originalHome;
 		await new Promise<void>((resolve) => server.once("listening", resolve));
 		const address = server.address();
 		if (!address || typeof address === "string")
