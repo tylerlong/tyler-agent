@@ -206,7 +206,7 @@ function App() {
 	}, [refresh, refreshChat]);
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [creatingProject, setCreatingProject] = useState<number | null>(null);
-	const [name, setName] = useState("");
+	const [name, setName] = useState("New project");
 	const [folders, setFolders] = useState<string[]>([]);
 	const folderDialog = useRef<HTMLDialogElement>(null);
 	const [directory, setDirectory] = useState<{
@@ -248,7 +248,7 @@ function App() {
 	function openModal(projectId: number | null) {
 		if (projectId !== creatingProject) {
 			setCreatingProject(projectId);
-			setName("");
+			setName(projectId === null ? "New project" : "New chat");
 			setFolders([]);
 			resetDirectory();
 			setModalError("");
@@ -277,7 +277,7 @@ function App() {
 				});
 			}
 			await refresh();
-			setName("");
+			setName(target === null ? "New project" : "New chat");
 			setFolders([]);
 			resetDirectory();
 			dialog.current?.close();

@@ -255,12 +255,11 @@ export function createServer(
 				const projectName = name(input);
 				if (
 					!Array.isArray(input.folders) ||
-					!input.folders.length ||
 					input.folders.some(
 						(folder) => typeof folder !== "string" || !folder.trim(),
 					)
 				)
-					throw new InputError("至少需要一个非空文件夹路径");
+					throw new InputError("文件夹列表必须包含有效的非空路径");
 				const folders = input.folders.map((folder: string) =>
 					resolve(folder.trim()),
 				);

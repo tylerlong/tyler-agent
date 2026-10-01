@@ -76,7 +76,7 @@ test("real directory picker selects one folder at a time, preserves position and
 	await project.getByRole("button", { name: "创建", exact: true }).click();
 	await expect(project).not.toBeVisible();
 	await page.getByRole("button", { name: "新建 project", exact: true }).click();
-	await expect(project.getByLabel("名称")).toHaveValue("");
+	await expect(project.getByLabel("名称")).toHaveValue("New project");
 	await add.click();
 	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
 });

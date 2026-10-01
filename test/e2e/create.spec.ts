@@ -2,6 +2,66 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "./fixtures.ts";
 
+test("default names submit without folders and fresh drafts reset after success", async ({
+	page,
+	context,
+	app,
+}) => {
+	await page.goto(app.url);
+	const other = await context.newPage();
+	await other.goto(app.url);
+	const trigger = page.getByRole("button", {
+		name: "新建 project",
+		exact: true,
+	});
+	const modal = page.getByRole("dialog", { name: /^新建/ });
+	await trigger.click();
+	await expect(modal.getByLabel("名称")).toHaveValue("New project");
+	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await expect(modal).not.toBeVisible();
+	await expect(
+		other.getByRole("heading", { name: "New project", exact: true }),
+	).toBeVisible();
+	await trigger.click();
+	await expect(modal.getByLabel("名称")).toHaveValue("New project");
+	await modal.getByLabel("名称").fill(" ");
+	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await expect(modal.getByRole("alert")).toHaveText("名称不得为空");
+	await modal.getByRole("button", { name: "取消" }).click();
+	await trigger.click();
+	await expect(modal.getByLabel("名称")).toHaveValue(" ");
+	await expect(modal.getByRole("alert")).toHaveText("名称不得为空");
+	await modal.getByLabel("名称").fill("Personal");
+	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await expect(modal).not.toBeVisible();
+	const personal = page.getByRole("region", {
+		name: "Project Personal",
+		exact: true,
+	});
+	await personal
+		.getByRole("button", { name: "新建 chat", exact: true })
+		.click();
+	await expect(modal.getByLabel("名称")).toHaveValue("New chat");
+	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await expect(modal).not.toBeVisible();
+	await expect(
+		other.getByRole("button", { name: "New chat", exact: true }),
+	).toBeVisible();
+	await personal
+		.getByRole("button", { name: "新建 chat", exact: true })
+		.click();
+	await expect(modal.getByLabel("名称")).toHaveValue("New chat");
+	await modal.getByLabel("名称").fill("Draft");
+	await modal.getByRole("button", { name: "取消" }).click();
+	await personal
+		.getByRole("button", { name: "新建 chat", exact: true })
+		.click();
+	await expect(modal.getByLabel("名称")).toHaveValue("Draft");
+	await modal.getByRole("button", { name: "取消" }).click();
+	await trigger.click();
+	await expect(modal.getByLabel("名称")).toHaveValue("New project");
+});
+
 test("native creation modals support validation, cancellation and shared lists", async ({
 	page,
 	context,
@@ -154,7 +214,7 @@ test("pending chat creation keeps its input while hidden and completes in its or
 			.getByRole("heading", { name: "Pending chat" }),
 	).toBeVisible();
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("");
+	await expect(modal.getByLabel("名称")).toHaveValue("New chat");
 });
 
 test("settings stays synchronized while hidden and failed updates can retry without losing errors", async ({

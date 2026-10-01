@@ -30,7 +30,7 @@ test("invalid project inputs never create partial records; duplicate names and e
 			});
 		for (const input of [
 			{ name: " ", folders: [directory] },
-			{ name: "Work", folders: [] },
+			{ name: "Work", folders: "not an array" },
 			{ name: "Work", folders: [" "] },
 			{ name: "Work", folders: [directory, join(directory, "missing")] },
 			{ name: "Work", folders: [file] },
@@ -58,7 +58,7 @@ test("invalid project inputs never create partial records; duplicate names and e
 				(
 					await post("/api/projects", {
 						name: " Work ",
-						folders: [directory, locked],
+						folders: i === 0 ? [directory, locked] : [],
 					})
 				).status,
 				201,
@@ -67,6 +67,12 @@ test("invalid project inputs never create partial records; duplicate names and e
 			.projects;
 		assert.equal(projects.length, 2);
 		assert.equal(projects[0].name, "Work");
+		assert.deepEqual(
+			projects.find(
+				(project: { folders: string[] }) => project.folders.length === 0,
+			)?.folders,
+			[],
+		);
 		assert.equal(
 			(await post("/api/projects/999/chats", { name: "Question" })).status,
 			404,
