@@ -18,6 +18,73 @@ async function drag(page: Page, offset: number) {
 	await page.mouse.up();
 }
 
+test("long chat and project lists scroll independently with sidebar header and footer fixed", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	let first = 0;
+	for (let i = 0; i < 35; i++) {
+		const chat = await (
+			await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+				data: { name: `Chat ${i}` },
+			})
+		).json();
+		if (i === 0) first = chat.id;
+	}
+	await page.request.put(`${app.url}/api/debug`, { data: { enabled: false } });
+	const answer = await page.request.post(`${app.url}/api/chats/${first}`, {
+		data: { prompt: "Long question. ".repeat(400) },
+	});
+	expect(answer.ok()).toBe(true);
+	await page.setViewportSize({ width: 900, height: 600 });
+	await page.goto(`${app.url}/?chat=${first}`);
+	const heading = page.getByRole("heading", {
+		name: "Tyler Agent",
+		exact: true,
+	});
+	const create = page.getByRole("button", { name: "New project", exact: true });
+	const settings = page.getByRole("button", { name: "Settings", exact: true });
+	const content = page.getByRole("region", { name: "Chat", exact: true });
+	const list = page.getByRole("navigation", { name: "Projects and chats" });
+	const positions = await Promise.all(
+		[heading, create, settings].map((el) => el.boundingBox()),
+	);
+	await content.hover();
+	await page.mouse.wheel(0, 700);
+	await expect
+		.poll(() => content.evaluate((el) => el.scrollTop))
+		.toBeGreaterThan(0);
+	const rightScroll = await content.evaluate((el) => el.scrollTop);
+	await list.hover();
+	await page.mouse.wheel(0, 700);
+	await expect
+		.poll(() =>
+			list.evaluate((el) => {
+				let node: HTMLElement | null = el as HTMLElement;
+				while (node && node.scrollTop === 0) node = node.parentElement;
+				return node?.scrollTop ?? 0;
+			}),
+		)
+		.toBeGreaterThan(0);
+	expect(
+		await Promise.all(
+			[heading, create, settings].map((el) => el.boundingBox()),
+		),
+	).toEqual(positions);
+	expect(await content.evaluate((el) => el.scrollTop)).toBe(rightScroll);
+	expect(await page.evaluate(() => window.scrollY)).toBe(0);
+	await page.setViewportSize({ width: 480, height: 400 });
+	await expect(sidebar(page)).toHaveCSS("height", "400px");
+	await expect(heading).toBeInViewport();
+	await expect(create).toBeInViewport();
+	await expect(settings).toBeInViewport();
+});
+
 test("drag saves once after release; fixed limits, double click and server restart restore width", async ({
 	page,
 	app,

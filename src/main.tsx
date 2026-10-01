@@ -665,105 +665,108 @@ function App() {
 			</main>
 		);
 	return (
-		<main className="flex min-h-screen text-neutral-700">
+		<main className="flex h-dvh overflow-hidden text-neutral-700">
 			<aside
 				id="projects-panel"
 				aria-label={t("projects")}
 				style={{ width: sidebarWidth }}
-				className="relative flex shrink-0 flex-col bg-neutral-50 p-3"
+				className="relative flex h-full shrink-0 flex-col bg-neutral-50 p-3"
 			>
-				<h1 className="mb-3 px-2 text-lg font-semibold">Tyler Agent</h1>
-				<button
-					type="button"
-					className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-neutral-100 disabled:opacity-50"
-					aria-label={t("newProject")}
-					disabled={saving && (editing !== null || creatingProject !== null)}
-					onClick={() => openModal(null)}
-				>
-					<svg
-						aria-hidden="true"
-						width="18"
-						height="18"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="1.5"
+				<header className="shrink-0">
+					<h1 className="mb-3 px-2 text-lg font-semibold">Tyler Agent</h1>
+					<button
+						type="button"
+						className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-neutral-100 disabled:opacity-50"
+						aria-label={t("newProject")}
+						disabled={saving && (editing !== null || creatingProject !== null)}
+						onClick={() => openModal(null)}
 					>
-						<path d="M20 11V7a2 2 0 0 0-2-2h-7L9 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7M18 14v8m-4-4h8" />
-					</svg>
-					{t("newProject")}
-				</button>
-				<nav
-					aria-label={t("projectsAndChats")}
-					className="mt-4 flex-1 space-y-3"
-				>
-					{projects
-						.filter((project) => !project.archived)
-						.map((project) =>
-							renderProject({
-								...project,
-								chats: project.chats.filter((chat) => !chat.archived),
-							}),
-						)}
-				</nav>
-				<details aria-label={t("archived")}>
-					<summary className="cursor-pointer">{t("archived")}</summary>
-					<div className="mt-4 space-y-4">
+						<svg
+							aria-hidden="true"
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.5"
+						>
+							<path d="M20 11V7a2 2 0 0 0-2-2h-7L9 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7M18 14v8m-4-4h8" />
+						</svg>
+						{t("newProject")}
+					</button>
+				</header>
+				<div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
+					<nav aria-label={t("projectsAndChats")} className="space-y-3">
 						{projects
-							.filter(
-								(project) =>
-									project.archived ||
-									project.chats.some((chat) => chat.archived),
-							)
+							.filter((project) => !project.archived)
 							.map((project) =>
-								renderProject(
-									{
-										...project,
-										chats: project.chats.filter(
-											(chat) => project.archived || chat.archived,
-										),
-									},
-									true,
-								),
+								renderProject({
+									...project,
+									chats: project.chats.filter((chat) => !chat.archived),
+								}),
 							)}
-					</div>
-				</details>
-				<button
-					type="button"
-					className={`${iconButton} mt-5 self-start`}
-					aria-label={t("settings")}
-					title={t("settings")}
-					onClick={() => settingsDialog.current?.showModal()}
-				>
-					<svg
-						aria-hidden="true"
-						width="20"
-						height="20"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="1.5"
+					</nav>
+					<details aria-label={t("archived")} className="mt-4">
+						<summary className="cursor-pointer">{t("archived")}</summary>
+						<div className="mt-4 space-y-4">
+							{projects
+								.filter(
+									(project) =>
+										project.archived ||
+										project.chats.some((chat) => chat.archived),
+								)
+								.map((project) =>
+									renderProject(
+										{
+											...project,
+											chats: project.chats.filter(
+												(chat) => project.archived || chat.archived,
+											),
+										},
+										true,
+									),
+								)}
+						</div>
+					</details>
+					{error && (
+						<p
+							role="alert"
+							className="mt-4 whitespace-pre-wrap break-words text-red-700"
+						>
+							{errorText(error)}
+						</p>
+					)}
+					{selected !== null && !chat && chatErrors[selected] && (
+						<p
+							role="alert"
+							className="mt-4 whitespace-pre-wrap break-words text-red-700"
+						>
+							{errorText(chatErrors[selected])}
+						</p>
+					)}
+				</div>
+				<footer className="shrink-0 pt-3">
+					<button
+						type="button"
+						className={`${iconButton} self-start`}
+						aria-label={t("settings")}
+						title={t("settings")}
+						onClick={() => settingsDialog.current?.showModal()}
 					>
-						<path d="m9 3-1 3-3 1-2 3 2 2-2 2 2 3 3 1 1 3h6l1-3 3-1 2-3-2-2 2-2-2-3-3-1-1-3Z" />
-						<circle cx="12" cy="12" r="3" />
-					</svg>
-				</button>
-				{error && (
-					<p
-						role="alert"
-						className="mt-4 whitespace-pre-wrap break-words text-red-700"
-					>
-						{errorText(error)}
-					</p>
-				)}
-				{selected !== null && !chat && chatErrors[selected] && (
-					<p
-						role="alert"
-						className="mt-4 whitespace-pre-wrap break-words text-red-700"
-					>
-						{errorText(chatErrors[selected])}
-					</p>
-				)}
+						<svg
+							aria-hidden="true"
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.5"
+						>
+							<path d="m9 3-1 3-3 1-2 3 2 2-2 2 2 3 3 1 1 3h6l1-3 3-1 2-3-2-2 2-2-2-3-3-1-1-3Z" />
+							<circle cx="12" cy="12" r="3" />
+						</svg>
+					</button>
+				</footer>
 				<hr
 					aria-label={t("resizeSidebar")}
 					aria-orientation="vertical"
@@ -808,7 +811,10 @@ function App() {
 					}}
 				/>
 			</aside>
-			<section aria-label={t("chat")} className="min-w-0 flex-1 px-6 py-10">
+			<section
+				aria-label={t("chat")}
+				className="min-w-0 flex-1 overflow-auto overscroll-contain px-6 py-10"
+			>
 				{project && chat && (
 					<div className="mx-auto max-w-2xl">
 						<p className="text-neutral-600">{project.name}</p>

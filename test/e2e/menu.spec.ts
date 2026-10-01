@@ -147,6 +147,7 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 		data: { archived: true },
 	});
 	await page.getByText("Archived", { exact: true }).click();
+	await page.setViewportSize({ width: 800, height: 280 });
 	const archived = page.getByRole("group", { name: "Archived", exact: true });
 	const bottomTrigger = archived.getByRole("button", {
 		name: "Chat First actions",
@@ -214,6 +215,9 @@ test("normal and Archived project targets stay separate and actions close before
 		exact: true,
 	});
 	await expect(edit).toBeVisible();
+	// The open menu covers nearby rows; dismiss it before using that row's trigger.
+	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await expect(edit).toBeHidden();
 	await archived
 		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
