@@ -58,3 +58,28 @@ test("reordered reads and a failed PUT reconcile to the latest server setting", 
 	assert.equal(await failedSave, "failed");
 	assert.equal(displayed, false);
 });
+
+test("a superseded confirmation read reports unknown when the newer refresh failed", async () => {
+	let release!: (value: boolean) => void;
+	let readCount = 0;
+	let displayed: boolean | null = false;
+	const state = createSettingState<boolean>(
+		async () => {
+			if (++readCount === 1)
+				return new Promise<boolean>((resolve) => {
+					release = resolve;
+				});
+			throw new Error("newer read failed");
+		},
+		async () => {},
+		(value) => {
+			displayed = value;
+		},
+	);
+	const saving = state.save(true);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(await state.refresh(), false);
+	release(true);
+	assert.equal(await saving, "unknown");
+	assert.equal(displayed, null);
+});

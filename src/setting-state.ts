@@ -4,15 +4,18 @@ export function createSettingState<T>(
 	apply: (value: T | null) => void,
 ) {
 	let latestRead = 0;
+	let latestReadSucceeded = false;
 	const refresh = async () => {
 		const version = ++latestRead;
+		latestReadSucceeded = false;
 		try {
 			const value = await read();
-			if (version !== latestRead) return true;
+			if (version !== latestRead) return latestReadSucceeded;
+			latestReadSucceeded = true;
 			apply(value);
 			return true;
 		} catch {
-			if (version !== latestRead) return true;
+			if (version !== latestRead) return latestReadSucceeded;
 			apply(null);
 			return false;
 		}
