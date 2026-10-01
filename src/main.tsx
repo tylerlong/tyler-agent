@@ -85,7 +85,7 @@ function ActionMenu({
 }) {
 	const popover = useRef<HTMLDivElement>(null);
 	return (
-		<div>
+		<div className="relative">
 			<button
 				type="button"
 				className={iconButton}
@@ -496,9 +496,10 @@ function App() {
 			key={project.id}
 			aria-label={t("projectRegion", { name: project.name })}
 		>
-			<div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-neutral-100">
+			<div className="relative flex items-center gap-2 rounded-md px-2 py-1 hover:bg-neutral-100">
 				<button
 					type="button"
+					className="absolute inset-0 rounded-md"
 					aria-expanded={!collapsed.has(project.id)}
 					aria-label={t(collapsed.has(project.id) ? "expand" : "collapse", {
 						name: project.name,
@@ -511,10 +512,29 @@ function App() {
 							return next;
 						})
 					}
+				/>
+				<svg
+					aria-hidden="true"
+					className="pointer-events-none shrink-0"
+					width="18"
+					height="18"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="1.5"
+					strokeLinecap="round"
+					strokeLinejoin="round"
 				>
-					{collapsed.has(project.id) ? "▸" : "▾"}
-				</button>
-				<h2 className="min-w-0 flex-1 break-words font-normal">
+					{collapsed.has(project.id) ? (
+						<path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7h18" />
+					) : (
+						<>
+							<path d="M3 17V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v2" />
+							<path d="m3 17 3-7h16l-3 9H5a2 2 0 0 1-2-2Z" />
+						</>
+					)}
+				</svg>
+				<h2 className="pointer-events-none min-w-0 flex-1 break-words font-normal">
 					{project.name}
 					{project.archived && (
 						<span className="text-sm font-normal">
@@ -525,7 +545,7 @@ function App() {
 				{!archivedArea && (
 					<button
 						type="button"
-						className={iconButton}
+						className={`${iconButton} relative`}
 						aria-label={t("newChat")}
 						title={t("newChat")}
 						disabled={
@@ -662,8 +682,8 @@ function App() {
 				>
 					<svg
 						aria-hidden="true"
-						width="20"
-						height="20"
+						width="18"
+						height="18"
 						viewBox="0 0 24 24"
 						fill="none"
 						stroke="currentColor"
@@ -869,6 +889,7 @@ function App() {
 				)}
 			</section>
 			<dialog
+				closedby="any"
 				ref={dialog}
 				aria-labelledby="create-title"
 				className="m-auto w-full max-w-lg rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
@@ -965,6 +986,7 @@ function App() {
 				</form>
 			</dialog>
 			<dialog
+				closedby="any"
 				ref={folderDialog}
 				aria-labelledby="folder-title"
 				className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40 open:flex open:flex-col"
@@ -1064,6 +1086,7 @@ function App() {
 				</footer>
 			</dialog>
 			<dialog
+				closedby="any"
 				ref={settingsDialog}
 				aria-labelledby="settings-title"
 				className="m-auto w-full max-w-lg rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"

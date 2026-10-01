@@ -2,6 +2,42 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "./fixtures.ts";
 
+test("all modals dismiss outside without clearing drafts or closing their parent", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	const trigger = page.getByRole("button", {
+		name: "New project",
+		exact: true,
+	});
+	const create = page.getByRole("dialog", { name: "New project", exact: true });
+	await trigger.click();
+	await create.getByLabel("Name").fill("Draft project");
+	await create.click({ position: { x: 8, y: 8 } });
+	await expect(create).toBeVisible();
+	await create.getByRole("button", { name: "Add folder", exact: true }).click();
+	const folder = page.getByRole("dialog", {
+		name: "Select folder",
+		exact: true,
+	});
+	await expect(folder).toBeVisible();
+	await page.mouse.click(5, 5);
+	await expect(folder).toBeHidden();
+	await expect(create).toBeVisible();
+	await expect(create.getByLabel("Name")).toHaveValue("Draft project");
+	await page.mouse.click(5, 5);
+	await expect(create).toBeHidden();
+	await trigger.click();
+	await expect(create.getByLabel("Name")).toHaveValue("Draft project");
+	await create.getByRole("button", { name: "Cancel", exact: true }).click();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+	await expect(settings).toBeVisible();
+	await page.mouse.click(5, 5);
+	await expect(settings).toBeHidden();
+});
+
 test("default names submit without folders and fresh drafts reset after success", async ({
 	page,
 	context,
@@ -150,7 +186,7 @@ test("pending project creation can hide and reopen without cancelling or closing
 		.click();
 	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal.getByRole("button", { name: "Cancel" })).toBeEnabled();
-	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
+	await page.mouse.click(5, 5);
 	await expect(modal).not.toBeVisible();
 	await page.getByRole("button", { name: "New project", exact: true }).click();
 	await expect(modal.getByLabel("Name")).toHaveValue("First");

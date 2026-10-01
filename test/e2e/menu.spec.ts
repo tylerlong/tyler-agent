@@ -1,5 +1,48 @@
 import { expect, test } from "./fixtures.ts";
 
+test("project row toggles from its name and padding while action controls stay independent", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+		data: { name: "First" },
+	});
+	await page.goto(app.url);
+	const region = page.getByRole("region", {
+		name: "Project Work",
+		exact: true,
+	});
+	const chat = region.getByRole("button", { name: "First", exact: true });
+	const heading = region.getByRole("heading", { name: "Work", exact: true });
+	const row = heading.locator("..");
+	const namePosition = await heading.evaluate((element) => {
+		const bounds = element.getBoundingClientRect();
+		return { x: bounds.x + 8, y: bounds.y + bounds.height / 2 };
+	});
+	await page.mouse.click(namePosition.x, namePosition.y);
+	await expect(chat).toBeHidden();
+	await row.click({ position: { x: 2, y: 2 } });
+	await expect(chat).toBeVisible();
+	await region
+		.getByRole("button", { name: "Project actions", exact: true })
+		.click();
+	await expect(chat).toBeVisible();
+	await expect(
+		region.getByRole("button", { name: "Edit project", exact: true }),
+	).toBeVisible();
+	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await region.getByRole("button", { name: "New chat", exact: true }).click();
+	await expect(chat).toBeVisible();
+	await expect(
+		page.getByRole("dialog", { name: "New chat", exact: true }),
+	).toBeVisible();
+});
+
 test("sidebar menus dismiss outside, switch targets and close before editing", async ({
 	page,
 	app,
@@ -71,7 +114,7 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	await expect(plus).toHaveText("+");
 	await expect(plus).toBeVisible();
 	const row = project.getByRole("heading").locator("..");
-	await project.getByRole("heading").hover();
+	await row.hover();
 	expect(await background(row)).not.toBe("rgba(0, 0, 0, 0)");
 	expect(await background(project.locator("ul"))).toBe("rgba(0, 0, 0, 0)");
 	await plus.hover();
