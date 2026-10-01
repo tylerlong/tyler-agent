@@ -71,6 +71,21 @@ test("edit menus preserve hidden drafts, retry failures and sync without changin
 	await expect(
 		other.getByRole("textbox", { name: "Prompt", exact: true }),
 	).toHaveValue("local draft");
+	const otherProject = other.getByRole("region", {
+		name: "Project Unsaved",
+		exact: true,
+	});
+	await otherProject
+		.getByRole("button", { name: "Project 操作", exact: true })
+		.click();
+	await otherProject
+		.getByRole("button", { name: "编辑 project", exact: true })
+		.click();
+	const otherModal = other.getByRole("dialog", {
+		name: "编辑 project",
+		exact: true,
+	});
+	await otherModal.getByLabel("名称", { exact: true }).fill("Other local edit");
 	const renamed = page.getByRole("region", {
 		name: "Project Unsaved",
 		exact: true,
@@ -89,6 +104,10 @@ test("edit menus preserve hidden drafts, retry failures and sync without changin
 		.click();
 	await modal.getByRole("button", { name: "保存", exact: true }).click();
 	await expect(modal).not.toBeVisible();
+	await expect(otherModal.getByLabel("名称", { exact: true })).toHaveValue(
+		"Other local edit",
+	);
+	await otherModal.getByRole("button", { name: "取消", exact: true }).click();
 	await renamed
 		.getByRole("button", { name: "Chat First 操作", exact: true })
 		.click();

@@ -65,6 +65,8 @@ test("two pages share activity, busy and history while keeping selections, folds
 			nav(p)
 				.getByRole("region", { name: "Project Work", exact: true })
 				.getByRole("listitem")
+				.first()
+				.getByRole("button")
 				.first(),
 		).toHaveText("Beta（运行中）");
 	}
