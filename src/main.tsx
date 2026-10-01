@@ -69,11 +69,11 @@ async function api(path: string, method = "GET", input?: unknown) {
 	return data;
 }
 const control =
-	"mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600";
+	"mt-2 block w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-neutral-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600";
 const button =
-	"rounded-md border border-slate-300 px-3 py-2 hover:bg-slate-100 disabled:opacity-50";
+	"rounded-md border border-neutral-300 px-3 py-2 hover:bg-neutral-100 disabled:opacity-50";
 const iconButton =
-	"flex h-8 w-8 shrink-0 items-center justify-center rounded-md enabled:hover:bg-slate-200 disabled:opacity-50";
+	"flex h-8 w-8 shrink-0 items-center justify-center rounded-md enabled:hover:bg-neutral-200 disabled:opacity-50";
 function ActionMenu({
 	id,
 	label,
@@ -496,7 +496,7 @@ function App() {
 			key={project.id}
 			aria-label={t("projectRegion", { name: project.name })}
 		>
-			<div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-100">
+			<div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-neutral-100">
 				<button
 					type="button"
 					aria-expanded={!collapsed.has(project.id)}
@@ -514,7 +514,7 @@ function App() {
 				>
 					{collapsed.has(project.id) ? "▸" : "▾"}
 				</button>
-				<h2 className="min-w-0 flex-1 break-words font-semibold">
+				<h2 className="min-w-0 flex-1 break-words font-normal">
 					{project.name}
 					{project.archived && (
 						<span className="text-sm font-normal">
@@ -565,13 +565,13 @@ function App() {
 				</ActionMenu>
 			</div>
 			{!collapsed.has(project.id) && (
-				<ul className="ml-5 mt-2 space-y-1">
+				<ul className="ml-5 mt-1 space-y-0.5">
 					{project.chats.map((chat) => (
 						<li key={chat.id} className="flex items-center">
 							<button
 								type="button"
 								aria-current={selected === chat.id ? "page" : undefined}
-								className={`w-full rounded px-3 py-2 text-left break-words ${selected === chat.id ? "bg-blue-100" : "hover:bg-slate-200"}`}
+								className={`w-full rounded-lg px-3 py-1.5 text-left break-words ${selected === chat.id ? "bg-neutral-200/60" : "hover:bg-neutral-100"}`}
 								onClick={() => selectChat(chat.id)}
 							>
 								{chat.name}
@@ -645,17 +645,17 @@ function App() {
 			</main>
 		);
 	return (
-		<main className="flex min-h-screen text-slate-900">
+		<main className="flex min-h-screen text-neutral-700">
 			<aside
 				id="projects-panel"
 				aria-label={t("projects")}
 				style={{ width: sidebarWidth }}
-				className="relative flex shrink-0 flex-col bg-slate-50 p-4"
+				className="relative flex shrink-0 flex-col bg-neutral-50 p-3"
 			>
-				<h1 className="mb-4 text-xl font-semibold">Tyler Agent</h1>
+				<h1 className="mb-3 px-2 text-lg font-semibold">Tyler Agent</h1>
 				<button
 					type="button"
-					className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-slate-100 disabled:opacity-50"
+					className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-neutral-100 disabled:opacity-50"
 					aria-label={t("newProject")}
 					disabled={saving && (editing !== null || creatingProject !== null)}
 					onClick={() => openModal(null)}
@@ -675,7 +675,7 @@ function App() {
 				</button>
 				<nav
 					aria-label={t("projectsAndChats")}
-					className="mt-4 flex-1 space-y-4"
+					className="mt-4 flex-1 space-y-3"
 				>
 					{projects
 						.filter((project) => !project.archived)
@@ -710,19 +710,19 @@ function App() {
 				</details>
 				<button
 					type="button"
-					className={`${button} mt-6 self-start`}
+					className={`${iconButton} mt-5 self-start`}
 					aria-label={t("settings")}
 					title={t("settings")}
 					onClick={() => settingsDialog.current?.showModal()}
 				>
 					<svg
 						aria-hidden="true"
-						width="24"
-						height="24"
+						width="20"
+						height="20"
 						viewBox="0 0 24 24"
 						fill="none"
 						stroke="currentColor"
-						strokeWidth="2"
+						strokeWidth="1.5"
 					>
 						<path d="m9 3-1 3-3 1-2 3 2 2-2 2 2 3 3 1 1 3h6l1-3 3-1 2-3-2-2 2-2-2-3-3-1-1-3Z" />
 						<circle cx="12" cy="12" r="3" />
@@ -791,10 +791,10 @@ function App() {
 			<section aria-label={t("chat")} className="min-w-0 flex-1 px-6 py-10">
 				{project && chat && (
 					<div className="mx-auto max-w-2xl">
-						<p className="text-slate-600">{project.name}</p>
-						<h2 className="mt-2 text-2xl font-semibold">{chat.name}</h2>
+						<p className="text-neutral-600">{project.name}</p>
+						<h2 className="mt-2 text-xl font-medium">{chat.name}</h2>
 						<h3 className="mt-6 font-medium">{t("targetFolders")}</h3>
-						<ul className="mt-2 space-y-1 text-slate-600">
+						<ul className="mt-2 space-y-1 text-neutral-600">
 							{project.folders.map((folder) => (
 								<li key={folder} className="break-all">
 									{folder}
@@ -817,7 +817,7 @@ function App() {
 								))}
 						</div>
 						{readOnly && (
-							<p role="status" className="mt-6 text-slate-600">
+							<p role="status" className="mt-6 text-neutral-600">
 								{project.archived
 									? chat.archived
 										? t("bothArchivedReadOnly")
@@ -871,9 +871,9 @@ function App() {
 			<dialog
 				ref={dialog}
 				aria-labelledby="create-title"
-				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
+				className="m-auto w-full max-w-lg rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
 			>
-				<h2 id="create-title" className="text-xl font-semibold">
+				<h2 id="create-title" className="text-lg font-semibold">
 					{t(
 						editing
 							? editing.kind === "project"
@@ -967,10 +967,10 @@ function App() {
 			<dialog
 				ref={folderDialog}
 				aria-labelledby="folder-title"
-				className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-lg border border-slate-300 p-6 backdrop:bg-black/40 open:flex open:flex-col"
+				className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40 open:flex open:flex-col"
 			>
 				<header className="shrink-0">
-					<h2 id="folder-title" className="text-xl font-semibold">
+					<h2 id="folder-title" className="text-lg font-semibold">
 						{t("selectFolder")}
 					</h2>
 					<div className="mt-4 flex items-start gap-3">
@@ -1032,7 +1032,7 @@ function App() {
 						<button
 							type="button"
 							aria-label={t("parentDirectory")}
-							className="text-left hover:underline disabled:text-slate-400 disabled:no-underline"
+							className="text-left hover:underline disabled:text-neutral-400 disabled:no-underline"
 							disabled={!directory?.parent}
 							onClick={() => {
 								if (directory?.parent) void browse(directory.parent);
@@ -1066,9 +1066,9 @@ function App() {
 			<dialog
 				ref={settingsDialog}
 				aria-labelledby="settings-title"
-				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
+				className="m-auto w-full max-w-lg rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
 			>
-				<h2 id="settings-title" className="text-xl font-semibold">
+				<h2 id="settings-title" className="text-lg font-semibold">
 					{t("settings")}
 				</h2>
 				<label className="mt-4 block">

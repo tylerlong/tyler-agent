@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+@layer base {
+	body {
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+		font-size: 14px;
+		line-height: 1.5;
+		background: white;
+		-webkit-font-smoothing: antialiased;
+	}
+}
+
 .sidebar-divider {
 	position: absolute;
 	inset-block: 0;
@@ -18,11 +28,11 @@
 	inset-block: 0;
 	left: 3px;
 	width: 1px;
-	background: var(--color-slate-300);
+	background: var(--color-neutral-300);
 }
 .sidebar-divider:hover::before,
 .sidebar-divider[data-dragging="true"]::before {
-	background: var(--color-slate-400);
+	background: var(--color-neutral-400);
 }
 .sidebar-dragging,
 .sidebar-dragging * {
@@ -40,10 +50,10 @@
 	min-width: 144px;
 	max-width: calc(100vw - 16px);
 	padding: 4px;
-	border: 1px solid var(--color-slate-200);
+	border: 1px solid var(--color-neutral-200);
 	border-radius: 8px;
 	background: white;
-	color: var(--color-slate-900);
+	color: var(--color-neutral-900);
 	box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
 }
 .action-menu button {
@@ -54,8 +64,8 @@
 	text-align: left;
 }
 .action-menu button:enabled:hover {
-	background: var(--color-slate-100);
+	background: var(--color-neutral-100);
 }
 .action-menu button:disabled {
-	color: var(--color-slate-400);
+	color: var(--color-neutral-400);
 }
