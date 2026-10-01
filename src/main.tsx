@@ -300,10 +300,25 @@ function App() {
 		setModalError("");
 		try {
 			if (edit) {
-				await api(
+				const saved = await api(
 					`/api/${edit.kind === "project" ? "projects" : "chats"}/${edit.id}`,
 					"PUT",
 					input,
+				);
+				++refreshRevision.current;
+				setProjects((current) =>
+					current.map((project) =>
+						edit.kind === "project"
+							? project.id === edit.id
+								? { ...project, name: saved.name, folders: saved.folders }
+								: project
+							: {
+									...project,
+									chats: project.chats.map((chat) =>
+										chat.id === edit.id ? { ...chat, name: saved.name } : chat,
+									),
+								},
+					),
 				);
 			} else if (target === null) {
 				await api("/api/projects", "POST", input);

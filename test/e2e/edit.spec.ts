@@ -209,3 +209,47 @@ test("switching edit targets loads their data and closing does not cancel pendin
 		"While running",
 	);
 });
+
+test("successful edits reopen authoritative values even when list rereads fail", async ({
+	page,
+	app,
+}) => {
+	const p = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Before", folders: [] },
+		})
+	).json();
+	await page.goto(app.url);
+	const original = page.getByRole("region", {
+		name: "Project Before",
+		exact: true,
+	});
+	await original
+		.getByRole("button", { name: "Project 操作", exact: true })
+		.click();
+	await original
+		.getByRole("button", { name: "编辑 project", exact: true })
+		.click();
+	const modal = page.getByRole("dialog", { name: "编辑 project", exact: true });
+	await modal.getByLabel("名称", { exact: true }).fill("Saved");
+	await page.route("**/api/projects", (route) =>
+		route.fulfill({ status: 500, json: { error: "Read failed" } }),
+	);
+	await modal.getByRole("button", { name: "保存", exact: true }).click();
+	await expect(modal).not.toBeVisible();
+	const saved = page.getByRole("region", {
+		name: "Project Saved",
+		exact: true,
+	});
+	await saved
+		.getByRole("button", { name: "Project 操作", exact: true })
+		.click();
+	await saved
+		.getByRole("button", { name: "编辑 project", exact: true })
+		.click();
+	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue("Saved");
+	expect(
+		(await (await page.request.get(`${app.url}/api/projects`)).json())
+			.projects[0].id,
+	).toBe(p.id);
+});
