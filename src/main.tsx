@@ -7,7 +7,9 @@ import {
 	useState,
 } from "react";
 import { createRoot } from "react-dom/client";
-import { createDebugState } from "./debug-state.ts";
+import { useTranslation } from "react-i18next";
+import i18n from "./i18n.ts";
+import { createSettingState } from "./setting-state.ts";
 import "./style.css";
 
 type Chat = {
@@ -89,6 +91,33 @@ function saveSidebarWidth(width: number) {
 }
 
 function App() {
+	const { t } = useTranslation();
+	const [language, setLanguage] = useState<string | null>(null);
+	const [languageReady, setLanguageReady] = useState(false);
+	const [languagePending, setLanguagePending] = useState(false);
+	const [languageError, setLanguageError] = useState("");
+	const [languageState] = useState(() =>
+		createSettingState<string>(
+			async () => {
+				const data = await api("/api/language");
+				if (data.language !== "en" && data.language !== "zh-CN")
+					throw new Error("Invalid server language");
+				return data.language;
+			},
+			async (language) => {
+				await api("/api/language", "PUT", { language });
+			},
+			(language) => {
+				setLanguage(language);
+				setLanguageError(language === null ? "languageReadFailed" : "");
+				if (language !== null) {
+					void i18n.changeLanguage(language);
+					document.documentElement.lang = language;
+					setLanguageReady(true);
+				}
+			},
+		),
+	);
 	const [sidebarWidth, setSidebarWidth] = useState(320);
 	const [sidebarDragging, setSidebarDragging] = useState(false);
 	const sidebarDrag = useRef<{
@@ -209,14 +238,14 @@ function App() {
 	const [debugError, setDebugError] = useState("");
 	const settingsDialog = useRef<HTMLDialogElement>(null);
 	const [debugState] = useState(() =>
-		createDebugState(
+		createSettingState(
 			async () => (await api("/api/debug")).enabled,
 			async (enabled) => {
 				await api("/api/debug", "PUT", { enabled });
 			},
 			(enabled) => {
 				setDebugEnabled(enabled);
-				setDebugError(enabled === null ? "读取日志设置失败，请重试" : "");
+				setDebugError(enabled === null ? "debugReadFailed" : "");
 			},
 		),
 	);
@@ -230,8 +259,8 @@ function App() {
 			if (revision === refreshRevision.current)
 				setError(cause instanceof Error ? cause.message : "读取列表失败");
 		}
-		await debugState.refresh();
-	}, [debugState]);
+		await Promise.all([debugState.refresh(), languageState.refresh()]);
+	}, [debugState, languageState]);
 	useEffect(() => {
 		void refresh();
 		const events = new EventSource("/api/events");
@@ -551,6 +580,25 @@ function App() {
 			(editing?.kind === "chat" &&
 				modalProject?.chats.find((chat) => chat.id === editing.id)?.archived),
 	);
+	if (!languageReady)
+		return (
+			<main className="p-6">
+				{languageError ? (
+					<>
+						<p role="alert">{t(languageError)}</p>
+						<button
+							type="button"
+							className={button}
+							onClick={() => void languageState.refresh()}
+						>
+							{t("retry")}
+						</button>
+					</>
+				) : (
+					<p role="status">{t("loading")}</p>
+				)}
+			</main>
+		);
 	return (
 		<main className="flex min-h-screen text-slate-900">
 			<aside
@@ -615,8 +663,8 @@ function App() {
 				<button
 					type="button"
 					className={`${button} mt-6 self-start`}
-					aria-label="设置"
-					title="设置"
+					aria-label={t("settings")}
+					title={t("settings")}
 					onClick={() => settingsDialog.current?.showModal()}
 				>
 					<svg
@@ -952,19 +1000,54 @@ function App() {
 				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
 			>
 				<h2 id="settings-title" className="text-xl font-semibold">
-					设置
+					{t("settings")}
 				</h2>
+				<label className="mt-4 block">
+					{t("language")}
+					<select
+						className={control}
+						value={language ?? i18n.language}
+						disabled={languagePending || language === null}
+						onChange={async (event) => {
+							setLanguagePending(true);
+							try {
+								const result = await languageState.save(event.target.value);
+								setLanguageError(
+									result === "saved" ? "" : "languageSaveFailed",
+								);
+							} finally {
+								setLanguagePending(false);
+							}
+						}}
+					>
+						<option value="en">English</option>
+						<option value="zh-CN">简体中文</option>
+					</select>
+				</label>
+				{languageError && (
+					<div className="mt-4">
+						<p role="alert" className="text-red-700">
+							{t(languageError)}
+						</p>
+						<button
+							type="button"
+							className={button}
+							disabled={languagePending}
+							onClick={() => void languageState.refresh()}
+						>
+							{t("retry")}
+						</button>
+					</div>
+				)}
 				<fieldset
 					className="mt-4 disabled:opacity-60"
 					disabled={debugEnabled === null || debugPending}
 				>
-					<legend className="text-sm font-medium">
-						OpenRouter 调试日志（服务端 terminal）
-					</legend>
+					<legend className="text-sm font-medium">{t("debug")}</legend>
 					<div className="mt-2 flex gap-6">
 						{[
-							{ label: "关闭", enabled: false },
-							{ label: "开启", enabled: true },
+							{ label: t("off"), enabled: false },
+							{ label: t("on"), enabled: true },
 						].map(({ label, enabled }) => (
 							<label key={label} className="flex items-center gap-2">
 								<input
@@ -975,8 +1058,7 @@ function App() {
 										setDebugPending(true);
 										try {
 											const result = await debugState.save(enabled);
-											if (result !== "saved")
-												setDebugError("无法确认日志设置，请重试");
+											if (result !== "saved") setDebugError("debugSaveFailed");
 											else setDebugError("");
 										} finally {
 											setDebugPending(false);
@@ -990,7 +1072,7 @@ function App() {
 				</fieldset>
 				{debugError && (
 					<p role="alert" className="mt-4 text-red-700">
-						{debugError}
+						{t(debugError)}
 					</p>
 				)}
 				<div className="mt-4 flex justify-end gap-3">
@@ -1000,7 +1082,7 @@ function App() {
 							className={button}
 							onClick={() => void debugState.refresh()}
 						>
-							重试
+							{t("retry")}
 						</button>
 					)}
 					<button
@@ -1008,7 +1090,7 @@ function App() {
 						className={button}
 						onClick={() => settingsDialog.current?.close()}
 					>
-						关闭
+						{t("close")}
 					</button>
 				</div>
 			</dialog>

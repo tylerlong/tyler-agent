@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDebugState } from "../src/debug-state.ts";
+import { createSettingState } from "../src/setting-state.ts";
 
 test("a delayed PUT response cannot replace a newer SSE refresh", async () => {
 	let releasePut: (() => void) | undefined;
@@ -9,7 +9,7 @@ test("a delayed PUT response cannot replace a newer SSE refresh", async () => {
 	});
 	let serverEnabled = false;
 	let displayed: boolean | null = null;
-	const state = createDebugState(
+	const state = createSettingState(
 		async () => serverEnabled,
 		async (enabled) => {
 			serverEnabled = enabled;
@@ -32,7 +32,7 @@ test("a delayed PUT response cannot replace a newer SSE refresh", async () => {
 test("reordered reads and a failed PUT reconcile to the latest server setting", async () => {
 	const pending: Array<(enabled: boolean) => void> = [];
 	let displayed: boolean | null = null;
-	const state = createDebugState(
+	const state = createSettingState(
 		() =>
 			new Promise<boolean>((resolve) => {
 				pending.push(resolve);

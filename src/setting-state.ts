@@ -1,15 +1,15 @@
-export function createDebugState(
-	read: () => Promise<boolean>,
-	write: (enabled: boolean) => Promise<void>,
-	apply: (enabled: boolean | null) => void,
+export function createSettingState<T>(
+	read: () => Promise<T>,
+	write: (value: T) => Promise<void>,
+	apply: (value: T | null) => void,
 ) {
 	let latestRead = 0;
 	const refresh = async () => {
 		const version = ++latestRead;
 		try {
-			const enabled = await read();
+			const value = await read();
 			if (version !== latestRead) return true;
-			apply(enabled);
+			apply(value);
 			return true;
 		} catch {
 			if (version !== latestRead) return true;
@@ -19,10 +19,10 @@ export function createDebugState(
 	};
 	return {
 		refresh,
-		async save(enabled: boolean): Promise<"saved" | "failed" | "unknown"> {
+		async save(value: T): Promise<"saved" | "failed" | "unknown"> {
 			let written = false;
 			try {
-				await write(enabled);
+				await write(value);
 				written = true;
 			} catch {
 				// The server may have applied the write before the response failed.

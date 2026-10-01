@@ -42,7 +42,11 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			(version !== 1 && version !== 2 && version !== 3 && version !== 4) ||
+			(version !== 1 &&
+				version !== 2 &&
+				version !== 3 &&
+				version !== 4 &&
+				version !== 5) ||
 			tables.join(",") !==
 				(Number(version) >= 3
 					? "chats,folders,projects,settings,turns"
@@ -55,10 +59,10 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		if (version === 0) version = 1;
 		if (
 			columns("projects") !==
-				`id,name,created_at${version === 4 ? ",archived" : ""}` ||
+				`id,name,created_at${Number(version) >= 4 ? ",archived" : ""}` ||
 			columns("folders") !== "project_id,path" ||
 			columns("chats") !==
-				`id,project_id,name,created_at,last_question_at${version === 4 ? ",archived" : ""}` ||
+				`id,project_id,name,created_at,last_question_at${Number(version) >= 4 ? ",archived" : ""}` ||
 			columns("turns") !== "id,chat_id,user_content,assistant_content"
 		)
 			throw new Error("Invalid database schema");
@@ -66,7 +70,8 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			throw new Error("Invalid database schema");
 		if (
 			Number(version) >= 3 &&
-			columns("settings") !== "id,sidebar_width,debug_enabled"
+			columns("settings") !==
+				`id,sidebar_width,debug_enabled${version === 5 ? ",language" : ""}`
 		)
 			throw new Error("Invalid database schema");
 		if (
@@ -98,7 +103,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		}
-		if (version !== 4) {
+		if (Number(version) < 4) {
 			db.exec("BEGIN");
 			try {
 				db.exec(`
@@ -112,6 +117,26 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		}
+		if (Number(version) < 5) {
+			db.exec("BEGIN");
+			try {
+				db.exec(
+					`ALTER TABLE settings ADD COLUMN language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')); PRAGMA user_version = 5; COMMIT;`,
+				);
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
+		}
+		if (
+			!["en", "zh-CN"].includes(
+				String(
+					db.prepare("SELECT language FROM settings WHERE id=1").get()
+						?.language,
+				),
+			)
+		)
+			throw new Error("Corrupt database");
 		return db;
 	} catch (error) {
 		db.close();

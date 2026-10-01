@@ -129,16 +129,16 @@ test("blur ends drag and restores selection; other windows and project events ke
 		).toBeVisible();
 	await expect(sidebar(page)).toHaveCSS("width", "440px");
 	await expect(sidebar(other)).toHaveCSS("width", "320px");
-	await page.getByRole("button", { name: "设置", exact: true }).click();
-	await other.getByRole("button", { name: "设置", exact: true }).click();
-	await page.getByLabel("关闭", { exact: true }).click();
-	await expect(other.getByLabel("关闭", { exact: true })).toBeChecked();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await other.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByLabel("Off", { exact: true }).click();
+	await expect(other.getByLabel("Off", { exact: true })).toBeChecked();
 	await expect(sidebar(page)).toHaveCSS("width", "440px");
 	await expect(sidebar(other)).toHaveCSS("width", "320px");
 	for (const current of [page, other])
 		await current
-			.getByRole("dialog", { name: "设置", exact: true })
-			.getByRole("button", { name: "关闭", exact: true })
+			.getByRole("dialog", { name: "Settings", exact: true })
+			.getByRole("button", { name: "Close", exact: true })
 			.click();
 	await other.reload();
 	await expect(sidebar(other)).toHaveCSS("width", "440px");
@@ -177,7 +177,7 @@ test("failed preference requests preserve layout without alerts or retries", asy
 	await expect.poll(() => writes).toBe(1);
 	await expect(sidebar(page)).toHaveCSS("width", "400px");
 	await expect(page.getByRole("alert")).toHaveCount(0);
-	await page.getByRole("button", { name: "设置", exact: true }).click();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	expect(reads).toBe(1);
 	expect(writes).toBe(1);
 });

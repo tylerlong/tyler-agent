@@ -186,7 +186,7 @@ test("legacy schema resets once and invalid or read-only databases fail at start
 	}
 });
 
-for (const version of [1, 2, 3])
+for (const version of [1, 2, 3, 4])
 	for (const saved of [false, true])
 		test(`settings migrate v${version} (saved width: ${saved}) without losing user content`, async () => {
 			const directory = await mkdtemp(join(tmpdir(), "agent-width-"));
@@ -209,9 +209,13 @@ for (const version of [1, 2, 3])
 				);
 				if (saved) db.exec("INSERT INTO sidebar_width VALUES(1,410.5)");
 			}
-			if (version === 3)
+			if (version >= 3)
 				db.exec(
 					`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL, debug_enabled INTEGER NOT NULL); INSERT INTO settings VALUES(1,${saved ? "410.5" : "320"},${saved ? "0" : "1"});`,
+				);
+			if (version === 4)
+				db.exec(
+					"ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0; ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0; UPDATE projects SET archived=1; UPDATE chats SET archived=1;",
 				);
 			db.close();
 			const server = createServer(fetch, path).listen(0, "127.0.0.1");
@@ -223,7 +227,7 @@ for (const version of [1, 2, 3])
 				const schema = new DatabaseSync(path);
 				assert.equal(
 					schema.prepare("PRAGMA user_version").get()?.user_version,
-					4,
+					5,
 				);
 				assert.equal(
 					schema
@@ -237,11 +241,15 @@ for (const version of [1, 2, 3])
 					{ ...schema.prepare("SELECT * FROM settings").get() },
 					{
 						id: 1,
+						language: "en",
 						sidebar_width: version >= 2 && saved ? 410.5 : 320,
-						debug_enabled: version === 3 && saved ? 0 : 1,
+						debug_enabled: version >= 3 && saved ? 0 : 1,
 					},
 				);
 				schema.close();
+				assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
+					language: "en",
+				});
 				const width = async () =>
 					(await (await fetch(`${base}/api/sidebar-width`)).json()).width;
 				assert.equal(await width(), version >= 2 && saved ? 410.5 : 320);
@@ -294,14 +302,14 @@ for (const version of [1, 2, 3])
 						{
 							id: 7,
 							name: "Existing project",
-							archived: false,
+							archived: version === 4,
 							createdAt: 100,
 							folders: ["/existing/folder"],
 							chats: [
 								{
 									id: 9,
 									name: "Existing chat",
-									archived: false,
+									archived: version === 4,
 									createdAt: 200,
 									lastQuestionAt: 300,
 									busy: false,

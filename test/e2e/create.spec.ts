@@ -162,14 +162,14 @@ test("pending project creation can hide and reopen without cancelling or closing
 		modal.getByRole("button", { name: "创建", exact: true }),
 	).toBeDisabled();
 	await modal.getByRole("button", { name: "取消" }).click();
-	await page.getByRole("button", { name: "设置", exact: true }).click();
-	const settings = page.getByRole("dialog", { name: "设置", exact: true });
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(settings).toBeVisible();
 	if (!release) throw new Error("Missing release");
 	release();
 	await expect(modal).not.toBeVisible();
 	await expect(settings).toBeVisible();
-	await settings.getByRole("button", { name: "关闭", exact: true }).click();
+	await settings.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(
 		page.getByRole("heading", { name: "First", exact: true }),
 	).toBeVisible();
@@ -223,22 +223,22 @@ test("settings stays synchronized while hidden and failed updates can retry with
 	app,
 }) => {
 	await page.goto(app.url);
-	const trigger = page.getByRole("button", { name: "设置", exact: true });
-	const modal = page.getByRole("dialog", { name: "设置", exact: true });
+	const trigger = page.getByRole("button", { name: "Settings", exact: true });
+	const modal = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(page.getByRole("complementary").getByRole("radio")).toHaveCount(
 		0,
 	);
 	await trigger.click();
-	await expect(modal.getByLabel("开启", { exact: true })).toBeChecked();
-	await modal.getByRole("button", { name: "关闭", exact: true }).click();
+	await expect(modal.getByLabel("On", { exact: true })).toBeChecked();
+	await modal.getByRole("button", { name: "Close", exact: true }).click();
 	const other = await context.newPage();
 	await other.goto(app.url);
-	await other.getByRole("button", { name: "设置", exact: true }).click();
-	await other.getByLabel("关闭", { exact: true }).click();
-	await expect(other.getByLabel("关闭", { exact: true })).toBeChecked();
-	await other.getByLabel("开启", { exact: true }).click();
+	await other.getByRole("button", { name: "Settings", exact: true }).click();
+	await other.getByLabel("Off", { exact: true }).click();
+	await expect(other.getByLabel("Off", { exact: true })).toBeChecked();
+	await other.getByLabel("On", { exact: true }).click();
 	await trigger.click();
-	await expect(modal.getByLabel("开启", { exact: true })).toBeChecked();
+	await expect(modal.getByLabel("On", { exact: true })).toBeChecked();
 	let release!: () => void;
 	const held = new Promise<void>((resolve) => {
 		release = resolve;
@@ -248,19 +248,23 @@ test("settings stays synchronized while hidden and failed updates can retry with
 		await held;
 		await route.fulfill({ status: 500, json: { error: "test failure" } });
 	});
-	await modal.getByLabel("关闭", { exact: true }).click();
-	await expect(modal.getByLabel("开启", { exact: true })).toBeDisabled();
-	await modal.getByRole("button", { name: "关闭", exact: true }).click();
+	await modal.getByLabel("Off", { exact: true }).click();
+	await expect(modal.getByLabel("On", { exact: true })).toBeDisabled();
+	await modal.getByRole("button", { name: "Close", exact: true }).click();
 	release();
 	await trigger.click();
-	await expect(modal.getByRole("alert")).toHaveText("无法确认日志设置，请重试");
-	await modal.getByRole("button", { name: "关闭", exact: true }).click();
+	await expect(modal.getByRole("alert")).toHaveText(
+		"Unable to confirm logging settings. Please retry.",
+	);
+	await modal.getByRole("button", { name: "Close", exact: true }).click();
 	await trigger.click();
-	await expect(modal.getByRole("alert")).toHaveText("无法确认日志设置，请重试");
+	await expect(modal.getByRole("alert")).toHaveText(
+		"Unable to confirm logging settings. Please retry.",
+	);
 	await page.unroute("**/api/debug");
-	await modal.getByLabel("关闭", { exact: true }).click();
+	await modal.getByLabel("Off", { exact: true }).click();
 	await expect(modal.getByRole("alert")).toHaveCount(0);
-	await expect(other.getByLabel("关闭", { exact: true })).toBeChecked();
+	await expect(other.getByLabel("Off", { exact: true })).toBeChecked();
 });
 
 test("settings read errors remain in settings and a successful reread clears them", async ({
@@ -274,18 +278,20 @@ test("settings read errors remain in settings and a successful reread clears the
 	await expect(page.getByRole("complementary").getByRole("alert")).toHaveCount(
 		0,
 	);
-	const trigger = page.getByRole("button", { name: "设置", exact: true });
+	const trigger = page.getByRole("button", { name: "Settings", exact: true });
 	await trigger.click();
-	const modal = page.getByRole("dialog", { name: "设置", exact: true });
-	await expect(modal.getByRole("alert")).toHaveText("读取日志设置失败，请重试");
-	await expect(modal.getByLabel("开启", { exact: true })).toBeDisabled();
-	await modal.getByRole("button", { name: "关闭", exact: true }).click();
+	const modal = page.getByRole("dialog", { name: "Settings", exact: true });
+	await expect(modal.getByRole("alert")).toHaveText(
+		"Unable to read logging settings. Please retry.",
+	);
+	await expect(modal.getByLabel("On", { exact: true })).toBeDisabled();
+	await modal.getByRole("button", { name: "Close", exact: true }).click();
 	await trigger.click();
 	await expect(modal.getByRole("alert")).toBeVisible();
 	await page.unroute("**/api/debug");
-	await modal.getByRole("button", { name: "重试", exact: true }).click();
+	await modal.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(modal.getByRole("alert")).toHaveCount(0);
-	await expect(modal.getByLabel("开启", { exact: true })).toBeChecked();
+	await expect(modal.getByLabel("On", { exact: true })).toBeChecked();
 });
 
 test("settings preserve each other across server restarts and fresh browsers", async ({
@@ -294,14 +300,14 @@ test("settings preserve each other across server restarts and fresh browsers", a
 	app,
 }) => {
 	await page.goto(app.url);
-	await page.getByRole("button", { name: "设置", exact: true }).click();
-	await expect(page.getByLabel("开启", { exact: true })).toBeChecked();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await expect(page.getByLabel("On", { exact: true })).toBeChecked();
 	await page.request.put(`${app.url}/api/sidebar-width`, {
 		data: { width: 420 },
 	});
 	let width = 420;
 	for (const enabled of [false, true]) {
-		await page.getByLabel(enabled ? "开启" : "关闭", { exact: true }).click();
+		await page.getByLabel(enabled ? "On" : "Off", { exact: true }).click();
 		await expect
 			.poll(
 				async () =>
@@ -326,15 +332,17 @@ test("settings preserve each other across server restarts and fresh browsers", a
 			await expect(
 				reopened.getByRole("complementary", { name: "Projects" }),
 			).toHaveCSS("width", `${width}px`);
-			await reopened.getByRole("button", { name: "设置", exact: true }).click();
+			await reopened
+				.getByRole("button", { name: "Settings", exact: true })
+				.click();
 			await expect(
-				reopened.getByLabel(enabled ? "开启" : "关闭", { exact: true }),
+				reopened.getByLabel(enabled ? "On" : "Off", { exact: true }),
 			).toBeChecked();
 		} finally {
 			await fresh.close();
 		}
 		await page.goto(app.url);
-		await page.getByRole("button", { name: "设置", exact: true }).click();
+		await page.getByRole("button", { name: "Settings", exact: true }).click();
 	}
 });
 
@@ -351,23 +359,25 @@ test("database write failure preserves debug in both windows and retry saves it"
 		const other = await context.newPage();
 		await other.goto(app.url);
 		for (const current of [page, other]) {
-			await current.getByRole("button", { name: "设置", exact: true }).click();
-			await expect(current.getByLabel("开启", { exact: true })).toBeChecked();
+			await current
+				.getByRole("button", { name: "Settings", exact: true })
+				.click();
+			await expect(current.getByLabel("On", { exact: true })).toBeChecked();
 		}
-		await page.getByLabel("关闭", { exact: true }).click();
+		await page.getByLabel("Off", { exact: true }).click();
 		await expect(page.getByRole("alert")).toHaveText(
-			"无法确认日志设置，请重试",
+			"Unable to confirm logging settings. Please retry.",
 		);
 		for (const current of [page, other])
-			await expect(current.getByLabel("开启", { exact: true })).toBeChecked();
+			await expect(current.getByLabel("On", { exact: true })).toBeChecked();
 		expect(
 			database.prepare("SELECT debug_enabled FROM settings").get()
 				?.debug_enabled,
 		).toBe(1);
 		database.exec("DROP TRIGGER reject_debug");
-		await page.getByLabel("关闭", { exact: true }).click();
+		await page.getByLabel("Off", { exact: true }).click();
 		await expect(page.getByRole("alert")).toHaveCount(0);
-		await expect(other.getByLabel("关闭", { exact: true })).toBeChecked();
+		await expect(other.getByLabel("Off", { exact: true })).toBeChecked();
 		expect(
 			database.prepare("SELECT debug_enabled FROM settings").get()
 				?.debug_enabled,

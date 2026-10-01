@@ -193,6 +193,43 @@ export function createServer(
 			}
 			return;
 		}
+		if (
+			path === "/api/language" &&
+			(request.method === "GET" || request.method === "PUT")
+		) {
+			try {
+				if (request.method === "PUT") {
+					const { language } = await readJson(request);
+					if (language !== "en" && language !== "zh-CN")
+						throw new InputError("Unsupported interface language");
+					database
+						.prepare("UPDATE settings SET language=? WHERE id=1")
+						.run(language);
+				}
+				const language = database
+					.prepare("SELECT language FROM settings WHERE id=1")
+					.get()?.language;
+				json(response, 200, { language });
+				if (request.method === "PUT") notifyChange();
+			} catch (error) {
+				const code =
+					error instanceof InputError
+						? "invalidLanguage"
+						: request.method === "PUT"
+							? "languageWriteFailed"
+							: "languageReadFailed";
+				if (!(error instanceof InputError))
+					console.error("Language setting read/write failed", error);
+				json(response, error instanceof InputError ? 400 : 500, {
+					code,
+					error:
+						error instanceof InputError
+							? error.message
+							: "Language setting read/write failed",
+				});
+			}
+			return;
+		}
 		if (path === "/api/debug" && request.method === "GET") {
 			json(response, 200, { enabled: debugEnabled });
 			return;
@@ -213,6 +250,8 @@ export function createServer(
 				if (!(error instanceof InputError))
 					console.error("Debug setting write failed", error);
 				json(response, error instanceof InputError ? 400 : 500, {
+					code:
+						error instanceof InputError ? "invalidDebug" : "debugWriteFailed",
 					error:
 						error instanceof InputError ? "无效的日志设置" : "保存日志设置失败",
 				});

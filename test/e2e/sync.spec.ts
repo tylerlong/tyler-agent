@@ -113,19 +113,19 @@ test("empty and unknown selections keep layout; debug and missed updates recover
 	await expect(
 		page.getByRole("region", { name: "Chat", exact: true }),
 	).toBeEmpty();
-	await page.getByRole("button", { name: "设置", exact: true }).click();
-	await expect(page.getByLabel("开启", { exact: true })).toBeChecked();
-	await page.getByLabel("关闭", { exact: true }).click();
-	await expect(page.getByLabel("关闭", { exact: true })).toBeChecked();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await expect(page.getByLabel("On", { exact: true })).toBeChecked();
+	await page.getByLabel("Off", { exact: true }).click();
+	await expect(page.getByLabel("Off", { exact: true })).toBeChecked();
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=999`);
 	await expect(other.getByRole("alert")).toHaveText("Chat 不存在");
-	await other.getByRole("button", { name: "设置", exact: true }).click();
+	await other.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
 		other.getByRole("region", { name: "Chat", exact: true }),
 	).toBeEmpty();
-	await page.getByLabel("开启", { exact: true }).click();
-	await expect(other.getByLabel("开启", { exact: true })).toBeChecked();
+	await page.getByLabel("On", { exact: true }).click();
+	await expect(other.getByLabel("On", { exact: true })).toBeChecked();
 	const connection = page.waitForResponse(
 		(response) => response.url() === `${app.url}/api/events`,
 	);
@@ -139,7 +139,7 @@ test("empty and unknown selections keep layout; debug and missed updates recover
 		await expect(
 			p.getByRole("heading", { name: "Missed", exact: true }),
 		).toBeVisible();
-		await expect(p.getByLabel("关闭", { exact: true })).toBeChecked();
+		await expect(p.getByLabel("Off", { exact: true })).toBeChecked();
 		await expect(
 			p.getByRole("region", { name: "Chat", exact: true }),
 		).toBeEmpty();
