@@ -28,11 +28,13 @@ test("two pages share activity, busy and history while keeping selections, folds
 	const nav = (p: typeof page) =>
 		p.getByRole("navigation", { name: "Projects and chats" });
 	const submit = (p: typeof page) =>
-		p.getByRole("button", { name: "提交", exact: true });
+		p.getByRole("button", { name: "Submit", exact: true });
 	await expect(submit(page)).toBeEnabled();
 	await expect(submit(other)).toBeEnabled();
 	await expect(nav(page).getByRole("heading").first()).toHaveText("Newer");
-	await page.getByRole("button", { name: "折叠 Newer", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Collapse Newer", exact: true })
+		.click();
 	await other.getByLabel("Prompt").fill("other alpha draft");
 	const first = app.holdModel();
 	await page.getByLabel("Prompt").fill("alpha question");
@@ -45,7 +47,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 			nav(p)
 				.getByRole("button", { name: /^Alpha/ })
 				.first(),
-		).toHaveText("Alpha（运行中）");
+		).toHaveText("Alpha (running)");
 	}
 	await expect(
 		nav(page).getByRole("button", { name: "Gamma", exact: true }),
@@ -59,7 +61,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 	await second.entered;
 	for (const p of [page, other]) {
 		await expect(
-			nav(p).getByRole("button", { name: "Beta（运行中）", exact: true }),
+			nav(p).getByRole("button", { name: "Beta (running)", exact: true }),
 		).toBeVisible();
 		await expect(
 			nav(p)
@@ -68,7 +70,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 				.first()
 				.getByRole("button")
 				.first(),
-		).toHaveText("Beta（运行中）");
+		).toHaveText("Beta (running)");
 	}
 	await page.getByLabel("Prompt").fill("later alpha draft");
 	second.release();
@@ -119,7 +121,7 @@ test("empty and unknown selections keep layout; debug and missed updates recover
 	await expect(page.getByLabel("Off", { exact: true })).toBeChecked();
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=999`);
-	await expect(other.getByRole("alert")).toHaveText("Chat 不存在");
+	await expect(other.getByRole("alert")).toHaveText("Chat does not exist.");
 	await other.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
 		other.getByRole("region", { name: "Chat", exact: true }),

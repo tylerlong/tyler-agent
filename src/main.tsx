@@ -27,18 +27,45 @@ type Project = {
 	folders: string[];
 	chats: Chat[];
 };
+class ApiError extends Error {
+	constructor(
+		public code: string,
+		public details?: string,
+	) {
+		super(code);
+	}
+}
+function appError(cause: unknown) {
+	return cause instanceof ApiError
+		? cause
+		: new ApiError("requestFailed", String(cause));
+}
 async function api(path: string, method = "GET", input?: unknown) {
-	const response = await fetch(path, {
-		method,
-		...(input === undefined
-			? {}
-			: {
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(input),
-				}),
-	});
-	const data = await response.json();
-	if (!response.ok) throw new Error(data.error ?? "请求失败");
+	let response: Response;
+	try {
+		response = await fetch(path, {
+			method,
+			...(input === undefined
+				? {}
+				: {
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify(input),
+					}),
+		});
+	} catch (cause) {
+		throw new ApiError("networkFailed", String(cause));
+	}
+	let data: Awaited<ReturnType<Response["json"]>>;
+	try {
+		data = await response.json();
+	} catch (cause) {
+		throw new ApiError("invalidResponse", String(cause));
+	}
+	if (!response.ok)
+		throw new ApiError(
+			data.code ?? "requestFailed",
+			data.details ?? (data.code ? undefined : data.error),
+		);
 	return data;
 }
 const control =
@@ -92,6 +119,10 @@ function saveSidebarWidth(width: number) {
 
 function App() {
 	const { t } = useTranslation();
+	const errorText = (error: ApiError | null) =>
+		error === null
+			? ""
+			: `${t(error.code, { defaultValue: t("requestFailed") })}${error.details ? `\n${error.details}` : ""}`;
 	const [language, setLanguage] = useState<string | null>(null);
 	const [languageReady, setLanguageReady] = useState(false);
 	const [languagePending, setLanguagePending] = useState(false);
@@ -159,7 +190,9 @@ function App() {
 	const chatRevision = useRef(0);
 	const [drafts, setDrafts] = useState<Record<number, string>>({});
 	const draftVersions = useRef<Record<number, number>>({});
-	const [chatErrors, setChatErrors] = useState<Record<number, string>>({});
+	const [chatErrors, setChatErrors] = useState<Record<number, ApiError | null>>(
+		{},
+	);
 	const [submitting, setSubmitting] = useState<Set<number>>(() => new Set());
 	function selectChat(id: number) {
 		const url = new URL(location.href);
@@ -184,7 +217,7 @@ function App() {
 				setChatState(null);
 				setChatErrors((current) => ({
 					...current,
-					[id]: cause instanceof Error ? cause.message : "读取对话失败",
+					[id]: appError(cause),
 				}));
 			}
 		}
@@ -212,7 +245,7 @@ function App() {
 		const prompt = drafts[id] ?? "";
 		const version = draftVersions.current[id] ?? 0;
 		setSubmitting((current) => new Set(current).add(id));
-		setChatErrors((current) => ({ ...current, [id]: "" }));
+		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
 			await api(`/api/chats/${id}`, "POST", { prompt });
 			if ((draftVersions.current[id] ?? 0) === version)
@@ -220,7 +253,7 @@ function App() {
 		} catch (cause) {
 			setChatErrors((current) => ({
 				...current,
-				[id]: cause instanceof Error ? cause.message : "提问失败",
+				[id]: appError(cause),
 			}));
 		} finally {
 			setSubmitting((current) => {
@@ -232,7 +265,7 @@ function App() {
 		}
 	}
 	const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
-	const [error, setError] = useState("");
+	const [error, setError] = useState<ApiError | null>(null);
 	const [debugEnabled, setDebugEnabled] = useState<boolean | null>(null);
 	const [debugPending, setDebugPending] = useState(false);
 	const [debugError, setDebugError] = useState("");
@@ -256,8 +289,7 @@ function App() {
 			const data = await api("/api/projects");
 			if (revision === refreshRevision.current) setProjects(data.projects);
 		} catch (cause) {
-			if (revision === refreshRevision.current)
-				setError(cause instanceof Error ? cause.message : "读取列表失败");
+			if (revision === refreshRevision.current) setError(appError(cause));
 		}
 		await Promise.all([debugState.refresh(), languageState.refresh()]);
 	}, [debugState, languageState]);
@@ -280,7 +312,8 @@ function App() {
 	}, [refresh, refreshChat]);
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [creatingProject, setCreatingProject] = useState<number | null>(null);
-	const [name, setName] = useState("New project");
+	const [name, setName] = useState("");
+	const creationInitialized = useRef(false);
 	const [folders, setFolders] = useState<string[]>([]);
 	const folderDialog = useRef<HTMLDialogElement>(null);
 	const [directory, setDirectory] = useState<{
@@ -288,14 +321,14 @@ function App() {
 		parent: string | null;
 		directories: { name: string; path: string }[];
 	} | null>(null);
-	const [directoryError, setDirectoryError] = useState("");
+	const [directoryError, setDirectoryError] = useState<ApiError | null>(null);
 	const [loadingDirectory, setLoadingDirectory] = useState(false);
 	const directoryRevision = useRef(0);
 	const directoryInitialized = useRef(false);
 	async function browse(path?: string) {
 		const revision = ++directoryRevision.current;
 		setLoadingDirectory(true);
-		setDirectoryError("");
+		setDirectoryError(null);
 		try {
 			const data = await api(
 				`/api/directories${path === undefined ? "" : `?path=${encodeURIComponent(path)}`}`,
@@ -303,9 +336,7 @@ function App() {
 			if (revision === directoryRevision.current) setDirectory(data);
 		} catch (cause) {
 			if (revision === directoryRevision.current)
-				setDirectoryError(
-					cause instanceof Error ? cause.message : "目录读取失败",
-				);
+				setDirectoryError(appError(cause));
 		} finally {
 			if (revision === directoryRevision.current) setLoadingDirectory(false);
 		}
@@ -314,10 +345,10 @@ function App() {
 		directoryInitialized.current = false;
 		++directoryRevision.current;
 		setDirectory(null);
-		setDirectoryError("");
+		setDirectoryError(null);
 		setLoadingDirectory(false);
 	}
-	const [modalError, setModalError] = useState("");
+	const [modalError, setModalError] = useState<ApiError | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [editing, setEditing] = useState<{
 		kind: "project" | "chat";
@@ -342,7 +373,7 @@ function App() {
 			setEditing({ kind, id });
 			setName(target.name);
 			setFolders(kind === "project" ? (project?.folders ?? []) : []);
-			setModalError("");
+			setModalError(null);
 			resetDirectory();
 			editSaved.current = false;
 		}
@@ -350,14 +381,19 @@ function App() {
 	}
 	function openModal(projectId: number | null) {
 		if (saving && (editing || projectId !== creatingProject)) return;
-		if (editing || projectId !== creatingProject) {
+		if (
+			!creationInitialized.current ||
+			editing ||
+			projectId !== creatingProject
+		) {
+			creationInitialized.current = true;
 			++modalRevision.current;
 			setEditing(null);
 			setCreatingProject(projectId);
-			setName(projectId === null ? "New project" : "New chat");
+			setName(t(projectId === null ? "defaultProjectName" : "defaultChatName"));
 			setFolders([]);
 			resetDirectory();
-			setModalError("");
+			setModalError(null);
 		}
 		dialog.current?.showModal();
 	}
@@ -369,7 +405,7 @@ function App() {
 		const edit = editing;
 		const revision = modalRevision.current;
 		setSaving(true);
-		setModalError("");
+		setModalError(null);
 		try {
 			if (edit) {
 				const saved = await api(
@@ -408,15 +444,17 @@ function App() {
 			await refresh();
 			if (revision !== modalRevision.current) return;
 			if (edit) editSaved.current = true;
-			else setName(target === null ? "New project" : "New chat");
+			else
+				setName(
+					i18n.t(target === null ? "defaultProjectName" : "defaultChatName"),
+				);
 			if (!edit) {
 				setFolders([]);
 				resetDirectory();
 			}
 			dialog.current?.close();
 		} catch (cause) {
-			if (revision === modalRevision.current)
-				setModalError(cause instanceof Error ? cause.message : "保存失败");
+			if (revision === modalRevision.current) setModalError(appError(cause));
 		} finally {
 			setSaving(false);
 		}
@@ -426,7 +464,7 @@ function App() {
 		id: number,
 		archived: boolean,
 	) {
-		setError("");
+		setError(null);
 		try {
 			const saved = await api(
 				`/api/${kind === "project" ? "projects" : "chats"}/${id}/archive`,
@@ -450,16 +488,21 @@ function App() {
 			);
 			await refresh();
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : "更新归档状态失败");
+			setError(appError(cause));
 		}
 	}
 	const renderProject = (project: Project, archivedArea = false) => (
-		<section key={project.id} aria-label={`Project ${project.name}`}>
+		<section
+			key={project.id}
+			aria-label={t("projectRegion", { name: project.name })}
+		>
 			<div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-100">
 				<button
 					type="button"
 					aria-expanded={!collapsed.has(project.id)}
-					aria-label={`${collapsed.has(project.id) ? "展开" : "折叠"} ${project.name}`}
+					aria-label={t(collapsed.has(project.id) ? "expand" : "collapse", {
+						name: project.name,
+					})}
 					onClick={() =>
 						setCollapsed((current) => {
 							const next = new Set(current);
@@ -474,15 +517,17 @@ function App() {
 				<h2 className="min-w-0 flex-1 break-words font-semibold">
 					{project.name}
 					{project.archived && (
-						<span className="text-sm font-normal">（项目已归档）</span>
+						<span className="text-sm font-normal">
+							{t("projectArchivedLabel")}
+						</span>
 					)}
 				</h2>
 				{!archivedArea && (
 					<button
 						type="button"
 						className={iconButton}
-						aria-label="新建 chat"
-						title="新建 chat"
+						aria-label={t("newChat")}
+						title={t("newChat")}
 						disabled={
 							saving && (editing !== null || creatingProject !== project.id)
 						}
@@ -495,7 +540,7 @@ function App() {
 				)}
 				<ActionMenu
 					id={`${archivedArea ? "archived" : "normal"}-project-${project.id}`}
-					label="Project 操作"
+					label={t("projectActions")}
 				>
 					<button
 						type="button"
@@ -506,7 +551,7 @@ function App() {
 						}
 						onClick={() => openEdit("project", project.id)}
 					>
-						编辑 project
+						{t("editProject")}
 					</button>
 					<button
 						type="button"
@@ -515,7 +560,7 @@ function App() {
 							void archive("project", project.id, !project.archived)
 						}
 					>
-						{project.archived ? "恢复 project" : "归档 project"}
+						{t(project.archived ? "restoreProject" : "archiveProject")}
 					</button>
 				</ActionMenu>
 			</div>
@@ -530,11 +575,11 @@ function App() {
 								onClick={() => selectChat(chat.id)}
 							>
 								{chat.name}
-								{chat.busy && <span>（运行中）</span>}
+								{chat.busy && <span>{t("busyLabel")}</span>}
 							</button>
 							<ActionMenu
 								id={`${archivedArea ? "archived" : "normal"}-chat-${chat.id}`}
-								label={`Chat ${chat.name} 操作`}
+								label={t("chatActions", { name: chat.name })}
 							>
 								<button
 									type="button"
@@ -546,7 +591,7 @@ function App() {
 									}
 									onClick={() => openEdit("chat", chat.id)}
 								>
-									编辑 chat
+									{t("editChat")}
 								</button>
 								<button
 									type="button"
@@ -554,7 +599,7 @@ function App() {
 									disabled={project.archived && !chat.archived}
 									onClick={() => void archive("chat", chat.id, !chat.archived)}
 								>
-									{chat.archived ? "恢复 chat" : "归档 chat"}
+									{t(chat.archived ? "restoreChat" : "archiveChat")}
 								</button>
 							</ActionMenu>
 						</li>
@@ -603,7 +648,7 @@ function App() {
 		<main className="flex min-h-screen text-slate-900">
 			<aside
 				id="projects-panel"
-				aria-label="Projects"
+				aria-label={t("projects")}
 				style={{ width: sidebarWidth }}
 				className="relative flex shrink-0 flex-col bg-slate-50 p-4"
 			>
@@ -611,7 +656,7 @@ function App() {
 				<button
 					type="button"
 					className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-slate-100 disabled:opacity-50"
-					aria-label="新建 project"
+					aria-label={t("newProject")}
 					disabled={saving && (editing !== null || creatingProject !== null)}
 					onClick={() => openModal(null)}
 				>
@@ -626,9 +671,12 @@ function App() {
 					>
 						<path d="M20 11V7a2 2 0 0 0-2-2h-7L9 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7M18 14v8m-4-4h8" />
 					</svg>
-					New project
+					{t("newProject")}
 				</button>
-				<nav aria-label="Projects and chats" className="mt-4 flex-1 space-y-4">
+				<nav
+					aria-label={t("projectsAndChats")}
+					className="mt-4 flex-1 space-y-4"
+				>
 					{projects
 						.filter((project) => !project.archived)
 						.map((project) =>
@@ -638,8 +686,8 @@ function App() {
 							}),
 						)}
 				</nav>
-				<details aria-label="Archived">
-					<summary className="cursor-pointer">Archived</summary>
+				<details aria-label={t("archived")}>
+					<summary className="cursor-pointer">{t("archived")}</summary>
 					<div className="mt-4 space-y-4">
 						{projects
 							.filter(
@@ -681,17 +729,23 @@ function App() {
 					</svg>
 				</button>
 				{error && (
-					<p role="alert" className="mt-4 text-red-700">
-						{error}
+					<p
+						role="alert"
+						className="mt-4 whitespace-pre-wrap break-words text-red-700"
+					>
+						{errorText(error)}
 					</p>
 				)}
 				{selected !== null && !chat && chatErrors[selected] && (
-					<p role="alert" className="mt-4 text-red-700">
-						{chatErrors[selected]}
+					<p
+						role="alert"
+						className="mt-4 whitespace-pre-wrap break-words text-red-700"
+					>
+						{errorText(chatErrors[selected])}
 					</p>
 				)}
 				<hr
-					aria-label="调整左侧面板宽度"
+					aria-label={t("resizeSidebar")}
 					aria-orientation="vertical"
 					aria-controls="projects-panel"
 					className="sidebar-divider"
@@ -734,12 +788,12 @@ function App() {
 					}}
 				/>
 			</aside>
-			<section aria-label="Chat" className="min-w-0 flex-1 px-6 py-10">
+			<section aria-label={t("chat")} className="min-w-0 flex-1 px-6 py-10">
 				{project && chat && (
 					<div className="mx-auto max-w-2xl">
 						<p className="text-slate-600">{project.name}</p>
 						<h2 className="mt-2 text-2xl font-semibold">{chat.name}</h2>
-						<h3 className="mt-6 font-medium">目标文件夹</h3>
+						<h3 className="mt-6 font-medium">{t("targetFolders")}</h3>
 						<ul className="mt-2 space-y-1 text-slate-600">
 							{project.folders.map((folder) => (
 								<li key={folder} className="break-all">
@@ -747,12 +801,16 @@ function App() {
 								</li>
 							))}
 						</ul>
-						<div role="log" aria-label="聊天历史" className="mt-6 space-y-4">
+						<div
+							role="log"
+							aria-label={t("chatHistory")}
+							className="mt-6 space-y-4"
+						>
 							{chatState?.id === chat.id &&
 								chatState.messages.map((message) => (
 									<p key={message.id} className="whitespace-pre-wrap">
 										<strong>
-											{message.role === "user" ? "你" : "Agent"}：
+											{t(message.role === "user" ? "you" : "agent")}:{" "}
 										</strong>
 										{message.content}
 									</p>
@@ -762,14 +820,14 @@ function App() {
 							<p role="status" className="mt-6 text-slate-600">
 								{project.archived
 									? chat.archived
-										? "Project 和 Chat 已归档，只读。恢复两者后可继续使用。"
-										: "Project 已归档，Chat 只读。恢复 project 后可继续使用。"
-									: "Chat 已归档，只读。恢复 chat 后可继续使用。"}
+										? t("bothArchivedReadOnly")
+										: t("projectArchivedReadOnly")
+									: t("chatArchivedReadOnly")}
 							</p>
 						)}
 						<form className="mt-6" onSubmit={submit}>
 							<label className="block">
-								Prompt
+								{t("prompt")}
 								<textarea
 									className={control}
 									rows={4}
@@ -796,11 +854,14 @@ function App() {
 									submitting.has(chat.id)
 								}
 							>
-								提交
+								{t("submit")}
 							</button>
 							{chatErrors[chat.id] && (
-								<p role="alert" className="mt-4 text-red-700">
-									{chatErrors[chat.id]}
+								<p
+									role="alert"
+									className="mt-4 whitespace-pre-wrap break-words text-red-700"
+								>
+									{errorText(chatErrors[chat.id])}
 								</p>
 							)}
 						</form>
@@ -813,15 +874,19 @@ function App() {
 				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
 			>
 				<h2 id="create-title" className="text-xl font-semibold">
-					{editing
-						? `编辑 ${editing.kind}`
-						: creatingProject === null
-							? "新建 project"
-							: "新建 chat"}
+					{t(
+						editing
+							? editing.kind === "project"
+								? "editProject"
+								: "editChat"
+							: creatingProject === null
+								? "newProject"
+								: "newChat",
+					)}
 				</h2>
 				<form className="mt-4 space-y-4" onSubmit={saveModal}>
 					<label className="block">
-						名称
+						{t("name")}
 						<input
 							className={control}
 							name="name"
@@ -834,8 +899,8 @@ function App() {
 					{(editing
 						? editing.kind === "project"
 						: creatingProject === null) && (
-						<section aria-label="已选文件夹">
-							<h3>目标文件夹</h3>
+						<section aria-label={t("selectedFolders")}>
+							<h3>{t("targetFolders")}</h3>
 							<ul>
 								{folders.map((folder) => (
 									<li key={folder} className="mt-2 flex items-center gap-2">
@@ -844,14 +909,14 @@ function App() {
 											type="button"
 											className={button}
 											disabled={saving || modalReadOnly}
-											aria-label={`移除 ${folder}`}
+											aria-label={t("removeFolder", { path: folder })}
 											onClick={() =>
 												setFolders((current) =>
 													current.filter((path) => path !== folder),
 												)
 											}
 										>
-											移除
+											{t("remove")}
 										</button>
 									</li>
 								))}
@@ -868,16 +933,17 @@ function App() {
 									}
 								}}
 							>
-								添加文件夹
+								{t("addFolder")}
 							</button>
 						</section>
 					)}
-					{modalReadOnly && (
-						<p role="status">已归档，只读。恢复后可继续编辑。</p>
-					)}
+					{modalReadOnly && <p role="status">{t("archivedEditReadOnly")}</p>}
 					{modalError && (
-						<p role="alert" className="text-red-700">
-							{modalError}
+						<p
+							role="alert"
+							className="whitespace-pre-wrap break-words text-red-700"
+						>
+							{errorText(modalError)}
 						</p>
 					)}
 					<div className="flex justify-end gap-3">
@@ -886,14 +952,14 @@ function App() {
 							type="button"
 							onClick={() => dialog.current?.close()}
 						>
-							取消
+							{t("cancel")}
 						</button>
 						<button
 							className={button}
 							type="submit"
 							disabled={saving || modalReadOnly}
 						>
-							{editing ? "保存" : "创建"}
+							{t(editing ? "save" : "create")}
 						</button>
 					</div>
 				</form>
@@ -905,11 +971,11 @@ function App() {
 			>
 				<header className="shrink-0">
 					<h2 id="folder-title" className="text-xl font-semibold">
-						选择文件夹
+						{t("selectFolder")}
 					</h2>
 					<div className="mt-4 flex items-start gap-3">
 						<section
-							aria-label="当前目录"
+							aria-label={t("currentDirectory")}
 							title={directory?.path}
 							className="line-clamp-4 min-w-0 flex-1 break-all font-mono"
 						>
@@ -933,16 +999,19 @@ function App() {
 							}}
 						>
 							{directory && folders.includes(directory.path)
-								? "已添加"
-								: "选择此目录"}
+								? t("alreadyAdded")
+								: t("selectDirectory")}
 						</button>
 					</div>
-					{loadingDirectory && <p role="status">加载中…</p>}
+					{loadingDirectory && <p role="status">{t("loading")}</p>}
 
 					{directoryError && (
 						<div className="mt-4">
-							<p role="alert" className="text-red-700">
-								{directoryError}
+							<p
+								role="alert"
+								className="whitespace-pre-wrap break-words text-red-700"
+							>
+								{errorText(directoryError)}
 							</p>
 							<button
 								type="button"
@@ -950,19 +1019,19 @@ function App() {
 								disabled={loadingDirectory}
 								onClick={() => void browse(directory?.path)}
 							>
-								重试
+								{t("retry")}
 							</button>
 						</div>
 					)}
 				</header>
 				<ul
-					aria-label="子目录"
+					aria-label={t("subdirectories")}
 					className="my-4 min-h-12 overflow-y-auto font-mono"
 				>
 					<li>
 						<button
 							type="button"
-							aria-label="返回上级"
+							aria-label={t("parentDirectory")}
 							className="text-left hover:underline disabled:text-slate-400 disabled:no-underline"
 							disabled={!directory?.parent}
 							onClick={() => {
@@ -990,7 +1059,7 @@ function App() {
 						className={button}
 						onClick={() => folderDialog.current?.close()}
 					>
-						取消
+						{t("cancel")}
 					</button>
 				</footer>
 			</dialog>
@@ -1026,7 +1095,10 @@ function App() {
 				</label>
 				{languageError && (
 					<div className="mt-4">
-						<p role="alert" className="text-red-700">
+						<p
+							role="alert"
+							className="whitespace-pre-wrap break-words text-red-700"
+						>
 							{t(languageError)}
 						</p>
 						<button
@@ -1049,7 +1121,7 @@ function App() {
 							{ label: t("off"), enabled: false },
 							{ label: t("on"), enabled: true },
 						].map(({ label, enabled }) => (
-							<label key={label} className="flex items-center gap-2">
+							<label key={String(enabled)} className="flex items-center gap-2">
 								<input
 									type="radio"
 									name="debug"
@@ -1071,7 +1143,10 @@ function App() {
 					</div>
 				</fieldset>
 				{debugError && (
-					<p role="alert" className="mt-4 text-red-700">
+					<p
+						role="alert"
+						className="mt-4 whitespace-pre-wrap break-words text-red-700"
+					>
 						{t(debugError)}
 					</p>
 				)}

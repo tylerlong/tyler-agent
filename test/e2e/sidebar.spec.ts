@@ -4,7 +4,7 @@ import { expect, test } from "./fixtures.ts";
 const sidebar = (page: Page) =>
 	page.getByRole("complementary", { name: "Projects" });
 const divider = (page: Page) =>
-	page.getByRole("separator", { name: "调整左侧面板宽度" });
+	page.getByRole("separator", { name: "Resize sidebar" });
 async function startDrag(page: Page) {
 	const bounds = await divider(page).boundingBox();
 	if (!bounds) throw new Error("Missing divider");

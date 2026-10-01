@@ -29,21 +29,23 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 	await page
 		.getByRole("textbox", { name: "Prompt", exact: true })
 		.fill("Question");
-	await page.getByRole("button", { name: "提交", exact: true }).click();
+	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	await hold.entered;
 	try {
 		const work = page
 			.getByRole("region", { name: "Project Work", exact: true })
 			.first();
 		await work
-			.getByRole("button", { name: "Chat A 操作", exact: true })
+			.getByRole("button", { name: "Chat A actions", exact: true })
 			.click();
-		await work.getByRole("button", { name: "归档 chat", exact: true }).click();
+		await work
+			.getByRole("button", { name: "Archive chat", exact: true })
+			.click();
 		await expect(other.getByRole("status")).toHaveText(
-			"Chat 已归档，只读。恢复 chat 后可继续使用。",
+			"Chat is archived and read-only. Restore the chat to continue.",
 		);
 		await expect(
-			other.getByRole("button", { name: "提交", exact: true }),
+			other.getByRole("button", { name: "Submit", exact: true }),
 		).toBeDisabled();
 		await expect(
 			page.getByRole("heading", { name: "A", exact: true }),
@@ -58,16 +60,16 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 				.getByRole("button", { name: /^A/ }),
 		).toBeVisible();
 		await work
-			.getByRole("button", { name: "Project 操作", exact: true })
+			.getByRole("button", { name: "Project actions", exact: true })
 			.click();
 		await work
-			.getByRole("button", { name: "归档 project", exact: true })
+			.getByRole("button", { name: "Archive project", exact: true })
 			.click();
 		await expect(
-			archive.getByText("（项目已归档）", { exact: true }),
+			archive.getByText(" (project archived)", { exact: true }),
 		).toBeVisible();
 		await expect(other.getByRole("status")).toHaveText(
-			"Project 和 Chat 已归档，只读。恢复两者后可继续使用。",
+			"Project and chat are archived and read-only. Restore both to continue.",
 		);
 		await expect(
 			archive.getByRole("button", { name: "B", exact: true }),
@@ -77,11 +79,13 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 			exact: true,
 		});
 		await group
-			.getByRole("button", { name: "Chat A 操作", exact: true })
+			.getByRole("button", { name: "Chat A actions", exact: true })
 			.click();
-		await group.getByRole("button", { name: "恢复 chat", exact: true }).click();
+		await group
+			.getByRole("button", { name: "Restore chat", exact: true })
+			.click();
 		await expect(other.getByRole("status")).toHaveText(
-			"Project 已归档，Chat 只读。恢复 project 后可继续使用。",
+			"Project is archived; chat is read-only. Restore the project to continue.",
 		);
 		hold.release();
 		await expect(other.getByRole("log")).toContainText("Test answer");
@@ -89,13 +93,13 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 			other.getByRole("textbox", { name: "Prompt", exact: true }),
 		).toHaveValue("");
 		await group
-			.getByRole("button", { name: "Project 操作", exact: true })
+			.getByRole("button", { name: "Project actions", exact: true })
 			.click();
 		await group
-			.getByRole("button", { name: "恢复 project", exact: true })
+			.getByRole("button", { name: "Restore project", exact: true })
 			.click();
 		await expect(
-			other.getByRole("button", { name: "提交", exact: true }),
+			other.getByRole("button", { name: "Submit", exact: true }),
 		).toBeEnabled();
 		await expect(
 			page
@@ -143,21 +147,21 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 		exact: true,
 	});
 	await section
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await section
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
-	const modal = page.getByRole("dialog", { name: "编辑 project", exact: true });
-	await modal.getByLabel("名称", { exact: true }).fill("local edit");
+	const modal = page.getByRole("dialog", { name: "Edit project", exact: true });
+	await modal.getByLabel("Name", { exact: true }).fill("local edit");
 	await other.request.put(`${app.url}/api/projects/${work.id}/archive`, {
 		data: { archived: true },
 	});
-	await expect(modal.getByLabel("名称", { exact: true })).toBeDisabled();
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue(
+	await expect(modal.getByLabel("Name", { exact: true })).toBeDisabled();
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue(
 		"local edit",
 	);
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(
 		page.getByRole("textbox", { name: "Prompt", exact: true }),
 	).toHaveValue("draft");
@@ -189,33 +193,35 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 		exact: true,
 	});
 	await group
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await expect(
-		group.getByRole("button", { name: "编辑 project", exact: true }),
+		group.getByRole("button", { name: "Edit project", exact: true }),
 	).toBeDisabled();
 	await group
-		.getByRole("button", { name: "恢复 project", exact: true })
+		.getByRole("button", { name: "Restore project", exact: true })
 		.click();
-	await expect(page.getByRole("alert")).toHaveText("Restore failed");
+	await expect(page.getByRole("alert")).toHaveText(
+		"Request failed.\nRestore failed",
+	);
 	await expect(group).toBeVisible();
 	await group
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await group
-		.getByRole("button", { name: "恢复 project", exact: true })
+		.getByRole("button", { name: "Restore project", exact: true })
 		.click();
 	await expect(normal.getByRole("heading")).toHaveText(["Work", "Newer"]);
 	await section
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await section
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue(
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue(
 		"local edit",
 	);
-	await modal.getByRole("button", { name: "保存", exact: true }).click();
+	await modal.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(modal).toBeHidden();
 	expect(
 		(
@@ -229,15 +235,15 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 		data: { archived: true },
 	});
 	await expect(archived.getByRole("heading")).toHaveText([
-		"local edit（项目已归档）",
-		"Newer（项目已归档）",
+		"local edit (project archived)",
+		"Newer (project archived)",
 	]);
 	await app.restart();
 	await page.goto(`${app.url}/?chat=${c.id}`);
-	await expect(page.getByRole("status")).toContainText("Project 已归档");
+	await expect(page.getByRole("status")).toContainText("Project is archived");
 	await page.getByText("Archived", { exact: true }).click();
 	await expect(archived.getByRole("heading")).toHaveText([
-		"local edit（项目已归档）",
-		"Newer（项目已归档）",
+		"local edit (project archived)",
+		"Newer (project archived)",
 	]);
 });

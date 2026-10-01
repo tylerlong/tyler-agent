@@ -29,27 +29,27 @@ test("edit menus preserve hidden drafts, retry failures and sync without changin
 		exact: true,
 	});
 	await section
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await section
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
-	const modal = page.getByRole("dialog", { name: "编辑 project", exact: true });
-	await modal.getByLabel("名称", { exact: true }).fill("Unsaved");
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	const modal = page.getByRole("dialog", { name: "Edit project", exact: true });
+	await modal.getByLabel("Name", { exact: true }).fill("Unsaved");
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await section
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await section
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue(
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue(
 		"Unsaved",
 	);
-	await modal.getByRole("button", { name: "添加文件夹", exact: true }).click();
+	await modal.getByRole("button", { name: "Add folder", exact: true }).click();
 	await page
-		.getByRole("dialog", { name: "选择文件夹", exact: true })
-		.getByRole("button", { name: "选择此目录", exact: true })
+		.getByRole("dialog", { name: "Select folder", exact: true })
+		.getByRole("button", { name: "Select this directory", exact: true })
 		.click();
 	let failed = false;
 	await page.route("**/api/projects/*", async (route) => {
@@ -58,12 +58,14 @@ test("edit menus preserve hidden drafts, retry failures and sync without changin
 			await route.fulfill({ status: 500, json: { error: "Save failed" } });
 		} else await route.continue();
 	});
-	await modal.getByRole("button", { name: "保存", exact: true }).click();
-	await expect(modal.getByRole("alert")).toHaveText("Save failed");
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue(
+	await modal.getByRole("button", { name: "Save", exact: true }).click();
+	await expect(modal.getByRole("alert")).toHaveText(
+		"Request failed.\nSave failed",
+	);
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue(
 		"Unsaved",
 	);
-	await modal.getByRole("button", { name: "保存", exact: true }).click();
+	await modal.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await expect(
 		other.getByRole("region", { name: "Project Unsaved", exact: true }),
@@ -76,48 +78,48 @@ test("edit menus preserve hidden drafts, retry failures and sync without changin
 		exact: true,
 	});
 	await otherProject
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await otherProject
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
 	const otherModal = other.getByRole("dialog", {
-		name: "编辑 project",
+		name: "Edit project",
 		exact: true,
 	});
-	await otherModal.getByLabel("名称", { exact: true }).fill("Other local edit");
+	await otherModal.getByLabel("Name", { exact: true }).fill("Other local edit");
 	const renamed = page.getByRole("region", {
 		name: "Project Unsaved",
 		exact: true,
 	});
 	await renamed
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await renamed
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue(
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue(
 		"Unsaved",
 	);
 	await modal
-		.getByRole("button", { name: `移除 ${app.folder}`, exact: true })
+		.getByRole("button", { name: `Remove ${app.folder}`, exact: true })
 		.click();
-	await modal.getByRole("button", { name: "保存", exact: true }).click();
+	await modal.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(modal).not.toBeVisible();
-	await expect(otherModal.getByLabel("名称", { exact: true })).toHaveValue(
+	await expect(otherModal.getByLabel("Name", { exact: true })).toHaveValue(
 		"Other local edit",
 	);
-	await otherModal.getByRole("button", { name: "取消", exact: true }).click();
+	await otherModal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await renamed
-		.getByRole("button", { name: "Chat First 操作", exact: true })
+		.getByRole("button", { name: "Chat First actions", exact: true })
 		.click();
-	await renamed.getByRole("button", { name: "编辑 chat", exact: true }).click();
+	await renamed.getByRole("button", { name: "Edit chat", exact: true }).click();
 	const chatModal = page.getByRole("dialog", {
-		name: "编辑 chat",
+		name: "Edit chat",
 		exact: true,
 	});
-	await chatModal.getByLabel("名称", { exact: true }).fill("Changed");
-	await chatModal.getByRole("button", { name: "保存", exact: true }).click();
+	await chatModal.getByLabel("Name", { exact: true }).fill("Changed");
+	await chatModal.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(
 		other.getByRole("heading", { name: "Changed", exact: true }),
 	).toBeVisible();
@@ -156,28 +158,28 @@ test("switching edit targets loads their data and closing does not cancel pendin
 	});
 	async function edit(name: string) {
 		await section
-			.getByRole("button", { name: `Chat ${name} 操作`, exact: true })
+			.getByRole("button", { name: `Chat ${name} actions`, exact: true })
 			.click();
 		await section
-			.getByRole("button", { name: "编辑 chat", exact: true })
+			.getByRole("button", { name: "Edit chat", exact: true })
 			.click();
 	}
 	await edit("Alpha");
-	const modal = page.getByRole("dialog", { name: "编辑 chat", exact: true });
-	await modal.getByLabel("名称", { exact: true }).fill("Alpha draft");
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	const modal = page.getByRole("dialog", { name: "Edit chat", exact: true });
+	await modal.getByLabel("Name", { exact: true }).fill("Alpha draft");
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await edit("Beta");
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue("Beta");
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue("Beta");
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await edit("Alpha");
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue("Alpha");
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue("Alpha");
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	const model = app.holdModel();
 	await page.getByRole("textbox", { name: "Prompt", exact: true }).fill("Wait");
-	await page.getByRole("button", { name: "提交", exact: true }).click();
+	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	await model.entered;
 	await edit("Alpha");
-	await modal.getByLabel("名称", { exact: true }).fill("While running");
+	await modal.getByLabel("Name", { exact: true }).fill("While running");
 	let release!: () => void;
 	const held = new Promise<void>((r) => (release = r));
 	let entered!: () => void;
@@ -189,14 +191,14 @@ test("switching edit targets loads their data and closing does not cancel pendin
 		}
 		await route.continue();
 	});
-	await modal.getByRole("button", { name: "保存", exact: true }).click();
+	await modal.getByRole("button", { name: "Save", exact: true }).click();
 	await started;
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await section
-		.getByRole("button", { name: "Chat Beta 操作", exact: true })
+		.getByRole("button", { name: "Chat Beta actions", exact: true })
 		.click();
 	await expect(
-		section.getByRole("button", { name: "编辑 chat", exact: true }),
+		section.getByRole("button", { name: "Edit chat", exact: true }),
 	).toBeDisabled();
 	release();
 	await expect(
@@ -205,7 +207,7 @@ test("switching edit targets loads their data and closing does not cancel pendin
 	model.release();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await edit("While running");
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue(
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue(
 		"While running",
 	);
 });
@@ -225,29 +227,29 @@ test("successful edits reopen authoritative values even when list rereads fail",
 		exact: true,
 	});
 	await original
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await original
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
-	const modal = page.getByRole("dialog", { name: "编辑 project", exact: true });
-	await modal.getByLabel("名称", { exact: true }).fill("Saved");
+	const modal = page.getByRole("dialog", { name: "Edit project", exact: true });
+	await modal.getByLabel("Name", { exact: true }).fill("Saved");
 	await page.route("**/api/projects", (route) =>
 		route.fulfill({ status: 500, json: { error: "Read failed" } }),
 	);
-	await modal.getByRole("button", { name: "保存", exact: true }).click();
+	await modal.getByRole("button", { name: "Save", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	const saved = page.getByRole("region", {
 		name: "Project Saved",
 		exact: true,
 	});
 	await saved
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await saved
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
-	await expect(modal.getByLabel("名称", { exact: true })).toHaveValue("Saved");
+	await expect(modal.getByLabel("Name", { exact: true })).toHaveValue("Saved");
 	expect(
 		(await (await page.request.get(`${app.url}/api/projects`)).json())
 			.projects[0].id,

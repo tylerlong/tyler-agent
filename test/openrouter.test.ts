@@ -68,7 +68,7 @@ test("retained OpenRouter transport sends contextual JSON and redacts readable d
 					async () => new Response("no", { status: 500 }),
 					true,
 				),
-			/OpenRouter 请求失败/,
+			/OpenRouter request failed/,
 		);
 		await assert.rejects(() =>
 			requestModel([], "bad", async () => new Response("bad json"), true),
@@ -81,7 +81,7 @@ test("retained OpenRouter transport sends contextual JSON and redacts readable d
 					async () => Response.json({ output: [] }),
 					true,
 				),
-			/没有返回文本/,
+			/did not return a text answer/,
 		);
 		await assert.rejects(() =>
 			requestModel(

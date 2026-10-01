@@ -12,73 +12,80 @@ test("real directory picker selects one folder at a time, preserves position and
 	await symlink(join(app.folder, "Alpha"), join(app.folder, "Link"));
 	await symlink(join(app.folder, "missing"), join(app.folder, "Broken"));
 	await page.goto(app.url);
-	await page.getByRole("button", { name: "新建 project", exact: true }).click();
+	await page.getByRole("button", { name: "New project", exact: true }).click();
 	const project = page.getByRole("dialog", {
-		name: "新建 project",
+		name: "New project",
 		exact: true,
 	});
-	const picker = page.getByRole("dialog", { name: "选择文件夹", exact: true });
-	const add = project.getByRole("button", { name: "添加文件夹" });
-	await project.getByLabel("名称").fill("Work");
+	const picker = page.getByRole("dialog", {
+		name: "Select folder",
+		exact: true,
+	});
+	const add = project.getByRole("button", { name: "Add folder" });
+	await project.getByLabel("Name").fill("Work");
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "选择此目录" }),
+		picker.getByRole("button", { name: "Select this directory" }),
 	).toBeEnabled();
 	await expect(
-		picker.getByRole("list", { name: "子目录" }).getByRole("button"),
+		picker.getByRole("list", { name: "Subdirectories" }).getByRole("button"),
 	).toHaveText(["..", "Alpha/", "Link/", "Zulu/"]);
-	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
+	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
 	await picker.getByRole("button", { name: "Alpha/", exact: true }).click();
-	await expect(picker.getByLabel("当前目录")).toHaveText(
+	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Alpha"),
 	);
 	await expect(picker.getByRole("list").getByRole("button")).toHaveText([".."]);
-	await picker.getByRole("button", { name: "选择此目录" }).click();
+	await picker.getByRole("button", { name: "Select this directory" }).click();
 	await expect(picker).not.toBeVisible();
 	await add.click();
-	await expect(picker.getByRole("button", { name: "已添加" })).toBeDisabled();
-	await picker.getByRole("button", { name: "取消" }).click();
-	await expect(project.getByLabel("名称")).toHaveValue("Work");
+	await expect(
+		picker.getByRole("button", { name: "Already added" }),
+	).toBeDisabled();
+	await picker.getByRole("button", { name: "Cancel" }).click();
+	await expect(project.getByLabel("Name")).toHaveValue("Work");
 	await add.click();
-	await picker.getByRole("button", { name: "返回上级" }).click();
-	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
+	await picker.getByRole("button", { name: "Parent directory" }).click();
+	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
 	await picker.getByRole("button", { name: "Zulu/", exact: true }).click();
-	await expect(picker.getByLabel("当前目录")).toHaveText(
+	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Zulu"),
 	);
-	await picker.getByRole("button", { name: "选择此目录" }).click();
+	await picker.getByRole("button", { name: "Select this directory" }).click();
 	await project
 		.getByRole("button", {
-			name: `移除 ${join(app.folder, "Alpha")}`,
+			name: `Remove ${join(app.folder, "Alpha")}`,
 			exact: true,
 		})
 		.click();
 	await expect(
-		project.getByRole("region", { name: "已选文件夹" }),
+		project.getByRole("region", { name: "Selected folders" }),
 	).not.toContainText(join(app.folder, "Alpha"));
 	await rm(join(app.folder, "Zulu"), { recursive: true });
-	await project.getByRole("button", { name: "创建", exact: true }).click();
-	await expect(project.getByRole("alert")).toHaveText("目标文件夹不存在");
-	await expect(project.getByLabel("名称")).toHaveValue("Work");
+	await project.getByRole("button", { name: "Create", exact: true }).click();
+	await expect(project.getByRole("alert")).toHaveText(
+		"Target folder does not exist.",
+	);
+	await expect(project.getByLabel("Name")).toHaveValue("Work");
 	await project
 		.getByRole("button", {
-			name: `移除 ${join(app.folder, "Zulu")}`,
+			name: `Remove ${join(app.folder, "Zulu")}`,
 			exact: true,
 		})
 		.click();
 	await add.click();
-	await expect(picker.getByLabel("当前目录")).toHaveText(
+	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Zulu"),
 	);
-	await picker.getByRole("button", { name: "返回上级" }).click();
-	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
-	await picker.getByRole("button", { name: "选择此目录" }).click();
-	await project.getByRole("button", { name: "创建", exact: true }).click();
+	await picker.getByRole("button", { name: "Parent directory" }).click();
+	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
+	await picker.getByRole("button", { name: "Select this directory" }).click();
+	await project.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(project).not.toBeVisible();
-	await page.getByRole("button", { name: "新建 project", exact: true }).click();
-	await expect(project.getByLabel("名称")).toHaveValue("New project");
+	await page.getByRole("button", { name: "New project", exact: true }).click();
+	await expect(project.getByLabel("Name")).toHaveValue("New project");
 	await add.click();
-	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
+	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
 });
 
 test("hidden directory loads finish normally and stale navigation cannot replace newer results", async ({
@@ -88,13 +95,16 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	await mkdir(join(app.folder, "Alpha"));
 	await mkdir(join(app.folder, "Beta"));
 	await page.goto(app.url);
-	await page.getByRole("button", { name: "新建 project", exact: true }).click();
+	await page.getByRole("button", { name: "New project", exact: true }).click();
 	const project = page.getByRole("dialog", {
-		name: "新建 project",
+		name: "New project",
 		exact: true,
 	});
-	const picker = page.getByRole("dialog", { name: "选择文件夹", exact: true });
-	const add = project.getByRole("button", { name: "添加文件夹" });
+	const picker = page.getByRole("dialog", {
+		name: "Select folder",
+		exact: true,
+	});
+	const add = project.getByRole("button", { name: "Add folder" });
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => {
 		release = resolve;
@@ -106,9 +116,9 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	});
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "选择此目录" }),
+		picker.getByRole("button", { name: "Select this directory" }),
 	).toBeDisabled();
-	await picker.getByRole("button", { name: "取消" }).click();
+	await picker.getByRole("button", { name: "Cancel" }).click();
 	await expect(picker).not.toBeVisible();
 	release();
 	await expect(
@@ -117,7 +127,7 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	await page.unroute("**/api/directories*");
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "选择此目录" }),
+		picker.getByRole("button", { name: "Select this directory" }),
 	).toBeEnabled();
 	let releaseAlpha!: () => void;
 	const alphaGate = new Promise<void>((resolve) => {
@@ -133,9 +143,9 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 		await route.fulfill({ response });
 	});
 	await picker.getByRole("button", { name: "Alpha/", exact: true }).click();
-	await expect(picker.getByRole("status")).toHaveText("加载中…");
+	await expect(picker.getByRole("status")).toHaveText("Loading…");
 	await picker.getByRole("button", { name: "Beta/", exact: true }).click();
-	await expect(picker.getByLabel("当前目录")).toHaveText(
+	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Beta"),
 	);
 	const done = page.waitForResponse(
@@ -145,10 +155,10 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	);
 	releaseAlpha();
 	await done;
-	await expect(picker.getByLabel("当前目录")).toHaveText(
+	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Beta"),
 	);
-	await picker.getByRole("button", { name: "取消" }).click();
+	await picker.getByRole("button", { name: "Cancel" }).click();
 });
 
 test("showing a hidden picker sends no new browse request and preserves a navigation error", async ({
@@ -161,33 +171,40 @@ test("showing a hidden picker sends no new browse request and preserves a naviga
 		if (new URL(request.url()).pathname === "/api/directories") reads++;
 	});
 	await page.goto(app.url);
-	await page.getByRole("button", { name: "新建 project", exact: true }).click();
+	await page.getByRole("button", { name: "New project", exact: true }).click();
 	const project = page.getByRole("dialog", {
-		name: "新建 project",
+		name: "New project",
 		exact: true,
 	});
-	const picker = page.getByRole("dialog", { name: "选择文件夹", exact: true });
-	const add = project.getByRole("button", { name: "添加文件夹" });
+	const picker = page.getByRole("dialog", {
+		name: "Select folder",
+		exact: true,
+	});
+	const add = project.getByRole("button", { name: "Add folder" });
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "选择此目录" }),
+		picker.getByRole("button", { name: "Select this directory" }),
 	).toBeEnabled();
 	await rm(join(app.folder, "Gone"), { recursive: true });
 	await picker.getByRole("button", { name: "Gone/", exact: true }).click();
-	await expect(picker.getByRole("alert")).toHaveText("目标文件夹不存在");
+	await expect(picker.getByRole("alert")).toHaveText(
+		"Target folder does not exist.",
+	);
 	expect(reads).toBe(2);
-	await picker.getByRole("button", { name: "取消" }).click();
+	await picker.getByRole("button", { name: "Cancel" }).click();
 	await add.click();
-	await expect(picker.getByRole("alert")).toHaveText("目标文件夹不存在");
-	await expect(picker.getByLabel("当前目录")).toHaveText(app.folder);
+	await expect(picker.getByRole("alert")).toHaveText(
+		"Target folder does not exist.",
+	);
+	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
 	await expect(
-		picker.getByRole("button", { name: "选择此目录" }),
+		picker.getByRole("button", { name: "Select this directory" }),
 	).toBeEnabled();
 	expect(reads).toBe(2);
-	await picker.getByRole("button", { name: "重试", exact: true }).click();
+	await picker.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(picker.getByRole("alert")).toHaveCount(0);
 	await expect(
-		picker.getByRole("button", { name: "选择此目录" }),
+		picker.getByRole("button", { name: "Select this directory" }),
 	).toBeEnabled();
 	expect(reads).toBe(3);
 });
@@ -204,17 +221,20 @@ test("directory list scrolls with fixed controls and long paths remain selectabl
 	const deepPath = join(app.folder, "Folder79", longName, nestedName);
 	await mkdir(join(deepPath, "Last"), { recursive: true });
 	await page.goto(app.url);
-	await page.getByRole("button", { name: "新建 project", exact: true }).click();
+	await page.getByRole("button", { name: "New project", exact: true }).click();
 	const project = page.getByRole("dialog", {
-		name: "新建 project",
+		name: "New project",
 		exact: true,
 	});
-	await project.getByRole("button", { name: "添加文件夹" }).click();
-	const picker = page.getByRole("dialog", { name: "选择文件夹", exact: true });
-	const list = picker.getByRole("list", { name: "子目录" });
-	const path = picker.getByLabel("当前目录");
-	const select = picker.getByRole("button", { name: "选择此目录" });
-	const cancel = picker.getByRole("button", { name: "取消" });
+	await project.getByRole("button", { name: "Add folder" }).click();
+	const picker = page.getByRole("dialog", {
+		name: "Select folder",
+		exact: true,
+	});
+	const list = picker.getByRole("list", { name: "Subdirectories" });
+	const path = picker.getByLabel("Current directory");
+	const select = picker.getByRole("button", { name: "Select this directory" });
+	const cancel = picker.getByRole("button", { name: "Cancel" });
 	await expect(list.getByRole("button")).toHaveCount(81);
 	const before = await Promise.all([
 		path.boundingBox(),
@@ -264,13 +284,15 @@ test("directory list scrolls with fixed controls and long paths remain selectabl
 	).toBeInViewport({ ratio: 1 });
 	await rm(join(deepPath, "Last"), { recursive: true });
 	await list.getByRole("button", { name: "Last/", exact: true }).click();
-	await expect(picker.getByRole("alert")).toHaveText("目标文件夹不存在");
+	await expect(picker.getByRole("alert")).toHaveText(
+		"Target folder does not exist.",
+	);
 	await expect(cancel).toBeInViewport({ ratio: 1 });
 	await expect(select).toBeInViewport({ ratio: 1 });
-	await picker.getByRole("button", { name: "重试", exact: true }).click();
+	await picker.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(picker.getByRole("alert")).toHaveCount(0);
 	await select.click();
 	await expect(
-		project.getByRole("region", { name: "已选文件夹" }),
+		project.getByRole("region", { name: "Selected folders" }),
 	).toContainText(deepPath);
 });

@@ -1,6 +1,14 @@
 type Message = { role: "user" | "assistant"; content: string };
 let callId = 0;
-export class ModelError extends Error {}
+export class ModelError extends Error {
+	code: string;
+	details?: string;
+	constructor(code: string, message: string, details?: string) {
+		super(message);
+		this.code = code;
+		this.details = details;
+	}
+}
 export async function requestModel(
 	messages: Message[],
 	prompt: string,
@@ -9,7 +17,11 @@ export async function requestModel(
 ) {
 	const apiKey = process.env.OPENROUTER_API_KEY;
 	const model = process.env.OPENROUTER_MODEL;
-	if (!apiKey || !model) throw new ModelError("OpenRouter 配置缺失");
+	if (!apiKey || !model)
+		throw new ModelError(
+			"modelConfigMissing",
+			"OpenRouter configuration is missing",
+		);
 	const url = "https://openrouter.ai/api/v1/responses";
 	const headers = {
 		authorization: `Bearer ${apiKey}`,
@@ -57,7 +69,11 @@ export async function requestModel(
 				error: String(error),
 				durationMs: Math.round(performance.now() - started),
 			});
-		throw error;
+		throw new ModelError(
+			"modelRequestFailed",
+			"OpenRouter request failed",
+			redact(String(error)),
+		);
 	}
 	if (shouldLog) {
 		log(
@@ -69,17 +85,36 @@ export async function requestModel(
 			rawBody,
 		);
 	}
-	if (!upstream.ok) throw new ModelError("OpenRouter 请求失败");
-	const data: unknown = JSON.parse(rawBody);
+	if (!upstream.ok)
+		throw new ModelError(
+			"modelRequestFailed",
+			"OpenRouter request failed",
+			redact(rawBody),
+		);
+	let data: unknown;
+	try {
+		data = JSON.parse(rawBody);
+	} catch {
+		throw new ModelError(
+			"modelInvalidResponse",
+			"OpenRouter returned an invalid response",
+			redact(rawBody),
+		);
+	}
 	const output =
 		data && typeof data === "object" && "output" in data ? data.output : null;
 	const answer = Array.isArray(output)
 		? output
 				.flatMap((item) =>
-					item.type === "message" && Array.isArray(item.content)
+					item &&
+					typeof item === "object" &&
+					item.type === "message" &&
+					Array.isArray(item.content)
 						? item.content
 								.filter(
 									(part: { type?: string; text?: unknown }) =>
+										part &&
+										typeof part === "object" &&
 										part.type === "output_text" &&
 										typeof part.text === "string",
 								)
@@ -89,7 +124,12 @@ export async function requestModel(
 				.join("\n")
 				.trim()
 		: "";
-	if (!answer) throw new ModelError("OpenRouter 没有返回文本答案");
+	if (!answer)
+		throw new ModelError(
+			"modelNoAnswer",
+			"OpenRouter did not return a text answer",
+			redact(rawBody),
+		);
 
 	return answer;
 }

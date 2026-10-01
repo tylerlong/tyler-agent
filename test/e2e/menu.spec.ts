@@ -13,11 +13,11 @@ test("sidebar menus dismiss outside, switch targets and close before editing", a
 		exact: true,
 	});
 	const trigger = project.getByRole("button", {
-		name: "Project 操作",
+		name: "Project actions",
 		exact: true,
 	});
 	const edit = project.getByRole("button", {
-		name: "编辑 project",
+		name: "Edit project",
 		exact: true,
 	});
 	await trigger.click();
@@ -31,7 +31,7 @@ test("sidebar menus dismiss outside, switch targets and close before editing", a
 	await edit.click();
 	await expect(edit).toBeHidden();
 	await expect(
-		page.getByRole("dialog", { name: "编辑 project", exact: true }),
+		page.getByRole("dialog", { name: "Edit project", exact: true }),
 	).toBeVisible();
 });
 
@@ -54,7 +54,7 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 		exact: true,
 	});
 	const create = page.getByRole("button", {
-		name: "新建 project",
+		name: "New project",
 		exact: true,
 	});
 	const background = (locator: import("@playwright/test").Locator) =>
@@ -66,8 +66,8 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	await expect(create).toHaveText("New project");
 	await create.hover();
 	expect(await background(create)).not.toBe("rgba(0, 0, 0, 0)");
-	const plus = project.getByRole("button", { name: "新建 chat", exact: true });
-	await expect(plus).toHaveAttribute("title", "新建 chat");
+	const plus = project.getByRole("button", { name: "New chat", exact: true });
+	await expect(plus).toHaveAttribute("title", "New chat");
 	await expect(plus).toHaveText("+");
 	await expect(plus).toBeVisible();
 	const row = project.getByRole("heading").locator("..");
@@ -77,14 +77,14 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	await plus.hover();
 	expect(await background(plus)).not.toBe("rgba(0, 0, 0, 0)");
 	const trigger = project.getByRole("button", {
-		name: "Project 操作",
+		name: "Project actions",
 		exact: true,
 	});
 	await trigger.hover();
 	expect(await background(trigger)).not.toBe("rgba(0, 0, 0, 0)");
 	await trigger.click();
 	const edit = project.getByRole("button", {
-		name: "编辑 project",
+		name: "Edit project",
 		exact: true,
 	});
 	await edit.hover();
@@ -106,12 +106,12 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	await page.getByText("Archived", { exact: true }).click();
 	const archived = page.getByRole("group", { name: "Archived", exact: true });
 	const bottomTrigger = archived.getByRole("button", {
-		name: "Chat First 操作",
+		name: "Chat First actions",
 		exact: true,
 	});
 	await bottomTrigger.click();
 	const disabled = archived.getByRole("button", {
-		name: "编辑 chat",
+		name: "Edit chat",
 		exact: true,
 	});
 	await expect(disabled).toBeDisabled();
@@ -128,14 +128,14 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	await page.screenshot({ path: "/tmp/tyler-agent-46-archived-menu.png" });
 	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
 	await archived
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await expect(disabled).toBeHidden();
 	await archived
-		.getByRole("button", { name: "恢复 project", exact: true })
+		.getByRole("button", { name: "Restore project", exact: true })
 		.click();
 	await expect(
-		project.getByRole("button", { name: "新建 chat", exact: true }),
+		project.getByRole("button", { name: "New chat", exact: true }),
 	).toBeVisible();
 });
 
@@ -164,27 +164,27 @@ test("normal and Archived project targets stay separate and actions close before
 	});
 	const archived = page.getByRole("group", { name: "Archived", exact: true });
 	await normal
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	const edit = normal.getByRole("button", {
-		name: "编辑 project",
+		name: "Edit project",
 		exact: true,
 	});
 	await expect(edit).toBeVisible();
 	await archived
-		.getByRole("button", { name: "Project 操作", exact: true })
+		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
 	await expect(edit).toBeHidden();
 	await archived
-		.getByRole("button", { name: "编辑 project", exact: true })
+		.getByRole("button", { name: "Edit project", exact: true })
 		.click();
 	await expect(
 		page
-			.getByRole("dialog", { name: "编辑 project", exact: true })
-			.getByLabel("名称", { exact: true }),
+			.getByRole("dialog", { name: "Edit project", exact: true })
+			.getByLabel("Name", { exact: true }),
 	).toHaveValue("Work");
-	await page.getByRole("button", { name: "取消", exact: true }).click();
-	for (const action of ["归档 project", "恢复 project"]) {
+	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	for (const action of ["Archive project", "Restore project"]) {
 		let entered!: () => void;
 		let release!: () => void;
 		const started = new Promise<void>((resolve) => {
@@ -198,27 +198,29 @@ test("normal and Archived project targets stay separate and actions close before
 			await held;
 			await route.fulfill({ status: 500, json: { error: "Action failed" } });
 		});
-		const area = action === "归档 project" ? normal : archived;
+		const area = action === "Archive project" ? normal : archived;
 		await area
-			.getByRole("button", { name: "Project 操作", exact: true })
+			.getByRole("button", { name: "Project actions", exact: true })
 			.click();
 		const item = area.getByRole("button", { name: action, exact: true });
 		await item.click();
 		await started;
 		await expect(item).toBeHidden();
 		release();
-		await expect(page.getByRole("alert")).toHaveText("Action failed");
+		await expect(page.getByRole("alert")).toHaveText(
+			"Request failed.\nAction failed",
+		);
 		await expect(item).toBeHidden();
 		await page.unroute(`**/api/projects/${p.id}/archive`);
 		await area
-			.getByRole("button", { name: "Project 操作", exact: true })
+			.getByRole("button", { name: "Project actions", exact: true })
 			.click();
 		await area.getByRole("button", { name: action, exact: true }).click();
 		await expect(
 			area.getByRole("button", { name: action, exact: true }),
 		).toBeHidden();
 		await expect(
-			(action === "归档 project" ? archived : normal).getByRole("heading"),
+			(action === "Archive project" ? archived : normal).getByRole("heading"),
 		).toContainText("Work");
 	}
 });

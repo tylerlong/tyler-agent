@@ -21,7 +21,7 @@ test("URL navigation isolates history and drafts; refresh discards drafts and st
 	).json();
 	await page.goto(`${app.url}/?chat=${a.id}`);
 	const prompt = page.getByLabel("Prompt");
-	const submit = page.getByRole("button", { name: "提交", exact: true });
+	const submit = page.getByRole("button", { name: "Submit", exact: true });
 	await expect(submit).toBeEnabled();
 	await prompt.fill("alpha question");
 	await submit.click();
@@ -91,16 +91,16 @@ test("pending submission stays in original chat and does not clear later drafts 
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${a.id}`);
 	const pending = app.holdModel();
-	const submit = page.getByRole("button", { name: "提交", exact: true });
+	const submit = page.getByRole("button", { name: "Submit", exact: true });
 	await expect(submit).toBeEnabled();
 	await page.getByLabel("Prompt").fill("original question");
 	await submit.click();
 	await pending.entered;
 	await expect(
-		other.getByRole("button", { name: "提交", exact: true }),
+		other.getByRole("button", { name: "Submit", exact: true }),
 	).toBeDisabled();
 	await expect(
-		page.getByRole("button", { name: "Alpha（运行中）", exact: true }),
+		page.getByRole("button", { name: "Alpha (running)", exact: true }),
 	).toBeVisible();
 	await page.getByLabel("Prompt").fill("later alpha draft");
 	await page.getByRole("button", { name: "Beta", exact: true }).click();
@@ -109,7 +109,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	pending.release();
 	await expect(other.getByRole("log")).toContainText("original question");
 	await expect(
-		other.getByRole("button", { name: "提交", exact: true }),
+		other.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
 	await expect(page.getByRole("log")).toBeEmpty();
 	await expect(page.getByLabel("Prompt")).toHaveValue("beta draft");
@@ -133,12 +133,14 @@ test("a failed request belongs to its chat and successful retry clears the error
 		})
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	const submit = page.getByRole("button", { name: "提交", exact: true });
+	const submit = page.getByRole("button", { name: "Submit", exact: true });
 	await expect(submit).toBeEnabled();
 	app.failModel();
 	await page.getByLabel("Prompt").fill("retry me");
 	await submit.click();
-	await expect(page.getByRole("alert")).toHaveText("OpenRouter 请求失败");
+	await expect(page.getByRole("alert")).toHaveText(
+		"OpenRouter request failed.\nupstream failure",
+	);
 	await expect(page.getByLabel("Prompt")).toHaveValue("retry me");
 	await expect(page.getByRole("log")).toBeEmpty();
 	await expect(submit).toBeEnabled();

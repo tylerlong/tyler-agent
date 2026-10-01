@@ -11,55 +11,51 @@ test("default names submit without folders and fresh drafts reset after success"
 	const other = await context.newPage();
 	await other.goto(app.url);
 	const trigger = page.getByRole("button", {
-		name: "新建 project",
+		name: "New project",
 		exact: true,
 	});
-	const modal = page.getByRole("dialog", { name: /^新建/ });
+	const modal = page.getByRole("dialog", { name: /^New/ });
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("New project");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("New project");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await expect(
 		other.getByRole("heading", { name: "New project", exact: true }),
 	).toBeVisible();
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("New project");
-	await modal.getByLabel("名称").fill(" ");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
-	await expect(modal.getByRole("alert")).toHaveText("名称不得为空");
-	await modal.getByRole("button", { name: "取消" }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("New project");
+	await modal.getByLabel("Name").fill(" ");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
+	await expect(modal.getByRole("alert")).toHaveText("Name must not be empty.");
+	await modal.getByRole("button", { name: "Cancel" }).click();
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue(" ");
-	await expect(modal.getByRole("alert")).toHaveText("名称不得为空");
-	await modal.getByLabel("名称").fill("Personal");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue(" ");
+	await expect(modal.getByRole("alert")).toHaveText("Name must not be empty.");
+	await modal.getByLabel("Name").fill("Personal");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	const personal = page.getByRole("region", {
 		name: "Project Personal",
 		exact: true,
 	});
-	await personal
-		.getByRole("button", { name: "新建 chat", exact: true })
-		.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("New chat");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await personal.getByTitle("New chat", { exact: true }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("New chat");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await expect(
-		other.getByRole("button", { name: "New chat", exact: true }),
+		other
+			.getByRole("list")
+			.getByRole("button", { name: "New chat", exact: true }),
 	).toBeVisible();
-	await personal
-		.getByRole("button", { name: "新建 chat", exact: true })
-		.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("New chat");
-	await modal.getByLabel("名称").fill("Draft");
-	await modal.getByRole("button", { name: "取消" }).click();
-	await personal
-		.getByRole("button", { name: "新建 chat", exact: true })
-		.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("Draft");
-	await modal.getByRole("button", { name: "取消" }).click();
+	await personal.getByTitle("New chat", { exact: true }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("New chat");
+	await modal.getByLabel("Name").fill("Draft");
+	await modal.getByRole("button", { name: "Cancel" }).click();
+	await personal.getByTitle("New chat", { exact: true }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("Draft");
+	await modal.getByRole("button", { name: "Cancel" }).click();
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("New project");
+	await expect(modal.getByLabel("Name")).toHaveValue("New project");
 });
 
 test("native creation modals support validation, cancellation and shared lists", async ({
@@ -71,44 +67,44 @@ test("native creation modals support validation, cancellation and shared lists",
 	const other = await context.newPage();
 	await other.goto(app.url);
 	const createProject = page.getByRole("button", {
-		name: "新建 project",
+		name: "New project",
 		exact: true,
 	});
 	await createProject.click();
-	const modal = page.getByRole("dialog", { name: /^新建/ });
+	const modal = page.getByRole("dialog", { name: /^New/ });
 	await expect(modal).toBeVisible();
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await createProject.click();
-	await modal.getByRole("button", { name: "取消" }).click();
+	await modal.getByRole("button", { name: "Cancel" }).click();
 	await expect(modal).not.toBeVisible();
 	await createProject.click();
-	await modal.getByLabel("名称").fill(" ");
-	await modal.getByRole("button", { name: "添加文件夹" }).click();
+	await modal.getByLabel("Name").fill(" ");
+	await modal.getByRole("button", { name: "Add folder" }).click();
 	await page
-		.getByRole("dialog", { name: "选择文件夹" })
-		.getByRole("button", { name: "选择此目录" })
+		.getByRole("dialog", { name: "Select folder" })
+		.getByRole("button", { name: "Select this directory" })
 		.click();
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
-	await expect(modal.getByRole("alert")).toHaveText("名称不得为空");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
+	await expect(modal.getByRole("alert")).toHaveText("Name must not be empty.");
 	await expect(modal).toBeVisible();
-	await modal.getByLabel("名称").fill("Work");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await modal.getByLabel("Name").fill("Work");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await expect(page.getByRole("region", { name: "Chat" })).toBeEmpty();
 	await expect(
 		other.getByRole("heading", { name: "Work", exact: true }),
 	).toBeVisible();
 	const createChat = page.getByRole("button", {
-		name: "新建 chat",
+		name: "New chat",
 		exact: true,
 	});
 	await createChat.click();
-	await modal.getByLabel("名称").fill(" ");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
-	await expect(modal.getByRole("alert")).toHaveText("名称不得为空");
-	await modal.getByLabel("名称").fill("Question");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
+	await modal.getByLabel("Name").fill(" ");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
+	await expect(modal.getByRole("alert")).toHaveText("Name must not be empty.");
+	await modal.getByLabel("Name").fill("Question");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await expect(
 		page
@@ -122,7 +118,7 @@ test("native creation modals support validation, cancellation and shared lists",
 		other.getByRole("button", { name: "Question", exact: true }),
 	).toBeVisible();
 	await expect(other.getByRole("region", { name: "Chat" })).toBeEmpty();
-	await page.getByRole("button", { name: "折叠 Work" }).click();
+	await page.getByRole("button", { name: "Collapse Work" }).click();
 	await expect(
 		page.getByRole("button", { name: "Question", exact: true }),
 	).not.toBeVisible();
@@ -144,24 +140,24 @@ test("pending project creation can hide and reopen without cancelling or closing
 		if (route.request().method() === "POST") await held;
 		await route.continue();
 	});
-	await page.getByRole("button", { name: "新建 project", exact: true }).click();
-	const modal = page.getByRole("dialog", { name: /^新建/ });
-	await modal.getByLabel("名称").fill("First");
-	await modal.getByRole("button", { name: "添加文件夹" }).click();
+	await page.getByRole("button", { name: "New project", exact: true }).click();
+	const modal = page.getByRole("dialog", { name: /^New/ });
+	await modal.getByLabel("Name").fill("First");
+	await modal.getByRole("button", { name: "Add folder" }).click();
 	await page
-		.getByRole("dialog", { name: "选择文件夹" })
-		.getByRole("button", { name: "选择此目录" })
+		.getByRole("dialog", { name: "Select folder" })
+		.getByRole("button", { name: "Select this directory" })
 		.click();
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
-	await expect(modal.getByRole("button", { name: "取消" })).toBeEnabled();
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
+	await expect(modal.getByRole("button", { name: "Cancel" })).toBeEnabled();
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(modal).not.toBeVisible();
-	await page.getByRole("button", { name: "新建 project", exact: true }).click();
-	await expect(modal.getByLabel("名称")).toHaveValue("First");
+	await page.getByRole("button", { name: "New project", exact: true }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("First");
 	await expect(
-		modal.getByRole("button", { name: "创建", exact: true }),
+		modal.getByRole("button", { name: "Create", exact: true }),
 	).toBeDisabled();
-	await modal.getByRole("button", { name: "取消" }).click();
+	await modal.getByRole("button", { name: "Cancel" }).click();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(settings).toBeVisible();
@@ -193,20 +189,20 @@ test("pending chat creation keeps its input while hidden and completes in its or
 		await held;
 		await route.continue();
 	});
-	const trigger = page.getByRole("button", { name: "新建 chat", exact: true });
+	const trigger = page.getByRole("button", { name: "New chat", exact: true });
 	await trigger.click();
-	const modal = page.getByRole("dialog", { name: "新建 chat", exact: true });
-	await modal.getByLabel("名称").fill("Pending chat");
-	await modal.getByRole("button", { name: "取消" }).click();
+	const modal = page.getByRole("dialog", { name: "New chat", exact: true });
+	await modal.getByLabel("Name").fill("Pending chat");
+	await modal.getByRole("button", { name: "Cancel" }).click();
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("Pending chat");
-	await modal.getByRole("button", { name: "创建", exact: true }).click();
-	await expect(modal.getByLabel("名称")).toBeDisabled();
-	await modal.getByRole("button", { name: "取消", exact: true }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("Pending chat");
+	await modal.getByRole("button", { name: "Create", exact: true }).click();
+	await expect(modal.getByLabel("Name")).toBeDisabled();
+	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(modal).not.toBeVisible();
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("Pending chat");
-	await modal.getByRole("button", { name: "取消" }).click();
+	await expect(modal.getByLabel("Name")).toHaveValue("Pending chat");
+	await modal.getByRole("button", { name: "Cancel" }).click();
 	release();
 	await expect(
 		page
@@ -214,7 +210,7 @@ test("pending chat creation keeps its input while hidden and completes in its or
 			.getByRole("heading", { name: "Pending chat" }),
 	).toBeVisible();
 	await trigger.click();
-	await expect(modal.getByLabel("名称")).toHaveValue("New chat");
+	await expect(modal.getByLabel("Name")).toHaveValue("New chat");
 });
 
 test("settings stays synchronized while hidden and failed updates can retry without losing errors", async ({

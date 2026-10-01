@@ -15,14 +15,69 @@ import { ModelError, requestModel } from "./openrouter.ts";
 const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
 );
-class InputError extends Error {}
+const errorMessages: Record<string, string> = {
+	requestTooLarge: "Request is too large",
+	invalidInput: "Invalid input",
+	nameRequired: "Name must not be empty",
+	invalidFolders: "Folders must contain valid nonempty paths",
+	duplicateFolders: "Duplicate folder paths",
+	notDirectory: "The target path is not a directory",
+	directoryNotFound: "The target directory does not exist",
+	directoryAccessFailed: "Cannot access the target directory",
+	invalidSidebarWidth: "Invalid sidebar width",
+	sidebarWidthFailed: "Could not read or save sidebar width",
+	invalidLanguage: "Unsupported interface language",
+	languageReadFailed: "Could not read interface language",
+	invalidDebug: "Invalid debug setting",
+	debugWriteFailed: "Could not save debug setting",
+	invalidDirectoryPath: "Invalid directory path",
+	directoryBrowseFailed: "Cannot browse the target directory",
+	projectCreateFailed: "Could not create project",
+	targetNotFound: "The target does not exist",
+	invalidArchive: "Invalid archive status",
+	projectArchivedChatReadOnly:
+		"The project is archived; its chats are read-only",
+	archiveWriteFailed: "Could not update archive status",
+	projectNotFound: "Project does not exist",
+	projectArchived: "The project is archived and read-only",
+	projectWriteFailed: "Could not save project",
+	chatNotFound: "Chat does not exist",
+	chatArchived: "The chat is archived and read-only",
+	chatWriteFailed: "Could not save chat",
+	promptRequired: "Prompt must not be empty",
+	chatBusy: "The chat is processing a request",
+	answerWriteFailed: "Could not save the answer",
+	chatCreateFailed: "Could not create chat",
+	notFound: "Not found",
+	languageWriteFailed: "Could not save interface language",
+};
+class InputError extends Error {
+	code: string;
+	constructor(code: string) {
+		super(errorMessages[code]);
+		this.code = code;
+	}
+}
+function errorBody(code: string) {
+	return { code, error: errorMessages[code] };
+}
+function caughtError(error: unknown, fallback: string) {
+	return error instanceof InputError || error instanceof ModelError
+		? {
+				code: error.code,
+				error: error.message,
+				...(error instanceof ModelError &&
+					error.details !== undefined && { details: error.details }),
+			}
+		: errorBody(fallback);
+}
 async function readJson(
 	request: IncomingMessage,
 ): Promise<Record<string, unknown>> {
 	let body = "";
 	for await (const chunk of request) {
 		body += chunk;
-		if (body.length > 8192) throw new InputError("请求过大");
+		if (body.length > 8192) throw new InputError("requestTooLarge");
 	}
 	try {
 		const input: unknown = JSON.parse(body);
@@ -30,12 +85,12 @@ async function readJson(
 			throw new Error();
 		return input as Record<string, unknown>;
 	} catch {
-		throw new InputError("无效的输入");
+		throw new InputError("invalidInput");
 	}
 }
 function name(input: Record<string, unknown>) {
 	if (typeof input.name !== "string" || !input.name.trim())
-		throw new InputError("名称不得为空");
+		throw new InputError("nameRequired");
 	return input.name.trim();
 }
 async function projectFolders(
@@ -46,22 +101,22 @@ async function projectFolders(
 		!Array.isArray(input.folders) ||
 		input.folders.some((folder) => typeof folder !== "string" || !folder.trim())
 	)
-		throw new InputError("文件夹列表必须包含有效的非空路径");
+		throw new InputError("invalidFolders");
 	const folders = input.folders.map((folder: string) => resolve(folder.trim()));
 	if (new Set(folders).size !== folders.length)
-		throw new InputError("文件夹路径重复");
+		throw new InputError("duplicateFolders");
 	for (const folder of folders) {
 		if (existing.includes(folder)) continue;
 		try {
 			if (!(await stat(folder)).isDirectory())
-				throw new InputError("目标路径不是文件夹");
+				throw new InputError("notDirectory");
 			await access(folder, constants.R_OK | constants.X_OK);
 		} catch (error) {
 			if (error instanceof InputError) throw error;
 			throw new InputError(
 				(error as NodeJS.ErrnoException).code === "ENOENT"
-					? "目标文件夹不存在"
-					: "无法访问目标文件夹",
+					? "directoryNotFound"
+					: "directoryAccessFailed",
 			);
 		}
 	}
@@ -174,7 +229,7 @@ export function createServer(
 						width < 240 ||
 						width > 600
 					)
-						throw new InputError("无效的面板宽度");
+						throw new InputError("invalidSidebarWidth");
 					database
 						.prepare("UPDATE settings SET sidebar_width=? WHERE id=1")
 						.run(width);
@@ -187,9 +242,11 @@ export function createServer(
 			} catch (error) {
 				if (!(error instanceof InputError))
 					console.error("Sidebar width read/write failed", error);
-				json(response, error instanceof InputError ? 400 : 500, {
-					error: "面板宽度读写失败",
-				});
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "sidebarWidthFailed"),
+				);
 			}
 			return;
 		}
@@ -201,7 +258,7 @@ export function createServer(
 				if (request.method === "PUT") {
 					const { language } = await readJson(request);
 					if (language !== "en" && language !== "zh-CN")
-						throw new InputError("Unsupported interface language");
+						throw new InputError("invalidLanguage");
 					database
 						.prepare("UPDATE settings SET language=? WHERE id=1")
 						.run(language);
@@ -212,21 +269,18 @@ export function createServer(
 				json(response, 200, { language });
 				if (request.method === "PUT") notifyChange();
 			} catch (error) {
-				const code =
-					error instanceof InputError
-						? "invalidLanguage"
-						: request.method === "PUT"
-							? "languageWriteFailed"
-							: "languageReadFailed";
 				if (!(error instanceof InputError))
 					console.error("Language setting read/write failed", error);
-				json(response, error instanceof InputError ? 400 : 500, {
-					code,
-					error:
-						error instanceof InputError
-							? error.message
-							: "Language setting read/write failed",
-				});
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(
+						error,
+						request.method === "PUT"
+							? "languageWriteFailed"
+							: "languageReadFailed",
+					),
+				);
 			}
 			return;
 		}
@@ -238,7 +292,7 @@ export function createServer(
 			try {
 				const input = await readJson(request);
 				if (typeof input.enabled !== "boolean")
-					throw new InputError("无效的日志设置");
+					throw new InputError("invalidDebug");
 				database
 					.prepare("UPDATE settings SET debug_enabled=? WHERE id=1")
 					.run(Number(input.enabled));
@@ -249,12 +303,11 @@ export function createServer(
 			} catch (error) {
 				if (!(error instanceof InputError))
 					console.error("Debug setting write failed", error);
-				json(response, error instanceof InputError ? 400 : 500, {
-					code:
-						error instanceof InputError ? "invalidDebug" : "debugWriteFailed",
-					error:
-						error instanceof InputError ? "无效的日志设置" : "保存日志设置失败",
-				});
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "debugWriteFailed"),
+				);
 			}
 			return;
 		}
@@ -262,10 +315,10 @@ export function createServer(
 			try {
 				const paths = url.searchParams.getAll("path");
 				if (paths.length > 1 || (paths.length && !paths[0]?.trim()))
-					throw new InputError("无效的目录路径");
+					throw new InputError("invalidDirectoryPath");
 				const current = resolve(paths[0]?.trim() ?? home);
 				if (!(await stat(current)).isDirectory())
-					throw new InputError("目标路径不是文件夹");
+					throw new InputError("notDirectory");
 				await access(current, constants.R_OK | constants.X_OK);
 				const entries = await readdir(current, { withFileTypes: true });
 				const directories = [];
@@ -301,14 +354,10 @@ export function createServer(
 							: code === "EACCES" || code === "EPERM"
 								? 403
 								: 400,
-					{
-						error:
-							error instanceof InputError
-								? error.message
-								: code === "ENOENT"
-									? "目标文件夹不存在"
-									: "无法浏览目标文件夹",
-					},
+					caughtError(
+						error,
+						code === "ENOENT" ? "directoryNotFound" : "directoryBrowseFailed",
+					),
 				);
 			}
 			return;
@@ -346,10 +395,11 @@ export function createServer(
 				);
 				notifyChange();
 			} catch (error) {
-				json(response, error instanceof InputError ? 400 : 500, {
-					error:
-						error instanceof InputError ? error.message : "创建 project 失败",
-				});
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "projectCreateFailed"),
+				);
 			}
 			return;
 		}
@@ -360,13 +410,13 @@ export function createServer(
 			const table = archiveRoute[1] === "projects" ? "projects" : "chats";
 			const id = Number(archiveRoute[2]);
 			if (!database.prepare(`SELECT id FROM ${table} WHERE id=?`).get(id)) {
-				json(response, 404, { error: "目标不存在" });
+				json(response, 404, errorBody("targetNotFound"));
 				return;
 			}
 			try {
 				const { archived } = await readJson(request);
 				if (typeof archived !== "boolean")
-					throw new InputError("无效的归档状态");
+					throw new InputError("invalidArchive");
 				if (table === "chats" && archived) {
 					const state = database
 						.prepare(
@@ -374,7 +424,7 @@ export function createServer(
 						)
 						.get(id);
 					if (state?.projectArchived && !state.archived) {
-						json(response, 409, { error: "Project 已归档，Chat 只读" });
+						json(response, 409, errorBody("projectArchivedChatReadOnly"));
 						return;
 					}
 				}
@@ -384,10 +434,11 @@ export function createServer(
 				json(response, 200, { id, archived });
 				notifyChange();
 			} catch (error) {
-				json(response, error instanceof InputError ? 400 : 500, {
-					error:
-						error instanceof InputError ? error.message : "更新归档状态失败",
-				});
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "archiveWriteFailed"),
+				);
 			}
 			return;
 		}
@@ -396,11 +447,11 @@ export function createServer(
 			const id = Number(projectRoute[1]);
 			const project = listProjects(database).find((item) => item.id === id);
 			if (!project) {
-				json(response, 404, { error: "Project 不存在" });
+				json(response, 404, errorBody("projectNotFound"));
 				return;
 			}
 			if (project.archived) {
-				json(response, 409, { error: "Project 已归档，只读" });
+				json(response, 409, errorBody("projectArchived"));
 				return;
 			}
 			try {
@@ -432,10 +483,11 @@ export function createServer(
 				);
 				notifyChange();
 			} catch (error) {
-				json(response, error instanceof InputError ? 400 : 500, {
-					error:
-						error instanceof InputError ? error.message : "保存 project 失败",
-				});
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "projectWriteFailed"),
+				);
 			}
 			return;
 		}
@@ -453,7 +505,7 @@ export function createServer(
 				)
 				.get(id);
 			if (!state) {
-				json(response, 404, { error: "Chat 不存在" });
+				json(response, 404, errorBody("chatNotFound"));
 				return;
 			}
 			if (request.method === "GET") {
@@ -461,11 +513,15 @@ export function createServer(
 				return;
 			}
 			if (state.archived || state.projectArchived) {
-				json(response, 409, {
-					error: state.projectArchived
-						? "Project 已归档，Chat 只读"
-						: "Chat 已归档，只读",
-				});
+				json(
+					response,
+					409,
+					errorBody(
+						state.projectArchived
+							? "projectArchivedChatReadOnly"
+							: "chatArchived",
+					),
+				);
 				return;
 			}
 			if (request.method === "PUT") {
@@ -477,10 +533,11 @@ export function createServer(
 					json(response, 200, { id, name: chatName });
 					notifyChange();
 				} catch (error) {
-					json(response, error instanceof InputError ? 400 : 500, {
-						error:
-							error instanceof InputError ? error.message : "保存 chat 失败",
-					});
+					json(
+						response,
+						error instanceof InputError ? 400 : 500,
+						caughtError(error, "chatWriteFailed"),
+					);
 				}
 				return;
 			}
@@ -488,9 +545,9 @@ export function createServer(
 			try {
 				const input = await readJson(request);
 				if (typeof input.prompt !== "string" || !input.prompt.trim())
-					throw new InputError("Prompt 不得为空");
+					throw new InputError("promptRequired");
 				if (busy.has(id)) {
-					json(response, 409, { error: "Chat 正在处理请求" });
+					json(response, 409, errorBody("chatBusy"));
 					return;
 				}
 				busy.add(id);
@@ -508,8 +565,10 @@ export function createServer(
 						debugEnabled,
 					);
 				} catch (error) {
+					if (error instanceof ModelError) throw error;
 					throw new ModelError(
-						error instanceof ModelError ? error.message : "OpenRouter 请求失败",
+						"modelRequestFailed",
+						"OpenRouter request failed",
 					);
 				}
 				database
@@ -526,12 +585,7 @@ export function createServer(
 						: error instanceof ModelError
 							? 502
 							: 500,
-					{
-						error:
-							error instanceof InputError || error instanceof ModelError
-								? error.message
-								: "保存回答失败",
-					},
+					caughtError(error, "answerWriteFailed"),
 				);
 			} finally {
 				if (locked) {
@@ -549,11 +603,11 @@ export function createServer(
 					.prepare("SELECT archived FROM projects WHERE id=?")
 					.get(projectId);
 				if (!project) {
-					json(response, 404, { error: "Project 不存在" });
+					json(response, 404, errorBody("projectNotFound"));
 					return;
 				}
 				if (project.archived) {
-					json(response, 409, { error: "Project 已归档，只读" });
+					json(response, 409, errorBody("projectArchived"));
 					return;
 				}
 				const chatName = name(await readJson(request));
@@ -574,13 +628,15 @@ export function createServer(
 				});
 				notifyChange();
 			} catch (error) {
-				json(response, error instanceof InputError ? 400 : 500, {
-					error: error instanceof InputError ? error.message : "创建 chat 失败",
-				});
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "chatCreateFailed"),
+				);
 			}
 			return;
 		}
-		json(response, 404, { error: "未找到" });
+		json(response, 404, errorBody("notFound"));
 	}).on("close", () => database.close());
 }
 if (import.meta.main) {
