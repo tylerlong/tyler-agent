@@ -29,3 +29,33 @@
 	cursor: col-resize;
 	user-select: none;
 }
+
+.action-menu {
+	position: fixed;
+	inset: auto;
+	top: anchor(bottom);
+	right: anchor(right);
+	margin: 4px 0 0;
+	position-try-fallbacks: flip-block;
+	min-width: 144px;
+	max-width: calc(100vw - 16px);
+	padding: 4px;
+	border: 1px solid var(--color-slate-200);
+	border-radius: 8px;
+	background: white;
+	color: var(--color-slate-900);
+	box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
+}
+.action-menu button {
+	display: block;
+	width: 100%;
+	padding: 8px 12px;
+	border-radius: 4px;
+	text-align: left;
+}
+.action-menu button:enabled:hover {
+	background: var(--color-slate-100);
+}
+.action-menu button:disabled {
+	color: var(--color-slate-400);
+}

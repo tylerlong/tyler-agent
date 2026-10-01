@@ -1,5 +1,6 @@
 import {
 	type FormEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useRef,
@@ -42,6 +43,42 @@ const control =
 	"mt-2 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600";
 const button =
 	"rounded-md border border-slate-300 px-3 py-2 hover:bg-slate-100 disabled:opacity-50";
+const iconButton =
+	"flex h-8 w-8 shrink-0 items-center justify-center rounded-md enabled:hover:bg-slate-200 disabled:opacity-50";
+function ActionMenu({
+	id,
+	label,
+	children,
+}: {
+	id: string;
+	label: string;
+	children: ReactNode;
+}) {
+	const popover = useRef<HTMLDivElement>(null);
+	return (
+		<div>
+			<button
+				type="button"
+				className={iconButton}
+				aria-label={label}
+				popoverTarget={id}
+				style={{ anchorName: `--${id}` }}
+			>
+				⋯
+			</button>
+			<div
+				ref={popover}
+				id={id}
+				popover="auto"
+				className="action-menu"
+				style={{ positionAnchor: `--${id}` }}
+				onClickCapture={() => popover.current?.hidePopover()}
+			>
+				{children}
+			</div>
+		</div>
+	);
+}
 const urlChat = () => {
 	const value = new URL(location.href).searchParams.get("chat");
 	return value && /^\d+$/.test(value) ? Number(value) : null;
@@ -257,7 +294,6 @@ function App() {
 		kind: "project" | "chat";
 		id: number;
 	} | null>(null);
-	const [menu, setMenu] = useState<string | null>(null);
 	const editSaved = useRef(false);
 	const modalRevision = useRef(0);
 	function openEdit(kind: "project" | "chat", id: number) {
@@ -281,7 +317,6 @@ function App() {
 			resetDirectory();
 			editSaved.current = false;
 		}
-		setMenu(null);
 		dialog.current?.showModal();
 	}
 	function openModal(projectId: number | null) {
@@ -362,7 +397,6 @@ function App() {
 		id: number,
 		archived: boolean,
 	) {
-		setMenu(null);
 		setError("");
 		try {
 			const saved = await api(
@@ -392,7 +426,7 @@ function App() {
 	}
 	const renderProject = (project: Project, archivedArea = false) => (
 		<section key={project.id} aria-label={`Project ${project.name}`}>
-			<div className="flex items-center gap-2">
+			<div className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-100">
 				<button
 					type="button"
 					aria-expanded={!collapsed.has(project.id)}
@@ -417,56 +451,44 @@ function App() {
 				{!archivedArea && (
 					<button
 						type="button"
-						className={button}
+						className={iconButton}
+						aria-label="新建 chat"
+						title="新建 chat"
 						disabled={
 							saving && (editing !== null || creatingProject !== project.id)
 						}
 						onClick={() => openModal(project.id)}
 					>
-						新建 chat
+						<span aria-hidden="true" className="text-xl">
+							+
+						</span>
 					</button>
 				)}
-				<div className="relative">
+				<ActionMenu
+					id={`${archivedArea ? "archived" : "normal"}-project-${project.id}`}
+					label="Project 操作"
+				>
 					<button
 						type="button"
-						aria-label="Project 操作"
+						disabled={
+							project.archived ||
+							(saving &&
+								(editing?.kind !== "project" || editing.id !== project.id))
+						}
+						onClick={() => openEdit("project", project.id)}
+					>
+						编辑 project
+					</button>
+					<button
+						type="button"
+						className="block"
 						onClick={() =>
-							setMenu(
-								menu ===
-									`${archivedArea ? "archived-" : ""}project-${project.id}`
-									? null
-									: `${archivedArea ? "archived-" : ""}project-${project.id}`,
-							)
+							void archive("project", project.id, !project.archived)
 						}
 					>
-						⋯
+						{project.archived ? "恢复 project" : "归档 project"}
 					</button>
-					{menu ===
-						`${archivedArea ? "archived-" : ""}project-${project.id}` && (
-						<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
-							<button
-								type="button"
-								disabled={
-									project.archived ||
-									(saving &&
-										(editing?.kind !== "project" || editing.id !== project.id))
-								}
-								onClick={() => openEdit("project", project.id)}
-							>
-								编辑 project
-							</button>
-							<button
-								type="button"
-								className="block"
-								onClick={() =>
-									void archive("project", project.id, !project.archived)
-								}
-							>
-								{project.archived ? "恢复 project" : "归档 project"}
-							</button>
-						</div>
-					)}
-				</div>
+				</ActionMenu>
 			</div>
 			{!collapsed.has(project.id) && (
 				<ul className="ml-5 mt-2 space-y-1">
@@ -481,45 +503,31 @@ function App() {
 								{chat.name}
 								{chat.busy && <span>（运行中）</span>}
 							</button>
-							<div className="relative">
+							<ActionMenu
+								id={`${archivedArea ? "archived" : "normal"}-chat-${chat.id}`}
+								label={`Chat ${chat.name} 操作`}
+							>
 								<button
 									type="button"
-									aria-label={`Chat ${chat.name} 操作`}
-									onClick={() =>
-										setMenu(
-											menu === `chat-${chat.id}` ? null : `chat-${chat.id}`,
-										)
+									disabled={
+										project.archived ||
+										chat.archived ||
+										(saving &&
+											(editing?.kind !== "chat" || editing.id !== chat.id))
 									}
+									onClick={() => openEdit("chat", chat.id)}
 								>
-									⋯
+									编辑 chat
 								</button>
-								{menu === `chat-${chat.id}` && (
-									<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
-										<button
-											type="button"
-											disabled={
-												project.archived ||
-												chat.archived ||
-												(saving &&
-													(editing?.kind !== "chat" || editing.id !== chat.id))
-											}
-											onClick={() => openEdit("chat", chat.id)}
-										>
-											编辑 chat
-										</button>
-										<button
-											type="button"
-											className="block"
-											disabled={project.archived && !chat.archived}
-											onClick={() =>
-												void archive("chat", chat.id, !chat.archived)
-											}
-										>
-											{chat.archived ? "恢复 chat" : "归档 chat"}
-										</button>
-									</div>
-								)}
-							</div>
+								<button
+									type="button"
+									className="block"
+									disabled={project.archived && !chat.archived}
+									onClick={() => void archive("chat", chat.id, !chat.archived)}
+								>
+									{chat.archived ? "恢复 chat" : "归档 chat"}
+								</button>
+							</ActionMenu>
 						</li>
 					))}
 				</ul>
@@ -554,11 +562,23 @@ function App() {
 				<h1 className="mb-4 text-xl font-semibold">Tyler Agent</h1>
 				<button
 					type="button"
-					className={button}
+					className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-slate-100 disabled:opacity-50"
+					aria-label="新建 project"
 					disabled={saving && (editing !== null || creatingProject !== null)}
 					onClick={() => openModal(null)}
 				>
-					新建 project
+					<svg
+						aria-hidden="true"
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.5"
+					>
+						<path d="M20 11V7a2 2 0 0 0-2-2h-7L9 3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7M18 14v8m-4-4h8" />
+					</svg>
+					New project
 				</button>
 				<nav aria-label="Projects and chats" className="mt-4 flex-1 space-y-4">
 					{projects

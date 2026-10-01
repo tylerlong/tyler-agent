@@ -1,0 +1,224 @@
+import { expect, test } from "./fixtures.ts";
+
+test("sidebar menus dismiss outside, switch targets and close before editing", async ({
+	page,
+	app,
+}) => {
+	await page.request.post(`${app.url}/api/projects`, {
+		data: { name: "Work", folders: [] },
+	});
+	await page.goto(app.url);
+	const project = page.getByRole("region", {
+		name: "Project Work",
+		exact: true,
+	});
+	const trigger = project.getByRole("button", {
+		name: "Project 操作",
+		exact: true,
+	});
+	const edit = project.getByRole("button", {
+		name: "编辑 project",
+		exact: true,
+	});
+	await trigger.click();
+	await expect(edit).toBeVisible();
+	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await expect(edit).toBeHidden();
+	await trigger.click();
+	await trigger.click();
+	await expect(edit).toBeHidden();
+	await trigger.click();
+	await edit.click();
+	await expect(edit).toBeHidden();
+	await expect(
+		page.getByRole("dialog", { name: "编辑 project", exact: true }),
+	).toBeVisible();
+});
+
+test("lightweight controls and menus have hover feedback and fit at the viewport bottom", async ({
+	page,
+	app,
+}) => {
+	const p = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	await page.request.post(`${app.url}/api/projects/${p.id}/chats`, {
+		data: { name: "First" },
+	});
+	await page.setViewportSize({ width: 800, height: 600 });
+	await page.goto(app.url);
+	const project = page.getByRole("region", {
+		name: "Project Work",
+		exact: true,
+	});
+	const create = page.getByRole("button", {
+		name: "新建 project",
+		exact: true,
+	});
+	const background = (locator: import("@playwright/test").Locator) =>
+		locator.evaluate((el) => getComputedStyle(el).backgroundColor);
+	expect(await background(create)).toBe("rgba(0, 0, 0, 0)");
+	expect(await create.evaluate((el) => getComputedStyle(el).borderWidth)).toBe(
+		"0px",
+	);
+	await expect(create).toHaveText("New project");
+	await create.hover();
+	expect(await background(create)).not.toBe("rgba(0, 0, 0, 0)");
+	const plus = project.getByRole("button", { name: "新建 chat", exact: true });
+	await expect(plus).toHaveAttribute("title", "新建 chat");
+	await expect(plus).toHaveText("+");
+	await expect(plus).toBeVisible();
+	const row = project.getByRole("heading").locator("..");
+	await project.getByRole("heading").hover();
+	expect(await background(row)).not.toBe("rgba(0, 0, 0, 0)");
+	expect(await background(project.locator("ul"))).toBe("rgba(0, 0, 0, 0)");
+	await plus.hover();
+	expect(await background(plus)).not.toBe("rgba(0, 0, 0, 0)");
+	const trigger = project.getByRole("button", {
+		name: "Project 操作",
+		exact: true,
+	});
+	await trigger.hover();
+	expect(await background(trigger)).not.toBe("rgba(0, 0, 0, 0)");
+	await trigger.click();
+	const edit = project.getByRole("button", {
+		name: "编辑 project",
+		exact: true,
+	});
+	await edit.hover();
+	expect(await background(edit)).not.toBe("rgba(0, 0, 0, 0)");
+	const bounds = await edit.locator("..").boundingBox();
+	const anchor = await trigger.boundingBox();
+	if (!bounds || !anchor) throw new Error("Menu or anchor not visible");
+	expect(
+		Math.abs(bounds.x + bounds.width - anchor.x - anchor.width),
+	).toBeLessThan(2);
+	expect(bounds.y - anchor.y - anchor.height).toBeGreaterThanOrEqual(0);
+	expect(bounds.y - anchor.y - anchor.height).toBeLessThan(10);
+	await page.screenshot({ path: "/tmp/tyler-agent-46-menu.png" });
+	// Put a real trigger near the bottom using an Archived project.
+	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await page.request.put(`${app.url}/api/projects/${p.id}/archive`, {
+		data: { archived: true },
+	});
+	await page.getByText("Archived", { exact: true }).click();
+	const archived = page.getByRole("group", { name: "Archived", exact: true });
+	const bottomTrigger = archived.getByRole("button", {
+		name: "Chat First 操作",
+		exact: true,
+	});
+	await bottomTrigger.click();
+	const disabled = archived.getByRole("button", {
+		name: "编辑 chat",
+		exact: true,
+	});
+	await expect(disabled).toBeDisabled();
+	const before = await background(disabled);
+	await disabled.hover();
+	expect(await background(disabled)).toBe(before);
+	const bottom = await bottomTrigger.boundingBox();
+	const menu = await disabled.locator("..").boundingBox();
+	if (!menu || !bottom) throw new Error("Bottom menu or anchor not visible");
+	expect(menu.y + menu.height).toBeLessThanOrEqual(bottom.y);
+	expect(menu.y).toBeGreaterThanOrEqual(0);
+	expect(menu.x).toBeGreaterThanOrEqual(0);
+	expect(menu.x + menu.width).toBeLessThanOrEqual(800);
+	await page.screenshot({ path: "/tmp/tyler-agent-46-archived-menu.png" });
+	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await archived
+		.getByRole("button", { name: "Project 操作", exact: true })
+		.click();
+	await expect(disabled).toBeHidden();
+	await archived
+		.getByRole("button", { name: "恢复 project", exact: true })
+		.click();
+	await expect(
+		project.getByRole("button", { name: "新建 chat", exact: true }),
+	).toBeVisible();
+});
+
+test("normal and Archived project targets stay separate and actions close before delayed failures", async ({
+	page,
+	app,
+}) => {
+	const p = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const c = await (
+		await page.request.post(`${app.url}/api/projects/${p.id}/chats`, {
+			data: { name: "Archived chat" },
+		})
+	).json();
+	await page.request.put(`${app.url}/api/chats/${c.id}/archive`, {
+		data: { archived: true },
+	});
+	await page.goto(app.url);
+	await page.getByText("Archived", { exact: true }).click();
+	const normal = page.getByRole("navigation", {
+		name: "Projects and chats",
+		exact: true,
+	});
+	const archived = page.getByRole("group", { name: "Archived", exact: true });
+	await normal
+		.getByRole("button", { name: "Project 操作", exact: true })
+		.click();
+	const edit = normal.getByRole("button", {
+		name: "编辑 project",
+		exact: true,
+	});
+	await expect(edit).toBeVisible();
+	await archived
+		.getByRole("button", { name: "Project 操作", exact: true })
+		.click();
+	await expect(edit).toBeHidden();
+	await archived
+		.getByRole("button", { name: "编辑 project", exact: true })
+		.click();
+	await expect(
+		page
+			.getByRole("dialog", { name: "编辑 project", exact: true })
+			.getByLabel("名称", { exact: true }),
+	).toHaveValue("Work");
+	await page.getByRole("button", { name: "取消", exact: true }).click();
+	for (const action of ["归档 project", "恢复 project"]) {
+		let entered!: () => void;
+		let release!: () => void;
+		const started = new Promise<void>((resolve) => {
+			entered = resolve;
+		});
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await page.route(`**/api/projects/${p.id}/archive`, async (route) => {
+			entered();
+			await held;
+			await route.fulfill({ status: 500, json: { error: "Action failed" } });
+		});
+		const area = action === "归档 project" ? normal : archived;
+		await area
+			.getByRole("button", { name: "Project 操作", exact: true })
+			.click();
+		const item = area.getByRole("button", { name: action, exact: true });
+		await item.click();
+		await started;
+		await expect(item).toBeHidden();
+		release();
+		await expect(page.getByRole("alert")).toHaveText("Action failed");
+		await expect(item).toBeHidden();
+		await page.unroute(`**/api/projects/${p.id}/archive`);
+		await area
+			.getByRole("button", { name: "Project 操作", exact: true })
+			.click();
+		await area.getByRole("button", { name: action, exact: true }).click();
+		await expect(
+			area.getByRole("button", { name: action, exact: true }),
+		).toBeHidden();
+		await expect(
+			(action === "归档 project" ? archived : normal).getByRole("heading"),
+		).toContainText("Work");
+	}
+});
