@@ -38,6 +38,35 @@ function name(input: Record<string, unknown>) {
 		throw new InputError("名称不得为空");
 	return input.name.trim();
 }
+async function projectFolders(
+	input: Record<string, unknown>,
+	existing: string[] = [],
+) {
+	if (
+		!Array.isArray(input.folders) ||
+		input.folders.some((folder) => typeof folder !== "string" || !folder.trim())
+	)
+		throw new InputError("文件夹列表必须包含有效的非空路径");
+	const folders = input.folders.map((folder: string) => resolve(folder.trim()));
+	if (new Set(folders).size !== folders.length)
+		throw new InputError("文件夹路径重复");
+	for (const folder of folders) {
+		if (existing.includes(folder)) continue;
+		try {
+			if (!(await stat(folder)).isDirectory())
+				throw new InputError("目标路径不是文件夹");
+			await access(folder, constants.R_OK | constants.X_OK);
+		} catch (error) {
+			if (error instanceof InputError) throw error;
+			throw new InputError(
+				(error as NodeJS.ErrnoException).code === "ENOENT"
+					? "目标文件夹不存在"
+					: "无法访问目标文件夹",
+			);
+		}
+	}
+	return folders;
+}
 function json(response: ServerResponse, status: number, body: unknown) {
 	response.writeHead(status, {
 		"content-type": "application/json; charset=utf-8",
@@ -253,32 +282,7 @@ export function createServer(
 			try {
 				const input = await readJson(request);
 				const projectName = name(input);
-				if (
-					!Array.isArray(input.folders) ||
-					input.folders.some(
-						(folder) => typeof folder !== "string" || !folder.trim(),
-					)
-				)
-					throw new InputError("文件夹列表必须包含有效的非空路径");
-				const folders = input.folders.map((folder: string) =>
-					resolve(folder.trim()),
-				);
-				if (new Set(folders).size !== folders.length)
-					throw new InputError("文件夹路径重复");
-				for (const folder of folders) {
-					try {
-						if (!(await stat(folder)).isDirectory())
-							throw new InputError("目标路径不是文件夹");
-						await access(folder, constants.R_OK | constants.X_OK);
-					} catch (error) {
-						if (error instanceof InputError) throw error;
-						throw new InputError(
-							(error as NodeJS.ErrnoException).code === "ENOENT"
-								? "目标文件夹不存在"
-								: "无法访问目标文件夹",
-						);
-					}
-				}
+				const folders = await projectFolders(input);
 				database.exec("BEGIN");
 				let id: number;
 				try {
@@ -310,8 +314,57 @@ export function createServer(
 			}
 			return;
 		}
+		const projectRoute = path.match(/^\/api\/projects\/(\d+)$/);
+		if (projectRoute && request.method === "PUT") {
+			const id = Number(projectRoute[1]);
+			const project = listProjects(database).find((item) => item.id === id);
+			if (!project) {
+				json(response, 404, { error: "Project 不存在" });
+				return;
+			}
+			try {
+				const input = await readJson(request);
+				const projectName = name(input);
+				const folders = await projectFolders(
+					input,
+					project.folders.map(String),
+				);
+				database.exec("BEGIN");
+				try {
+					database
+						.prepare("UPDATE projects SET name=? WHERE id=?")
+						.run(projectName, id);
+					database.prepare("DELETE FROM folders WHERE project_id=?").run(id);
+					for (const folder of folders)
+						database
+							.prepare("INSERT INTO folders(project_id,path) VALUES (?,?)")
+							.run(id, folder);
+					database.exec("COMMIT");
+				} catch (error) {
+					database.exec("ROLLBACK");
+					throw error;
+				}
+				json(
+					response,
+					200,
+					listProjects(database).find((item) => item.id === id),
+				);
+				notifyChange();
+			} catch (error) {
+				json(response, error instanceof InputError ? 400 : 500, {
+					error:
+						error instanceof InputError ? error.message : "保存 project 失败",
+				});
+			}
+			return;
+		}
 		const chatRoute = path.match(/^\/api\/chats\/(\d+)$/);
-		if (chatRoute && (request.method === "GET" || request.method === "POST")) {
+		if (
+			chatRoute &&
+			(request.method === "GET" ||
+				request.method === "POST" ||
+				request.method === "PUT")
+		) {
 			const id = Number(chatRoute[1]);
 			if (!database.prepare("SELECT id FROM chats WHERE id=?").get(id)) {
 				json(response, 404, { error: "Chat 不存在" });
@@ -319,6 +372,22 @@ export function createServer(
 			}
 			if (request.method === "GET") {
 				json(response, 200, { messages: messages(id), busy: busy.has(id) });
+				return;
+			}
+			if (request.method === "PUT") {
+				try {
+					const chatName = name(await readJson(request));
+					database
+						.prepare("UPDATE chats SET name=? WHERE id=?")
+						.run(chatName, id);
+					json(response, 200, { id, name: chatName });
+					notifyChange();
+				} catch (error) {
+					json(response, error instanceof InputError ? 400 : 500, {
+						error:
+							error instanceof InputError ? error.message : "保存 chat 失败",
+					});
+				}
 				return;
 			}
 			let locked = false;

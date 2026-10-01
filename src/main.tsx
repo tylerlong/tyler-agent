@@ -245,8 +245,42 @@ function App() {
 	}
 	const [modalError, setModalError] = useState("");
 	const [saving, setSaving] = useState(false);
+	const [editing, setEditing] = useState<{
+		kind: "project" | "chat";
+		id: number;
+	} | null>(null);
+	const [menu, setMenu] = useState<string | null>(null);
+	const editSaved = useRef(false);
+	const modalRevision = useRef(0);
+	function openEdit(kind: "project" | "chat", id: number) {
+		if (saving && (editing?.kind !== kind || editing.id !== id)) return;
+		if (editing?.kind !== kind || editing.id !== id || editSaved.current) {
+			const project = projects.find((item) =>
+				kind === "project"
+					? item.id === id
+					: item.chats.some((chat) => chat.id === id),
+			);
+			const target =
+				kind === "project"
+					? project
+					: project?.chats.find((chat) => chat.id === id);
+			if (!target) return;
+			++modalRevision.current;
+			setEditing({ kind, id });
+			setName(target.name);
+			setFolders(kind === "project" ? (project?.folders ?? []) : []);
+			setModalError("");
+			resetDirectory();
+			editSaved.current = false;
+		}
+		setMenu(null);
+		dialog.current?.showModal();
+	}
 	function openModal(projectId: number | null) {
-		if (projectId !== creatingProject) {
+		if (saving && (editing || projectId !== creatingProject)) return;
+		if (editing || projectId !== creatingProject) {
+			++modalRevision.current;
+			setEditing(null);
 			setCreatingProject(projectId);
 			setName(projectId === null ? "New project" : "New chat");
 			setFolders([]);
@@ -255,15 +289,23 @@ function App() {
 		}
 		dialog.current?.showModal();
 	}
-	async function create(event: FormEvent<HTMLFormElement>) {
+	async function saveModal(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		if (saving) return;
 		const target = creatingProject;
 		const input = { name, folders };
+		const edit = editing;
+		const revision = modalRevision.current;
 		setSaving(true);
 		setModalError("");
 		try {
-			if (target === null) {
+			if (edit) {
+				await api(
+					`/api/${edit.kind === "project" ? "projects" : "chats"}/${edit.id}`,
+					"PUT",
+					input,
+				);
+			} else if (target === null) {
 				await api("/api/projects", "POST", input);
 			} else {
 				const chat = await api(`/api/projects/${target}/chats`, "POST", {
@@ -277,12 +319,17 @@ function App() {
 				});
 			}
 			await refresh();
-			setName(target === null ? "New project" : "New chat");
-			setFolders([]);
-			resetDirectory();
+			if (revision !== modalRevision.current) return;
+			if (edit) editSaved.current = true;
+			else setName(target === null ? "New project" : "New chat");
+			if (!edit) {
+				setFolders([]);
+				resetDirectory();
+			}
 			dialog.current?.close();
 		} catch (cause) {
-			setModalError(cause instanceof Error ? cause.message : "创建失败");
+			if (revision === modalRevision.current)
+				setModalError(cause instanceof Error ? cause.message : "保存失败");
 		} finally {
 			setSaving(false);
 		}
@@ -303,7 +350,7 @@ function App() {
 				<button
 					type="button"
 					className={button}
-					disabled={saving && creatingProject !== null}
+					disabled={saving && (editing !== null || creatingProject !== null)}
 					onClick={() => openModal(null)}
 				>
 					新建 project
@@ -333,16 +380,49 @@ function App() {
 								<button
 									type="button"
 									className={button}
-									disabled={saving && creatingProject !== project.id}
+									disabled={
+										saving &&
+										(editing !== null || creatingProject !== project.id)
+									}
 									onClick={() => openModal(project.id)}
 								>
 									新建 chat
 								</button>
+								<div className="relative">
+									<button
+										type="button"
+										aria-label="Project 操作"
+										onClick={() =>
+											setMenu(
+												menu === `project-${project.id}`
+													? null
+													: `project-${project.id}`,
+											)
+										}
+									>
+										⋯
+									</button>
+									{menu === `project-${project.id}` && (
+										<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
+											<button
+												type="button"
+												disabled={
+													saving &&
+													(editing?.kind !== "project" ||
+														editing.id !== project.id)
+												}
+												onClick={() => openEdit("project", project.id)}
+											>
+												编辑 project
+											</button>
+										</div>
+									)}
+								</div>
 							</div>
 							{!collapsed.has(project.id) && (
 								<ul className="ml-5 mt-2 space-y-1">
 									{project.chats.map((chat) => (
-										<li key={chat.id}>
+										<li key={chat.id} className="flex items-center">
 											<button
 												type="button"
 												aria-current={selected === chat.id ? "page" : undefined}
@@ -352,6 +432,36 @@ function App() {
 												{chat.name}
 												{chat.busy && <span>（运行中）</span>}
 											</button>
+											<div className="relative">
+												<button
+													type="button"
+													aria-label={`Chat ${chat.name} 操作`}
+													onClick={() =>
+														setMenu(
+															menu === `chat-${chat.id}`
+																? null
+																: `chat-${chat.id}`,
+														)
+													}
+												>
+													⋯
+												</button>
+												{menu === `chat-${chat.id}` && (
+													<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
+														<button
+															type="button"
+															disabled={
+																saving &&
+																(editing?.kind !== "chat" ||
+																	editing.id !== chat.id)
+															}
+															onClick={() => openEdit("chat", chat.id)}
+														>
+															编辑 chat
+														</button>
+													</div>
+												)}
+											</div>
 										</li>
 									))}
 								</ul>
@@ -501,9 +611,13 @@ function App() {
 				className="m-auto w-full max-w-lg rounded-lg border border-slate-300 p-6 backdrop:bg-black/40"
 			>
 				<h2 id="create-title" className="text-xl font-semibold">
-					{creatingProject === null ? "新建 project" : "新建 chat"}
+					{editing
+						? `编辑 ${editing.kind}`
+						: creatingProject === null
+							? "新建 project"
+							: "新建 chat"}
 				</h2>
-				<form className="mt-4 space-y-4" onSubmit={create}>
+				<form className="mt-4 space-y-4" onSubmit={saveModal}>
 					<label className="block">
 						名称
 						<input
@@ -515,7 +629,9 @@ function App() {
 							required
 						/>
 					</label>
-					{creatingProject === null && (
+					{(editing
+						? editing.kind === "project"
+						: creatingProject === null) && (
 						<section aria-label="已选文件夹">
 							<h3>目标文件夹</h3>
 							<ul>
@@ -568,7 +684,7 @@ function App() {
 							取消
 						</button>
 						<button className={button} type="submit" disabled={saving}>
-							创建
+							{editing ? "保存" : "创建"}
 						</button>
 					</div>
 				</form>
