@@ -314,12 +314,54 @@ export function createServer(
 			}
 			return;
 		}
+		const archiveRoute = path.match(
+			/^\/api\/(projects|chats)\/(\d+)\/archive$/,
+		);
+		if (archiveRoute && request.method === "PUT") {
+			const table = archiveRoute[1] === "projects" ? "projects" : "chats";
+			const id = Number(archiveRoute[2]);
+			if (!database.prepare(`SELECT id FROM ${table} WHERE id=?`).get(id)) {
+				json(response, 404, { error: "目标不存在" });
+				return;
+			}
+			try {
+				const { archived } = await readJson(request);
+				if (typeof archived !== "boolean")
+					throw new InputError("无效的归档状态");
+				if (table === "chats" && archived) {
+					const state = database
+						.prepare(
+							"SELECT chats.archived, projects.archived AS projectArchived FROM chats JOIN projects ON projects.id=chats.project_id WHERE chats.id=?",
+						)
+						.get(id);
+					if (state?.projectArchived && !state.archived) {
+						json(response, 409, { error: "Project 已归档，Chat 只读" });
+						return;
+					}
+				}
+				database
+					.prepare(`UPDATE ${table} SET archived=? WHERE id=?`)
+					.run(Number(archived), id);
+				json(response, 200, { id, archived });
+				notifyChange();
+			} catch (error) {
+				json(response, error instanceof InputError ? 400 : 500, {
+					error:
+						error instanceof InputError ? error.message : "更新归档状态失败",
+				});
+			}
+			return;
+		}
 		const projectRoute = path.match(/^\/api\/projects\/(\d+)$/);
 		if (projectRoute && request.method === "PUT") {
 			const id = Number(projectRoute[1]);
 			const project = listProjects(database).find((item) => item.id === id);
 			if (!project) {
 				json(response, 404, { error: "Project 不存在" });
+				return;
+			}
+			if (project.archived) {
+				json(response, 409, { error: "Project 已归档，只读" });
 				return;
 			}
 			try {
@@ -366,12 +408,25 @@ export function createServer(
 				request.method === "PUT")
 		) {
 			const id = Number(chatRoute[1]);
-			if (!database.prepare("SELECT id FROM chats WHERE id=?").get(id)) {
+			const state = database
+				.prepare(
+					"SELECT chats.archived, projects.archived AS projectArchived FROM chats JOIN projects ON projects.id=chats.project_id WHERE chats.id=?",
+				)
+				.get(id);
+			if (!state) {
 				json(response, 404, { error: "Chat 不存在" });
 				return;
 			}
 			if (request.method === "GET") {
 				json(response, 200, { messages: messages(id), busy: busy.has(id) });
+				return;
+			}
+			if (state.archived || state.projectArchived) {
+				json(response, 409, {
+					error: state.projectArchived
+						? "Project 已归档，Chat 只读"
+						: "Chat 已归档，只读",
+				});
 				return;
 			}
 			if (request.method === "PUT") {
@@ -451,10 +506,15 @@ export function createServer(
 		if (createChat && request.method === "POST") {
 			try {
 				const projectId = Number(createChat[1]);
-				if (
-					!database.prepare("SELECT id FROM projects WHERE id=?").get(projectId)
-				) {
+				const project = database
+					.prepare("SELECT archived FROM projects WHERE id=?")
+					.get(projectId);
+				if (!project) {
 					json(response, 404, { error: "Project 不存在" });
+					return;
+				}
+				if (project.archived) {
+					json(response, 409, { error: "Project 已归档，只读" });
 					return;
 				}
 				const chatName = name(await readJson(request));

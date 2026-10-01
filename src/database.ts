@@ -42,9 +42,9 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			(version !== 1 && version !== 2 && version !== 3) ||
+			(version !== 1 && version !== 2 && version !== 3 && version !== 4) ||
 			tables.join(",") !==
-				(version === 3
+				(Number(version) >= 3
 					? "chats,folders,projects,settings,turns"
 					: version === 2
 						? "chats,folders,projects,sidebar_width,turns"
@@ -54,16 +54,18 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		}
 		if (version === 0) version = 1;
 		if (
-			columns("projects") !== "id,name,created_at" ||
+			columns("projects") !==
+				`id,name,created_at${version === 4 ? ",archived" : ""}` ||
 			columns("folders") !== "project_id,path" ||
-			columns("chats") !== "id,project_id,name,created_at,last_question_at" ||
+			columns("chats") !==
+				`id,project_id,name,created_at,last_question_at${version === 4 ? ",archived" : ""}` ||
 			columns("turns") !== "id,chat_id,user_content,assistant_content"
 		)
 			throw new Error("Invalid database schema");
 		if (version === 2 && columns("sidebar_width") !== "id,width")
 			throw new Error("Invalid database schema");
 		if (
-			version === 3 &&
+			Number(version) >= 3 &&
 			columns("settings") !== "id,sidebar_width,debug_enabled"
 		)
 			throw new Error("Invalid database schema");
@@ -73,7 +75,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		)
 			throw new Error("Corrupt database");
 		if (
-			version === 3 &&
+			Number(version) >= 3 &&
 			db.prepare("SELECT COUNT(*)=1 AND MIN(id)=1 AS valid FROM settings").get()
 				?.valid !== 1
 		)
@@ -81,7 +83,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		db.exec(
 			`SAVEPOINT startup_check; INSERT INTO projects(name,created_at) VALUES ('startup',0); ROLLBACK TO startup_check; RELEASE startup_check;`,
 		);
-		if (version !== 3) {
+		if (Number(version) < 3) {
 			db.exec("BEGIN");
 			try {
 				db.exec(`
@@ -89,6 +91,20 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
      INSERT INTO settings(id,sidebar_width) VALUES(1,${version === 2 ? "COALESCE((SELECT width FROM sidebar_width WHERE id=1),320)" : "320"});
      ${version === 2 ? "DROP TABLE sidebar_width;" : ""}
      PRAGMA user_version = 3;
+     COMMIT;
+    `);
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
+		}
+		if (version !== 4) {
+			db.exec("BEGIN");
+			try {
+				db.exec(`
+     ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1));
+     ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1));
+     PRAGMA user_version = 4;
      COMMIT;
     `);
 			} catch (error) {
@@ -106,12 +122,13 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 export function listProjects(db: DatabaseSync) {
 	return db
 		.prepare(
-			"SELECT id, name, created_at AS createdAt FROM projects ORDER BY COALESCE((SELECT MAX(COALESCE(last_question_at, created_at)) FROM chats WHERE project_id = projects.id), created_at) DESC, id DESC",
+			"SELECT id, name, archived, created_at AS createdAt FROM projects ORDER BY COALESCE((SELECT MAX(COALESCE(last_question_at, created_at)) FROM chats WHERE project_id = projects.id), created_at) DESC, id DESC",
 		)
 		.all()
 		.map((project) => ({
 			id: Number(project.id),
 			name: String(project.name),
+			archived: Boolean(project.archived),
 			createdAt: Number(project.createdAt),
 			folders: db
 				.prepare("SELECT path FROM folders WHERE project_id = ? ORDER BY rowid")
@@ -119,8 +136,13 @@ export function listProjects(db: DatabaseSync) {
 				.map((row) => row.path),
 			chats: db
 				.prepare(
-					"SELECT id, name, created_at AS createdAt, last_question_at AS lastQuestionAt FROM chats WHERE project_id = ? ORDER BY COALESCE(last_question_at, created_at) DESC, id DESC",
+					"SELECT id, name, archived, created_at AS createdAt, last_question_at AS lastQuestionAt FROM chats WHERE project_id = ? ORDER BY COALESCE(last_question_at, created_at) DESC, id DESC",
 				)
-				.all(project.id),
+				.all(project.id)
+				.map((chat) => ({
+					...chat,
+					id: Number(chat.id),
+					archived: Boolean(chat.archived),
+				})),
 		}));
 }

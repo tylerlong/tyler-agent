@@ -15,8 +15,15 @@ type Chat = {
 	createdAt: number;
 	lastQuestionAt: number | null;
 	busy: boolean;
+	archived: boolean;
 };
-type Project = { id: number; name: string; folders: string[]; chats: Chat[] };
+type Project = {
+	id: number;
+	name: string;
+	archived: boolean;
+	folders: string[];
+	chats: Chat[];
+};
 async function api(path: string, method = "GET", input?: unknown) {
 	const response = await fetch(path, {
 		method,
@@ -130,6 +137,7 @@ function App() {
 		const id = selected;
 		if (
 			id === null ||
+			readOnly ||
 			chatState?.id !== id ||
 			chatState.busy ||
 			submitting.has(id)
@@ -349,10 +357,192 @@ function App() {
 			setSaving(false);
 		}
 	}
+	async function archive(
+		kind: "project" | "chat",
+		id: number,
+		archived: boolean,
+	) {
+		setMenu(null);
+		setError("");
+		try {
+			const saved = await api(
+				`/api/${kind === "project" ? "projects" : "chats"}/${id}/archive`,
+				"PUT",
+				{ archived },
+			);
+			++refreshRevision.current;
+			setProjects((current) =>
+				current.map((project) =>
+					kind === "project"
+						? project.id === id
+							? { ...project, archived: saved.archived }
+							: project
+						: {
+								...project,
+								chats: project.chats.map((chat) =>
+									chat.id === id ? { ...chat, archived: saved.archived } : chat,
+								),
+							},
+				),
+			);
+			await refresh();
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : "更新归档状态失败");
+		}
+	}
+	const renderProject = (project: Project, archivedArea = false) => (
+		<section key={project.id} aria-label={`Project ${project.name}`}>
+			<div className="flex items-center gap-2">
+				<button
+					type="button"
+					aria-expanded={!collapsed.has(project.id)}
+					aria-label={`${collapsed.has(project.id) ? "展开" : "折叠"} ${project.name}`}
+					onClick={() =>
+						setCollapsed((current) => {
+							const next = new Set(current);
+							if (next.has(project.id)) next.delete(project.id);
+							else next.add(project.id);
+							return next;
+						})
+					}
+				>
+					{collapsed.has(project.id) ? "▸" : "▾"}
+				</button>
+				<h2 className="min-w-0 flex-1 break-words font-semibold">
+					{project.name}
+					{project.archived && (
+						<span className="text-sm font-normal">（项目已归档）</span>
+					)}
+				</h2>
+				{!archivedArea && (
+					<button
+						type="button"
+						className={button}
+						disabled={
+							saving && (editing !== null || creatingProject !== project.id)
+						}
+						onClick={() => openModal(project.id)}
+					>
+						新建 chat
+					</button>
+				)}
+				<div className="relative">
+					<button
+						type="button"
+						aria-label="Project 操作"
+						onClick={() =>
+							setMenu(
+								menu ===
+									`${archivedArea ? "archived-" : ""}project-${project.id}`
+									? null
+									: `${archivedArea ? "archived-" : ""}project-${project.id}`,
+							)
+						}
+					>
+						⋯
+					</button>
+					{menu ===
+						`${archivedArea ? "archived-" : ""}project-${project.id}` && (
+						<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
+							<button
+								type="button"
+								disabled={
+									project.archived ||
+									(saving &&
+										(editing?.kind !== "project" || editing.id !== project.id))
+								}
+								onClick={() => openEdit("project", project.id)}
+							>
+								编辑 project
+							</button>
+							<button
+								type="button"
+								className="block"
+								onClick={() =>
+									void archive("project", project.id, !project.archived)
+								}
+							>
+								{project.archived ? "恢复 project" : "归档 project"}
+							</button>
+						</div>
+					)}
+				</div>
+			</div>
+			{!collapsed.has(project.id) && (
+				<ul className="ml-5 mt-2 space-y-1">
+					{project.chats.map((chat) => (
+						<li key={chat.id} className="flex items-center">
+							<button
+								type="button"
+								aria-current={selected === chat.id ? "page" : undefined}
+								className={`w-full rounded px-3 py-2 text-left break-words ${selected === chat.id ? "bg-blue-100" : "hover:bg-slate-200"}`}
+								onClick={() => selectChat(chat.id)}
+							>
+								{chat.name}
+								{chat.busy && <span>（运行中）</span>}
+							</button>
+							<div className="relative">
+								<button
+									type="button"
+									aria-label={`Chat ${chat.name} 操作`}
+									onClick={() =>
+										setMenu(
+											menu === `chat-${chat.id}` ? null : `chat-${chat.id}`,
+										)
+									}
+								>
+									⋯
+								</button>
+								{menu === `chat-${chat.id}` && (
+									<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
+										<button
+											type="button"
+											disabled={
+												project.archived ||
+												chat.archived ||
+												(saving &&
+													(editing?.kind !== "chat" || editing.id !== chat.id))
+											}
+											onClick={() => openEdit("chat", chat.id)}
+										>
+											编辑 chat
+										</button>
+										<button
+											type="button"
+											className="block"
+											disabled={project.archived && !chat.archived}
+											onClick={() =>
+												void archive("chat", chat.id, !chat.archived)
+											}
+										>
+											{chat.archived ? "恢复 chat" : "归档 chat"}
+										</button>
+									</div>
+								)}
+							</div>
+						</li>
+					))}
+				</ul>
+			)}
+		</section>
+	);
 	const project = projects.find((project) =>
 		project.chats.some((chat) => chat.id === selected),
 	);
 	const chat = project?.chats.find((chat) => chat.id === selected);
+	const readOnly = Boolean(project?.archived || chat?.archived);
+	const modalProject = projects.find((project) =>
+		editing?.kind === "project"
+			? project.id === editing.id
+			: editing?.kind === "chat"
+				? project.chats.some((chat) => chat.id === editing.id)
+				: project.id === creatingProject,
+	);
+	const modalReadOnly = Boolean(
+		modalProject?.archived ||
+			(editing?.kind === "chat" &&
+				modalProject?.chats.find((chat) => chat.id === editing.id)?.archived),
+	);
 	return (
 		<main className="flex min-h-screen text-slate-900">
 			<aside
@@ -371,119 +561,37 @@ function App() {
 					新建 project
 				</button>
 				<nav aria-label="Projects and chats" className="mt-4 flex-1 space-y-4">
-					{projects.map((project) => (
-						<section key={project.id} aria-label={`Project ${project.name}`}>
-							<div className="flex items-center gap-2">
-								<button
-									type="button"
-									aria-expanded={!collapsed.has(project.id)}
-									aria-label={`${collapsed.has(project.id) ? "展开" : "折叠"} ${project.name}`}
-									onClick={() =>
-										setCollapsed((current) => {
-											const next = new Set(current);
-											if (next.has(project.id)) next.delete(project.id);
-											else next.add(project.id);
-											return next;
-										})
-									}
-								>
-									{collapsed.has(project.id) ? "▸" : "▾"}
-								</button>
-								<h2 className="min-w-0 flex-1 break-words font-semibold">
-									{project.name}
-								</h2>
-								<button
-									type="button"
-									className={button}
-									disabled={
-										saving &&
-										(editing !== null || creatingProject !== project.id)
-									}
-									onClick={() => openModal(project.id)}
-								>
-									新建 chat
-								</button>
-								<div className="relative">
-									<button
-										type="button"
-										aria-label="Project 操作"
-										onClick={() =>
-											setMenu(
-												menu === `project-${project.id}`
-													? null
-													: `project-${project.id}`,
-											)
-										}
-									>
-										⋯
-									</button>
-									{menu === `project-${project.id}` && (
-										<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
-											<button
-												type="button"
-												disabled={
-													saving &&
-													(editing?.kind !== "project" ||
-														editing.id !== project.id)
-												}
-												onClick={() => openEdit("project", project.id)}
-											>
-												编辑 project
-											</button>
-										</div>
-									)}
-								</div>
-							</div>
-							{!collapsed.has(project.id) && (
-								<ul className="ml-5 mt-2 space-y-1">
-									{project.chats.map((chat) => (
-										<li key={chat.id} className="flex items-center">
-											<button
-												type="button"
-												aria-current={selected === chat.id ? "page" : undefined}
-												className={`w-full rounded px-3 py-2 text-left break-words ${selected === chat.id ? "bg-blue-100" : "hover:bg-slate-200"}`}
-												onClick={() => selectChat(chat.id)}
-											>
-												{chat.name}
-												{chat.busy && <span>（运行中）</span>}
-											</button>
-											<div className="relative">
-												<button
-													type="button"
-													aria-label={`Chat ${chat.name} 操作`}
-													onClick={() =>
-														setMenu(
-															menu === `chat-${chat.id}`
-																? null
-																: `chat-${chat.id}`,
-														)
-													}
-												>
-													⋯
-												</button>
-												{menu === `chat-${chat.id}` && (
-													<div className="absolute right-0 z-10 w-max rounded border bg-white p-2 shadow">
-														<button
-															type="button"
-															disabled={
-																saving &&
-																(editing?.kind !== "chat" ||
-																	editing.id !== chat.id)
-															}
-															onClick={() => openEdit("chat", chat.id)}
-														>
-															编辑 chat
-														</button>
-													</div>
-												)}
-											</div>
-										</li>
-									))}
-								</ul>
-							)}
-						</section>
-					))}
+					{projects
+						.filter((project) => !project.archived)
+						.map((project) =>
+							renderProject({
+								...project,
+								chats: project.chats.filter((chat) => !chat.archived),
+							}),
+						)}
 				</nav>
+				<details aria-label="Archived">
+					<summary className="cursor-pointer">Archived</summary>
+					<div className="mt-4 space-y-4">
+						{projects
+							.filter(
+								(project) =>
+									project.archived ||
+									project.chats.some((chat) => chat.archived),
+							)
+							.map((project) =>
+								renderProject(
+									{
+										...project,
+										chats: project.chats.filter(
+											(chat) => project.archived || chat.archived,
+										),
+									},
+									true,
+								),
+							)}
+					</div>
+				</details>
 				<button
 					type="button"
 					className={`${button} mt-6 self-start`}
@@ -582,12 +690,22 @@ function App() {
 									</p>
 								))}
 						</div>
+						{readOnly && (
+							<p role="status" className="mt-6 text-slate-600">
+								{project.archived
+									? chat.archived
+										? "Project 和 Chat 已归档，只读。恢复两者后可继续使用。"
+										: "Project 已归档，Chat 只读。恢复 project 后可继续使用。"
+									: "Chat 已归档，只读。恢复 chat 后可继续使用。"}
+							</p>
+						)}
 						<form className="mt-6" onSubmit={submit}>
 							<label className="block">
 								Prompt
 								<textarea
 									className={control}
 									rows={4}
+									readOnly={readOnly}
 									value={drafts[chat.id] ?? ""}
 									onChange={(event) => {
 										draftVersions.current[chat.id] =
@@ -604,6 +722,7 @@ function App() {
 								type="submit"
 								className={`${button} mt-4`}
 								disabled={
+									readOnly ||
 									chatState?.id !== chat.id ||
 									chatState.busy ||
 									submitting.has(chat.id)
@@ -638,7 +757,7 @@ function App() {
 						<input
 							className={control}
 							name="name"
-							disabled={saving}
+							disabled={saving || modalReadOnly}
 							value={name}
 							onChange={(event) => setName(event.target.value)}
 							required
@@ -656,7 +775,7 @@ function App() {
 										<button
 											type="button"
 											className={button}
-											disabled={saving}
+											disabled={saving || modalReadOnly}
 											aria-label={`移除 ${folder}`}
 											onClick={() =>
 												setFolders((current) =>
@@ -672,7 +791,7 @@ function App() {
 							<button
 								type="button"
 								className={`${button} mt-2`}
-								disabled={saving}
+								disabled={saving || modalReadOnly}
 								onClick={() => {
 									folderDialog.current?.showModal();
 									if (!directoryInitialized.current) {
@@ -684,6 +803,9 @@ function App() {
 								添加文件夹
 							</button>
 						</section>
+					)}
+					{modalReadOnly && (
+						<p role="status">已归档，只读。恢复后可继续编辑。</p>
 					)}
 					{modalError && (
 						<p role="alert" className="text-red-700">
@@ -698,7 +820,11 @@ function App() {
 						>
 							取消
 						</button>
-						<button className={button} type="submit" disabled={saving}>
+						<button
+							className={button}
+							type="submit"
+							disabled={saving || modalReadOnly}
+						>
 							{editing ? "保存" : "创建"}
 						</button>
 					</div>
@@ -729,6 +855,7 @@ function App() {
 								loadingDirectory ||
 								!directory ||
 								saving ||
+								modalReadOnly ||
 								folders.includes(directory.path)
 							}
 							onClick={() => {

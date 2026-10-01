@@ -186,7 +186,7 @@ test("legacy schema resets once and invalid or read-only databases fail at start
 	}
 });
 
-for (const version of [1, 2])
+for (const version of [1, 2, 3])
 	for (const saved of [false, true])
 		test(`settings migrate v${version} (saved width: ${saved}) without losing user content`, async () => {
 			const directory = await mkdtemp(join(tmpdir(), "agent-width-"));
@@ -209,6 +209,10 @@ for (const version of [1, 2])
 				);
 				if (saved) db.exec("INSERT INTO sidebar_width VALUES(1,410.5)");
 			}
+			if (version === 3)
+				db.exec(
+					`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL, debug_enabled INTEGER NOT NULL); INSERT INTO settings VALUES(1,${saved ? "410.5" : "320"},${saved ? "0" : "1"});`,
+				);
 			db.close();
 			const server = createServer(fetch, path).listen(0, "127.0.0.1");
 			try {
@@ -219,7 +223,7 @@ for (const version of [1, 2])
 				const schema = new DatabaseSync(path);
 				assert.equal(
 					schema.prepare("PRAGMA user_version").get()?.user_version,
-					3,
+					4,
 				);
 				assert.equal(
 					schema
@@ -233,14 +237,14 @@ for (const version of [1, 2])
 					{ ...schema.prepare("SELECT * FROM settings").get() },
 					{
 						id: 1,
-						sidebar_width: version === 2 && saved ? 410.5 : 320,
-						debug_enabled: 1,
+						sidebar_width: version >= 2 && saved ? 410.5 : 320,
+						debug_enabled: version === 3 && saved ? 0 : 1,
 					},
 				);
 				schema.close();
 				const width = async () =>
 					(await (await fetch(`${base}/api/sidebar-width`)).json()).width;
-				assert.equal(await width(), version === 2 && saved ? 410.5 : 320);
+				assert.equal(await width(), version >= 2 && saved ? 410.5 : 320);
 				for (const input of [
 					{},
 					{ width: null },
@@ -259,7 +263,7 @@ for (const version of [1, 2])
 						).status,
 						400,
 					);
-					assert.equal(await width(), version === 2 && saved ? 410.5 : 320);
+					assert.equal(await width(), version >= 2 && saved ? 410.5 : 320);
 				}
 				assert.equal(
 					(
@@ -271,7 +275,7 @@ for (const version of [1, 2])
 					).status,
 					400,
 				);
-				assert.equal(await width(), version === 2 && saved ? 410.5 : 320);
+				assert.equal(await width(), version >= 2 && saved ? 410.5 : 320);
 				for (const value of [240, 400.5, 600]) {
 					assert.equal(
 						(
@@ -290,12 +294,14 @@ for (const version of [1, 2])
 						{
 							id: 7,
 							name: "Existing project",
+							archived: false,
 							createdAt: 100,
 							folders: ["/existing/folder"],
 							chats: [
 								{
 									id: 9,
 									name: "Existing chat",
+									archived: false,
 									createdAt: 200,
 									lastQuestionAt: 300,
 									busy: false,
