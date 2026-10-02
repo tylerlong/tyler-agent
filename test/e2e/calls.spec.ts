@@ -58,8 +58,25 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await expect(request.locator("pre")).toBeVisible();
 	await expect(response.locator("pre")).toBeVisible();
 	expect(reads).toBe(cachedReads);
+	const hiddenGate = app.holdModel();
+	const hiddenPending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { prompt: "Complete while away" },
+	});
+	await hiddenGate.entered;
+	await expect(response).toHaveCount(2);
+	await response.last().locator("summary").click();
+	await expect(response.last()).toContainText("Waiting for response");
+	await page.getByRole("button", { name: "Other", exact: true }).click();
+	await expect(page.getByRole("log")).toBeEmpty();
+	hiddenGate.release();
+	await hiddenPending;
+	await page.getByRole("button", { name: "First", exact: true }).click();
+	await expect(response.last().locator("pre")).toContainText("Test answer");
+	await expect(response.last()).not.toContainText("Waiting for response");
+	await expect(response.first().locator("pre")).toBeVisible();
 	await page.reload();
-	await expect(request.locator("pre")).not.toBeVisible();
+	await expect(request.first().locator("pre")).not.toBeVisible();
+	await expect(response.last().locator("pre")).not.toBeVisible();
 });
 
 test("failed responses show actual text, retry reading, copy original and remain readable when archived and translated", async ({
