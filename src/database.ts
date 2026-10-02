@@ -46,10 +46,13 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				version !== 2 &&
 				version !== 3 &&
 				version !== 4 &&
-				version !== 5) ||
+				version !== 5 &&
+				version !== 6) ||
 			tables.join(",") !==
 				(Number(version) >= 3
-					? "chats,folders,projects,settings,turns"
+					? version === 6
+						? "chats,folders,model_calls,projects,settings,turns"
+						: "chats,folders,projects,settings,turns"
 					: version === 2
 						? "chats,folders,projects,sidebar_width,turns"
 						: "chats,folders,projects,turns")
@@ -63,7 +66,8 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			columns("folders") !== "project_id,path" ||
 			columns("chats") !==
 				`id,project_id,name,created_at,last_question_at${Number(version) >= 4 ? ",archived" : ""}` ||
-			columns("turns") !== "id,chat_id,user_content,assistant_content"
+			columns("turns") !==
+				`id,chat_id,user_content,assistant_content${version === 6 ? ",status,created_at,error_code,error_details" : ""}`
 		)
 			throw new Error("Invalid database schema");
 		if (version === 2 && columns("sidebar_width") !== "id,width")
@@ -71,7 +75,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		if (
 			Number(version) >= 3 &&
 			columns("settings") !==
-				`id,sidebar_width,debug_enabled${version === 5 ? ",language" : ""}`
+				`id,sidebar_width,debug_enabled${Number(version) >= 5 ? ",language" : ""}`
 		)
 			throw new Error("Invalid database schema");
 		if (
@@ -137,6 +141,29 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			)
 		)
 			throw new Error("Corrupt database");
+		if (Number(version) < 6) {
+			db.exec("BEGIN");
+			try {
+				db.exec(`ALTER TABLE turns RENAME TO old_turns;
+                CREATE TABLE turns (id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL REFERENCES chats(id), user_content TEXT NOT NULL, assistant_content TEXT, status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')), created_at INTEGER NOT NULL, error_code TEXT, error_details TEXT);
+                INSERT INTO turns SELECT id,chat_id,user_content,assistant_content,'succeeded',0,NULL,NULL FROM old_turns;
+                DROP TABLE old_turns;
+                CREATE TABLE model_calls (id INTEGER PRIMARY KEY, turn_id INTEGER NOT NULL REFERENCES turns(id), url TEXT NOT NULL, method TEXT NOT NULL, requested_at TEXT NOT NULL, request_body TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')), http_status INTEGER, response_body TEXT, duration_ms INTEGER, error TEXT);
+                PRAGMA user_version=6; COMMIT;`);
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
+		}
+		if (
+			columns("model_calls") !==
+			"id,turn_id,url,method,requested_at,request_body,status,http_status,response_body,duration_ms,error"
+		)
+			throw new Error("Invalid database schema");
+		db.exec(`BEGIN;
+        UPDATE turns SET status='failed',error_code='modelInterrupted' WHERE status='pending';
+        UPDATE model_calls SET status='failed',error='Service restarted before the call completed' WHERE status='pending';
+        COMMIT;`);
 		return db;
 	} catch (error) {
 		db.close();

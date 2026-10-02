@@ -184,7 +184,14 @@ function App() {
 	selectedRef.current = selected;
 	const [chatState, setChatState] = useState<{
 		id: number;
-		messages: { id: string; role: string; content: string }[];
+		messages: {
+			id: string;
+			role: string;
+			content: string;
+			status?: string;
+			errorCode?: string;
+			errorDetails?: string;
+		}[];
 		busy: boolean;
 	} | null>(null);
 	const chatRevision = useRef(0);
@@ -839,6 +846,16 @@ function App() {
 											{t(message.role === "user" ? "you" : "agent")}:{" "}
 										</strong>
 										{message.content}
+										{message.role === "assistant" &&
+											message.status === "pending" &&
+											t("turnPending")}
+										{message.role === "assistant" &&
+											message.status === "failed" && (
+												<span role="status">
+													{t(message.errorCode ?? "modelRequestFailed")}
+													{message.errorDetails && `: ${message.errorDetails}`}
+												</span>
+											)}
 									</p>
 								))}
 						</div>

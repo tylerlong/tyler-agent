@@ -9,11 +9,28 @@ export class ModelError extends Error {
 		this.details = details;
 	}
 }
+export type CallRequest = {
+	url: string;
+	method: string;
+	requestedAt: string;
+	requestBody: string;
+};
+export type CallResult = {
+	status: "succeeded" | "failed";
+	httpStatus: number | null;
+	responseBody: string | null;
+	durationMs: number;
+	error: string | null;
+};
 export async function requestModel(
 	messages: Message[],
 	prompt: string,
 	fetchModel: typeof fetch,
 	debugEnabled: boolean,
+	record?: {
+		request: (request: CallRequest) => void;
+		result: (result: CallResult) => void;
+	},
 ) {
 	const apiKey = process.env.OPENROUTER_API_KEY;
 	const model = process.env.OPENROUTER_MODEL;
@@ -59,10 +76,23 @@ export async function requestModel(
 		);
 	let upstream: Response | undefined;
 	let rawBody: string;
+	record?.request({
+		url,
+		method: "POST",
+		requestedAt: new Date().toISOString(),
+		requestBody: redact(body),
+	});
 	try {
 		upstream = await fetchModel(url, { method: "POST", headers, body });
 		rawBody = await upstream.text();
 	} catch (error) {
+		record?.result({
+			status: "failed",
+			httpStatus: upstream?.status ?? null,
+			responseBody: null,
+			durationMs: Math.round(performance.now() - started),
+			error: redact(String(error)),
+		});
 		if (shouldLog)
 			log("error", {
 				...(upstream && { status: upstream.status }),
@@ -85,6 +115,14 @@ export async function requestModel(
 			rawBody,
 		);
 	}
+	const result: CallResult = {
+		status: "failed",
+		httpStatus: upstream.status,
+		responseBody: redact(rawBody),
+		durationMs: Math.round(performance.now() - started),
+		error: null,
+	};
+	record?.result(result);
 	if (!upstream.ok)
 		throw new ModelError(
 			"modelRequestFailed",
@@ -131,5 +169,6 @@ export async function requestModel(
 			redact(rawBody),
 		);
 
-	return answer;
+	record?.result({ ...result, status: "succeeded" });
+	return redact(answer);
 }

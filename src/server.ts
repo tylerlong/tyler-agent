@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { listProjects, openDatabase } from "./database.ts";
-import { ModelError, requestModel } from "./openrouter.ts";
+import { type CallResult, ModelError, requestModel } from "./openrouter.ts";
 
 const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
@@ -151,10 +151,16 @@ export function createServer(
 				busy: busy.has(Number(chat.id)),
 			})),
 		}));
-	const messages = (id: number) =>
+	const turns = (id: number) =>
 		database
 			.prepare(
-				"SELECT id, user_content, assistant_content FROM turns WHERE chat_id=? ORDER BY id",
+				"SELECT id, user_content AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails FROM turns WHERE chat_id=? ORDER BY id",
+			)
+			.all(id);
+	const messages = (id: number, successfulOnly = false) =>
+		database
+			.prepare(
+				`SELECT id, user_content, assistant_content,status,error_code,error_details FROM turns WHERE chat_id=? ${successfulOnly ? "AND status='succeeded'" : ""} ORDER BY id`,
 			)
 			.all(id)
 			.flatMap((row) => [
@@ -166,7 +172,13 @@ export function createServer(
 				{
 					id: `${row.id}-assistant`,
 					role: "assistant" as const,
-					content: String(row.assistant_content),
+					content:
+						row.assistant_content === null ? "" : String(row.assistant_content),
+					...(row.status !== "succeeded" && {
+						status: String(row.status),
+						errorCode: row.error_code,
+						errorDetails: row.error_details,
+					}),
 				},
 			]);
 	const subscribers = new Set<ServerResponse>();
@@ -491,6 +503,22 @@ export function createServer(
 			}
 			return;
 		}
+		const callRoute = path.match(/^\/api\/turns\/(\d+)\/calls$/);
+		if (callRoute && request.method === "GET") {
+			const turnId = Number(callRoute[1]);
+			if (!database.prepare("SELECT id FROM turns WHERE id=?").get(turnId)) {
+				json(response, 404, errorBody("notFound"));
+				return;
+			}
+			json(response, 200, {
+				calls: database
+					.prepare(
+						"SELECT id,turn_id AS turnId,url,method,requested_at AS requestedAt,request_body AS requestBody,status,http_status AS httpStatus,response_body AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE turn_id=? ORDER BY id",
+					)
+					.all(turnId),
+			});
+			return;
+		}
 		const chatRoute = path.match(/^\/api\/chats\/(\d+)$/);
 		if (
 			chatRoute &&
@@ -509,7 +537,11 @@ export function createServer(
 				return;
 			}
 			if (request.method === "GET") {
-				json(response, 200, { messages: messages(id), busy: busy.has(id) });
+				json(response, 200, {
+					turns: turns(id),
+					messages: messages(id),
+					busy: busy.has(id),
+				});
 				return;
 			}
 			if (state.archived || state.projectArchived) {
@@ -552,31 +584,101 @@ export function createServer(
 				}
 				busy.add(id);
 				locked = true;
-				database
-					.prepare("UPDATE chats SET last_question_at=? WHERE id=?")
-					.run(Date.now(), id);
+				let turnId: number;
+				database.exec("BEGIN");
+				try {
+					const key = process.env.OPENROUTER_API_KEY;
+					const question = key
+						? input.prompt.replaceAll(key, "[REDACTED]")
+						: input.prompt;
+					turnId = Number(
+						database
+							.prepare(
+								"INSERT INTO turns(chat_id,user_content,status,created_at) VALUES (?,?,'pending',?)",
+							)
+							.run(id, question, Date.now()).lastInsertRowid,
+					);
+					database
+						.prepare("UPDATE chats SET last_question_at=? WHERE id=?")
+						.run(Date.now(), id);
+					database.exec("COMMIT");
+				} catch (error) {
+					database.exec("ROLLBACK");
+					throw error;
+				}
 				notifyChange();
-				let answer: string;
+				let answer: string | undefined;
+				let failure: unknown;
+				let callId: number | undefined;
+				let callResult: CallResult | undefined;
 				try {
 					answer = await requestModel(
-						messages(id).map(({ role, content }) => ({ role, content })),
+						messages(id, true).map(({ role, content }) => ({ role, content })),
 						input.prompt,
 						fetchModel,
 						debugEnabled,
+						{
+							request: (call) => {
+								callId = Number(
+									database
+										.prepare(
+											"INSERT INTO model_calls(turn_id,url,method,requested_at,request_body,status) VALUES (?,?,?,?,?,'pending')",
+										)
+										.run(
+											turnId,
+											call.url,
+											call.method,
+											call.requestedAt,
+											call.requestBody,
+										).lastInsertRowid,
+								);
+								notifyChange();
+							},
+							result: (result) => {
+								callResult = result;
+							},
+						},
 					);
 				} catch (error) {
-					if (error instanceof ModelError) throw error;
-					throw new ModelError(
-						"modelRequestFailed",
-						"OpenRouter request failed",
-					);
+					failure = error;
 				}
-				database
-					.prepare(
-						"INSERT INTO turns(chat_id,user_content,assistant_content) VALUES (?,?,?)",
-					)
-					.run(id, input.prompt, answer);
-				json(response, 200, { answer });
+				database.exec("BEGIN");
+				try {
+					if (callId !== undefined && callResult)
+						database
+							.prepare(
+								"UPDATE model_calls SET status=?,http_status=?,response_body=?,duration_ms=?,error=? WHERE id=?",
+							)
+							.run(
+								callResult.status,
+								callResult.httpStatus,
+								callResult.responseBody,
+								callResult.durationMs,
+								callResult.error ??
+									(failure instanceof ModelError ? failure.message : null),
+								callId,
+							);
+					const savedError = failure
+						? caughtError(failure, "answerWriteFailed")
+						: null;
+					database
+						.prepare(
+							"UPDATE turns SET status=?,assistant_content=?,error_code=?,error_details=? WHERE id=?",
+						)
+						.run(
+							failure ? "failed" : "succeeded",
+							answer ?? null,
+							savedError?.code ?? null,
+							failure instanceof ModelError ? (failure.details ?? null) : null,
+							turnId,
+						);
+					database.exec("COMMIT");
+				} catch (error) {
+					database.exec("ROLLBACK");
+					throw error;
+				}
+				if (failure) throw failure;
+				json(response, 200, { answer, turnId });
 			} catch (error) {
 				json(
 					response,

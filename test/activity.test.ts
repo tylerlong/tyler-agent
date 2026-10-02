@@ -117,7 +117,7 @@ test("accepted questions sort immediately, failures count, rejected questions an
 		assert.equal(projects[0].chats[0].lastQuestionAt, start + 400);
 		assert.equal(
 			(await (await fetch(`${url}/api/chats/${b.id}`)).json()).messages.length,
-			0,
+			2,
 		);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		server = createServer(model, path).listen(0, "127.0.0.1");

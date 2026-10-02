@@ -27,6 +27,8 @@ export const resources = {
 			resizeSidebar: "Resize sidebar",
 			targetFolders: "Target folders",
 			chatHistory: "Chat history",
+			turnPending: "Waiting for response…",
+			modelInterrupted: "Service restarted before this turn completed.",
 			you: "You",
 			agent: "Agent",
 			bothArchivedReadOnly:
@@ -133,6 +135,8 @@ export const resources = {
 			resizeSidebar: "调整左侧面板宽度",
 			targetFolders: "目标文件夹",
 			chatHistory: "聊天历史",
+			turnPending: "等待回答…",
+			modelInterrupted: "服务重启，此轮次已中断。",
 			you: "你",
 			bothArchivedReadOnly: "项目和对话已归档，只读。恢复两者后可继续使用。",
 			projectArchivedReadOnly: "项目已归档，对话只读。恢复项目后可继续使用。",

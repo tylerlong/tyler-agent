@@ -186,7 +186,7 @@ test("legacy schema resets once and invalid or read-only databases fail at start
 	}
 });
 
-for (const version of [1, 2, 3, 4])
+for (const version of [1, 2, 3, 4, 5])
 	for (const saved of [false, true])
 		test(`settings migrate v${version} (saved width: ${saved}) without losing user content`, async () => {
 			const directory = await mkdtemp(join(tmpdir(), "agent-width-"));
@@ -213,9 +213,13 @@ for (const version of [1, 2, 3, 4])
 				db.exec(
 					`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL, debug_enabled INTEGER NOT NULL); INSERT INTO settings VALUES(1,${saved ? "410.5" : "320"},${saved ? "0" : "1"});`,
 				);
-			if (version === 4)
+			if (version >= 4)
 				db.exec(
 					"ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0; ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0; UPDATE projects SET archived=1; UPDATE chats SET archived=1;",
+				);
+			if (version === 5)
+				db.exec(
+					"ALTER TABLE settings ADD COLUMN language TEXT NOT NULL DEFAULT 'en'; UPDATE settings SET language='zh-CN';",
 				);
 			db.close();
 			const server = createServer(fetch, path).listen(0, "127.0.0.1");
@@ -227,7 +231,7 @@ for (const version of [1, 2, 3, 4])
 				const schema = new DatabaseSync(path);
 				assert.equal(
 					schema.prepare("PRAGMA user_version").get()?.user_version,
-					5,
+					6,
 				);
 				assert.equal(
 					schema
@@ -241,14 +245,14 @@ for (const version of [1, 2, 3, 4])
 					{ ...schema.prepare("SELECT * FROM settings").get() },
 					{
 						id: 1,
-						language: "en",
+						language: version === 5 ? "zh-CN" : "en",
 						sidebar_width: version >= 2 && saved ? 410.5 : 320,
 						debug_enabled: version >= 3 && saved ? 0 : 1,
 					},
 				);
 				schema.close();
 				assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
-					language: "en",
+					language: version === 5 ? "zh-CN" : "en",
 				});
 				const width = async () =>
 					(await (await fetch(`${base}/api/sidebar-width`)).json()).width;
@@ -302,14 +306,14 @@ for (const version of [1, 2, 3, 4])
 						{
 							id: 7,
 							name: "Existing project",
-							archived: version === 4,
+							archived: version >= 4,
 							createdAt: 100,
 							folders: ["/existing/folder"],
 							chats: [
 								{
 									id: 9,
 									name: "Existing chat",
-									archived: version === 4,
+									archived: version >= 4,
 									createdAt: 200,
 									lastQuestionAt: 300,
 									busy: false,
@@ -319,6 +323,17 @@ for (const version of [1, 2, 3, 4])
 					],
 				});
 				assert.deepEqual(await (await fetch(`${base}/api/chats/9`)).json(), {
+					turns: [
+						{
+							id: 11,
+							question: "Existing question",
+							answer: "Existing answer",
+							status: "succeeded",
+							createdAt: 0,
+							errorCode: null,
+							errorDetails: null,
+						},
+					],
 					messages: [
 						{ id: "11-user", role: "user", content: "Existing question" },
 						{
@@ -329,6 +344,10 @@ for (const version of [1, 2, 3, 4])
 					],
 					busy: false,
 				});
+				assert.deepEqual(
+					await (await fetch(`${base}/api/turns/11/calls`)).json(),
+					{ calls: [] },
+				);
 			} finally {
 				await new Promise<void>((resolve) => server.close(() => resolve()));
 				await rm(directory, { recursive: true, force: true });

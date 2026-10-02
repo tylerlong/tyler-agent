@@ -103,10 +103,14 @@ test("HTTP model failures retain external details while redacting credentials", 
 			assert.equal(body.details, details);
 			assert.doesNotMatch(JSON.stringify(body), /secret/);
 		}
-		assert.deepEqual(
-			await (await fetch(`${url}/api/chats/${chat.id}`)).json(),
-			{ messages: [], busy: false },
+		const history = await (await fetch(`${url}/api/chats/${chat.id}`)).json();
+		assert.equal(history.turns.length, 5);
+		assert(
+			history.turns.every(
+				(turn: { status: string }) => turn.status === "failed",
+			),
 		);
+		assert.doesNotMatch(JSON.stringify(history), /secret/);
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(directory, { recursive: true, force: true });

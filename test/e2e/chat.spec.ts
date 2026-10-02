@@ -96,6 +96,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	await page.getByLabel("Prompt").fill("original question");
 	await submit.click();
 	await pending.entered;
+	await expect(other.getByRole("log")).toContainText("Waiting for response");
 	await expect(
 		other.getByRole("button", { name: "Submit", exact: true }),
 	).toBeDisabled();
@@ -142,7 +143,8 @@ test("a failed request belongs to its chat and successful retry clears the error
 		"OpenRouter request failed.\nupstream failure",
 	);
 	await expect(page.getByLabel("Prompt")).toHaveValue("retry me");
-	await expect(page.getByRole("log")).toBeEmpty();
+	await expect(page.getByRole("log")).toContainText("retry me");
+	await expect(page.getByRole("log")).toContainText("upstream failure");
 	await expect(submit).toBeEnabled();
 	await submit.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");

@@ -92,13 +92,21 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 			502,
 		);
 		const saved = await (await fetch(`${base}/api/chats/${a.id}`)).json();
-		assert.equal(saved.messages.length, 4);
+		assert.equal(saved.messages.length, 6);
+		assert.equal(saved.turns.at(-1).status, "failed");
 		assert.equal(saved.busy, false);
 		fail = false;
 		assert.equal(
 			(await post(`/api/chats/${a.id}`, { prompt: "retry" })).status,
 			200,
 		);
+		assert.deepEqual(inputs.at(-1), [
+			{ role: "user", content: "first" },
+			{ role: "assistant", content: "Answer" },
+			{ role: "user", content: "followup" },
+			{ role: "assistant", content: "Answer" },
+			{ role: "user", content: "retry" },
+		]);
 	} finally {
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -160,7 +168,12 @@ test("all model and database failures preserve complete history and release chat
 					mode === "db" ? 500 : 502,
 				);
 				const state = await (await fetch(url + route)).json();
-				assert.equal(state.messages.length, 2);
+				assert.equal(
+					state.turns.filter(
+						(turn: { status: string }) => turn.status === "succeeded",
+					).length,
+					1,
+				);
 				assert.equal(state.busy, false);
 			} finally {
 				if (mode === "db") db.exec("DROP TRIGGER reject_turn");
@@ -175,11 +188,181 @@ test("all model and database failures preserve complete history and release chat
 		server = createServer(fake, path).listen(0, "127.0.0.1");
 		url = await base();
 		const state = await (await fetch(url + route)).json();
-		assert.equal(state.messages.length, 4);
+		assert.equal(state.turns.length, 5);
 		assert.equal(state.busy, false);
 	} finally {
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("turn communication is exact, redacted, independently readable and survives interrupted completion", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-records-"));
+	const path = join(directory, "db.sqlite");
+	process.env.OPENROUTER_API_KEY = "record-secret";
+	process.env.OPENROUTER_MODEL = "fixture";
+	let mode = "hold";
+	let release: (() => void) | undefined;
+	let count = 0;
+	const raw =
+		' \n{"output":[{"type":"message","content":[{"type":"output_text","text":"Answer"}]}],"echo":"record-secret"}\n';
+	const fake: typeof fetch = async () => {
+		count++;
+		if (mode === "hold")
+			await new Promise<void>((resolve) => {
+				release = resolve;
+			});
+		if (mode === "network") throw new Error("offline record-secret");
+		if (mode === "read")
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.error(new Error("read record-secret"));
+					},
+				}),
+				{ status: 201 },
+			);
+		if (mode === "bad") return new Response("not JSON record-secret");
+		return new Response(raw);
+	};
+	let server = createServer(fake, path).listen(0, "127.0.0.1");
+	const base = async () => {
+		if (!server.listening)
+			await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		return `http://127.0.0.1:${address.port}`;
+	};
+	let url = await base();
+	const post = (route: string, body: unknown) =>
+		fetch(url + route, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	const get = (route: string) =>
+		fetch(url + route).then((response) => response.json());
+	const stop = () =>
+		new Promise<void>((resolve) => {
+			server.closeAllConnections();
+			server.close(() => resolve());
+		});
+	try {
+		const project = await (
+			await post("/api/projects", { name: "P", folders: [] })
+		).json();
+		const chat = await (
+			await post(`/api/projects/${project.id}/chats`, { name: "C" })
+		).json();
+		const route = `/api/chats/${chat.id}`;
+		const first = post(route, { prompt: "question record-secret" });
+		while (!release) await new Promise((resolve) => setImmediate(resolve));
+		let history = await get(route);
+		const turnId = history.turns[0].id;
+		assert.equal(history.turns[0].status, "pending");
+		assert.doesNotMatch(
+			JSON.stringify(history),
+			/record-secret|requestBody|responseBody/,
+		);
+		let calls = (await get(`/api/turns/${turnId}/calls`)).calls;
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].turnId, turnId);
+		assert.equal(calls[0].responseBody, null);
+		assert.equal(calls[0].method, "POST");
+		assert.equal(calls[0].url, "https://openrouter.ai/api/v1/responses");
+		assert.deepEqual(JSON.parse(calls[0].requestBody).input, [
+			{ role: "user", content: "question [REDACTED]" },
+		]);
+		release();
+		assert.equal((await first).status, 200);
+		calls = (await get(`/api/turns/${turnId}/calls`)).calls;
+		assert.equal(
+			calls[0].responseBody,
+			raw.replaceAll("record-secret", "[REDACTED]"),
+		);
+		assert.equal(calls[0].httpStatus, 200);
+		assert.equal(calls[0].status, "succeeded");
+		assert.equal(typeof calls[0].durationMs, "number");
+		assert(!("headers" in calls[0]));
+		for (mode of ["network", "read", "bad"]) {
+			assert.equal((await post(route, { prompt: mode })).status, 502);
+			history = await get(route);
+			const failed = history.turns.at(-1);
+			assert.equal(failed.status, "failed");
+			const call = (await get(`/api/turns/${failed.id}/calls`)).calls[0];
+			assert.equal(call.status, "failed");
+			assert.equal(
+				call.httpStatus,
+				mode === "network" ? null : mode === "read" ? 201 : 200,
+			);
+			assert.equal(
+				call.responseBody,
+				mode === "bad" ? "not JSON [REDACTED]" : null,
+			);
+			assert.doesNotMatch(JSON.stringify(call), /record-secret/);
+		}
+		delete process.env.OPENROUTER_MODEL;
+		const configuredCount = count;
+		assert.equal(
+			(await post(route, { prompt: "missing configuration" })).status,
+			502,
+		);
+		history = await get(route);
+		assert.equal(history.turns.at(-1).errorCode, "modelConfigMissing");
+		assert.equal(
+			(await get(`/api/turns/${history.turns.at(-1).id}/calls`)).calls.length,
+			0,
+		);
+		assert.equal(count, configuredCount);
+		process.env.OPENROUTER_MODEL = "fixture";
+		mode = "ok";
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TRIGGER reject_request BEFORE INSERT ON model_calls BEGIN SELECT RAISE(ABORT,'no request write');END",
+		);
+		const before = count;
+		assert.equal((await post(route, { prompt: "not sent" })).status, 500);
+		assert.equal(count, before);
+		db.exec("DROP TRIGGER reject_request");
+		db.exec(
+			"CREATE TRIGGER reject_complete BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'no result write');END",
+		);
+		assert.equal((await post(route, { prompt: "interrupted" })).status, 500);
+		history = await get(route);
+		const interrupted = history.turns.at(-1);
+		assert.equal(interrupted.status, "pending");
+		assert.equal(
+			(await get(`/api/turns/${interrupted.id}/calls`)).calls[0].responseBody,
+			null,
+		);
+		db.exec("DROP TRIGGER reject_complete");
+		db.close();
+		await stop();
+		const sent = count;
+		server = createServer(fake, path).listen(0, "127.0.0.1");
+		url = await base();
+		history = await get(route);
+		assert.equal(history.turns.at(-1).errorCode, "modelInterrupted");
+		assert.equal(history.busy, false);
+		assert.equal(count, sent);
+		const interruptedCall = (await get(`/api/turns/${interrupted.id}/calls`))
+			.calls[0];
+		assert.equal(interruptedCall.status, "failed");
+		assert.equal(interruptedCall.responseBody, null);
+		assert.match(interruptedCall.error, /restarted/);
+		await fetch(`${url}/api/projects/${project.id}/archive`, {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ archived: true }),
+		});
+		assert.equal(
+			(await get(`/api/turns/${turnId}/calls`)).calls[0].responseBody,
+			raw.replaceAll("record-secret", "[REDACTED]"),
+		);
+	} finally {
+		release?.();
+		await stop();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
