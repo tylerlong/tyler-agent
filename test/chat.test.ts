@@ -288,6 +288,8 @@ test("turn communication is exact, redacted, independently readable and survives
 		for (mode of ["network", "read", "bad"]) {
 			assert.equal((await post(route, { prompt: mode })).status, 502);
 			history = await get(route);
+			if (mode === "bad")
+				assert.doesNotMatch(JSON.stringify(history), /not JSON/);
 			const failed = history.turns.at(-1);
 			assert.equal(failed.status, "failed");
 			const call = (await get(`/api/turns/${failed.id}/calls`)).calls[0];

@@ -669,7 +669,9 @@ export function createServer(
 							failure ? "failed" : "succeeded",
 							answer ?? null,
 							savedError?.code ?? null,
-							failure instanceof ModelError ? (failure.details ?? null) : null,
+							failure instanceof ModelError && callResult?.responseBody == null
+								? (failure.details ?? null)
+								: null,
 							turnId,
 						);
 					database.exec("COMMIT");

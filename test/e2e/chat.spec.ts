@@ -144,7 +144,9 @@ test("a failed request belongs to its chat and successful retry clears the error
 	);
 	await expect(page.getByLabel("Prompt")).toHaveValue("retry me");
 	await expect(page.getByRole("log")).toContainText("retry me");
-	await expect(page.getByRole("log")).toContainText("upstream failure");
+	await expect(page.getByRole("log")).toContainText(
+		"OpenRouter request failed.",
+	);
 	await expect(submit).toBeEnabled();
 	await submit.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
