@@ -263,11 +263,12 @@ function App() {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
 				const cached = cacheRef.current[id];
-				let cursor = cached?.turns.find(
+				let cursor = cached ? (syncedThrough.current[id] ?? 0) : undefined;
+				const pendingId = cached?.turns.find(
 					(turn) => turn.status === "pending",
 				)?.id;
-				if (cursor !== undefined) cursor -= 1;
-				else cursor = cached ? (syncedThrough.current[id] ?? 0) : undefined;
+				if (pendingId !== undefined)
+					cursor = Math.min(cursor ?? pendingId - 1, pendingId - 1);
 				const target = latest.turns.at(-1)?.id;
 				mergeChat(id, latest);
 				// Refresh cached pending records and fill unseen turns in bounded pages.

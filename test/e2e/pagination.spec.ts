@@ -182,24 +182,35 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	await page.route("**/api/chats/*", (route) =>
 		blocked ? route.abort() : route.continue(),
 	);
-	for (let i = 1; i <= 25; i++)
+	for (let i = 1; i <= 24; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
 			data: { prompt: `Missed ${i}.` },
 		});
-	blocked = false;
-	let forwardReads = 0;
-	await page.route("**/api/chats/*?after=*", (route) => {
-		forwardReads++;
-		return forwardReads === 2 ? route.abort() : route.continue();
+	const missedGate = app.holdModel();
+	const missedPending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { prompt: "Missed 25." },
 	});
-	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-	await expect(page.getByRole("status")).toContainText(
-		"Unable to reach the server",
-	);
-	await page.getByRole("button", { name: "Retry", exact: true }).click();
-	await expect(page.getByRole("log")).toContainText("Missed 25.");
-	for (let i = 1; i <= 25; i++)
-		await expect(page.getByRole("log")).toContainText(`Missed ${i}.`);
+	await missedGate.entered;
+	try {
+		blocked = false;
+		let forwardReads = 0;
+		await page.route("**/api/chats/*?after=*", (route) => {
+			forwardReads++;
+			return forwardReads === 2 ? route.abort() : route.continue();
+		});
+		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+		await expect(page.getByRole("status")).toContainText(
+			"Unable to reach the server",
+		);
+		await page.getByRole("button", { name: "Retry", exact: true }).click();
+		await expect(page.getByRole("log")).toContainText("Missed 25.");
+		for (let i = 1; i <= 25; i++)
+			await expect(page.getByRole("log")).toContainText(`Missed ${i}.`);
+	} finally {
+		missedGate.release();
+		await missedPending;
+	}
+	await expect(page.getByRole("log")).not.toContainText("Waiting for response");
 });
 
 test("an initially empty chat catches up every turn after more than one unseen page", async ({
