@@ -3,6 +3,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
@@ -200,6 +201,47 @@ function App() {
 	const [chatCache, setChatCache] = useState<Record<number, ChatState>>({});
 	const cacheRef = useRef(chatCache);
 	const chatState = selected === null ? null : (chatCache[selected] ?? null);
+	const chatContent = useRef<HTMLElement>(null);
+	const readingPositions = useRef<
+		Record<
+			number,
+			{
+				top: number;
+				bottom: boolean;
+				anchor?: { id: string; offset: number };
+			}
+		>
+	>({});
+	const restoreReadingPosition = useCallback(() => {
+		const content = chatContent.current;
+		const id = selectedRef.current;
+		if (!content || id === null) return;
+		const saved = readingPositions.current[id];
+		if (!saved || saved.bottom) {
+			content.scrollTop = content.scrollHeight;
+		} else {
+			const anchor =
+				saved.anchor &&
+				content.querySelector<HTMLElement>(
+					`[data-message-id="${saved.anchor.id}"]`,
+				);
+			content.scrollTop =
+				anchor && saved.anchor
+					? content.scrollTop +
+						anchor.getBoundingClientRect().top -
+						content.getBoundingClientRect().top -
+						saved.anchor.offset
+					: saved.top;
+		}
+	}, []);
+	useLayoutEffect(restoreReadingPosition);
+	useEffect(() => {
+		const body = chatContent.current?.firstElementChild;
+		if (!body) return;
+		const observer = new ResizeObserver(restoreReadingPosition);
+		observer.observe(body);
+		return () => observer.disconnect();
+	});
 	const chatRevisions = useRef<Record<number, number>>({});
 	const syncedThrough = useRef<Record<number, number>>({});
 	const [historyErrors, setHistoryErrors] = useState<
@@ -246,11 +288,19 @@ function App() {
 		{},
 	);
 	const [submitting, setSubmitting] = useState<Set<number>>(() => new Set());
+	const changeSelectedChat = useCallback((id: number | null) => {
+		const previous = selectedRef.current;
+		if (previous !== null && previous !== id) {
+			const saved = readingPositions.current[previous];
+			if (saved) saved.bottom = false;
+		}
+		setSelected(id);
+	}, []);
 	function selectChat(id: number) {
 		const url = new URL(location.href);
 		url.searchParams.set("chat", String(id));
 		history.pushState(null, "", url);
-		setSelected(id);
+		changeSelectedChat(id);
 	}
 	const refreshChat = useCallback(
 		async (chatId?: number) => {
@@ -322,10 +372,10 @@ function App() {
 		void refreshChat();
 	}, [selected, refreshChat]);
 	useEffect(() => {
-		const pop = () => setSelected(urlChat());
+		const pop = () => changeSelectedChat(urlChat());
 		window.addEventListener("popstate", pop);
 		return () => window.removeEventListener("popstate", pop);
-	}, []);
+	}, [changeSelectedChat]);
 	async function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		const id = selected;
@@ -337,6 +387,8 @@ function App() {
 			submitting.has(id)
 		)
 			return;
+		readingPositions.current[id] = { top: 0, bottom: true };
+		restoreReadingPosition();
 		const prompt = drafts[id] ?? "";
 		const version = draftVersions.current[id] ?? 0;
 		setSubmitting((current) => new Set(current).add(id));
@@ -905,101 +957,138 @@ function App() {
 					}}
 				/>
 			</aside>
-			<section
-				aria-label={t("chat")}
-				className="min-w-0 flex-1 overflow-auto overscroll-contain px-6 py-10"
-			>
-				{project && chat && (
-					<div className="mx-auto max-w-2xl">
-						<p className="text-neutral-600">{project.name}</p>
-						<h2 className="mt-2 text-xl font-medium">{chat.name}</h2>
-						<h3 className="mt-6 font-medium">{t("targetFolders")}</h3>
-						<ul className="mt-2 space-y-1 text-neutral-600">
-							{project.folders.map((folder) => (
-								<li key={folder} className="break-all">
-									{folder}
-								</li>
-							))}
-						</ul>
-						{chatState?.hasMore && (
-							<button
-								type="button"
-								className={`${button} mt-6`}
-								disabled={loadingEarlier.has(chat.id)}
-								onClick={() => void loadEarlier()}
-							>
-								{t(loadingEarlier.has(chat.id) ? "loading" : "loadEarlier")}
-							</button>
-						)}
-						{earlierErrors[chat.id] && (
-							<p role="status" className="mt-4 text-red-700">
-								{errorText(earlierErrors[chat.id])}{" "}
+			<div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+				<section
+					ref={chatContent}
+					aria-label={t("chat")}
+					className="min-h-0 flex-1 overflow-auto overscroll-contain px-6 py-10 [overflow-anchor:none]"
+					onScroll={(event) => {
+						if (selected === null) return;
+						const content = event.currentTarget;
+						const top = content.getBoundingClientRect().top;
+						const anchor = [
+							...content.querySelectorAll<HTMLElement>("[data-message-id]"),
+						].find((element) => element.getBoundingClientRect().bottom > top);
+						const saved = readingPositions.current[selected];
+						const maxTop = content.scrollHeight - content.clientHeight;
+						readingPositions.current[selected] = {
+							top: content.scrollTop,
+							bottom:
+								(saved?.bottom &&
+									content.scrollTop >= Math.min(saved.top, maxTop)) ||
+								maxTop - content.scrollTop < 24,
+							...(anchor?.dataset.messageId
+								? {
+										anchor: {
+											id: anchor.dataset.messageId,
+											offset: anchor.getBoundingClientRect().top - top,
+										},
+									}
+								: {}),
+						};
+					}}
+				>
+					{project && chat && (
+						<div className="mx-auto max-w-2xl">
+							<p className="text-neutral-600">{project.name}</p>
+							<h2 className="mt-2 text-xl font-medium">{chat.name}</h2>
+							<h3 className="mt-6 font-medium">{t("targetFolders")}</h3>
+							<ul className="mt-2 space-y-1 text-neutral-600">
+								{project.folders.map((folder) => (
+									<li key={folder} className="break-all">
+										{folder}
+									</li>
+								))}
+							</ul>
+							{chatState?.hasMore && (
 								<button
 									type="button"
-									className={button}
+									className={`${button} mt-6`}
 									disabled={loadingEarlier.has(chat.id)}
 									onClick={() => void loadEarlier()}
 								>
-									{t("retry")}
+									{t(loadingEarlier.has(chat.id) ? "loading" : "loadEarlier")}
 								</button>
-							</p>
-						)}
-						{historyErrors[chat.id] && (
-							<p role="status" className="mt-4 text-red-700">
-								{errorText(historyErrors[chat.id])}{" "}
-								<button
-									type="button"
-									className={button}
-									onClick={() => void refreshChat(chat.id)}
-								>
-									{t("retry")}
-								</button>
-							</p>
-						)}
-						<div
-							role="log"
-							aria-label={t("chatHistory")}
-							className="mt-6 space-y-4"
-						>
-							{chatState?.id === chat.id &&
-								chatState.messages.map((message, index) => (
-									<div key={message.id} className="whitespace-pre-wrap">
-										<strong>
-											{t(message.role === "user" ? "you" : "agent")}:{" "}
-										</strong>
-										{message.content}
-										{message.role === "assistant" &&
-											message.status === "pending" &&
-											t("turnPending")}
-										{message.role === "assistant" &&
-											message.status === "failed" && (
-												<span role="status">
-													{t(message.errorCode ?? "modelRequestFailed")}
-													{message.errorDetails && `: ${message.errorDetails}`}
-												</span>
-											)}
-										<TurnCalls
-											turnId={Number(message.id.split("-")[0])}
-											kind={message.role === "user" ? "request" : "response"}
-											status={
-												(message.role === "user"
-													? chatState.messages[index + 1]?.status
-													: message.status) ?? "succeeded"
-											}
-										/>
-									</div>
-								))}
+							)}
+							{earlierErrors[chat.id] && (
+								<p role="status" className="mt-4 text-red-700">
+									{errorText(earlierErrors[chat.id])}{" "}
+									<button
+										type="button"
+										className={button}
+										disabled={loadingEarlier.has(chat.id)}
+										onClick={() => void loadEarlier()}
+									>
+										{t("retry")}
+									</button>
+								</p>
+							)}
+							{historyErrors[chat.id] && (
+								<p role="status" className="mt-4 text-red-700">
+									{errorText(historyErrors[chat.id])}{" "}
+									<button
+										type="button"
+										className={button}
+										onClick={() => void refreshChat(chat.id)}
+									>
+										{t("retry")}
+									</button>
+								</p>
+							)}
+							<div
+								role="log"
+								aria-label={t("chatHistory")}
+								className="mt-6 space-y-4"
+							>
+								{chatState?.id === chat.id &&
+									chatState.messages.map((message, index) => (
+										<div
+											key={message.id}
+											data-message-id={message.id}
+											className="whitespace-pre-wrap"
+										>
+											<strong>
+												{t(message.role === "user" ? "you" : "agent")}:{" "}
+											</strong>
+											{message.content}
+											{message.role === "assistant" &&
+												message.status === "pending" &&
+												t("turnPending")}
+											{message.role === "assistant" &&
+												message.status === "failed" && (
+													<span role="status">
+														{t(message.errorCode ?? "modelRequestFailed")}
+														{message.errorDetails &&
+															`: ${message.errorDetails}`}
+													</span>
+												)}
+											<TurnCalls
+												turnId={Number(message.id.split("-")[0])}
+												kind={message.role === "user" ? "request" : "response"}
+												status={
+													(message.role === "user"
+														? chatState.messages[index + 1]?.status
+														: message.status) ?? "succeeded"
+												}
+											/>
+										</div>
+									))}
+							</div>
+							{readOnly && (
+								<p role="status" className="mt-6 text-neutral-600">
+									{project.archived
+										? chat.archived
+											? t("bothArchivedReadOnly")
+											: t("projectArchivedReadOnly")
+										: t("chatArchivedReadOnly")}
+								</p>
+							)}
 						</div>
-						{readOnly && (
-							<p role="status" className="mt-6 text-neutral-600">
-								{project.archived
-									? chat.archived
-										? t("bothArchivedReadOnly")
-										: t("projectArchivedReadOnly")
-									: t("chatArchivedReadOnly")}
-							</p>
-						)}
-						<form className="mt-6" onSubmit={submit}>
+					)}
+				</section>
+				{project && chat && (
+					<div className="shrink-0 border-t border-neutral-200 px-6 py-4">
+						<form className="mx-auto max-w-2xl" onSubmit={submit}>
 							<label className="block">
 								{t("prompt")}
 								<textarea
@@ -1041,7 +1130,7 @@ function App() {
 						</form>
 					</div>
 				)}
-			</section>
+			</div>
 			<dialog
 				closedby="any"
 				ref={dialog}
