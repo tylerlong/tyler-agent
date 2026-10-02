@@ -198,3 +198,41 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	).toBeInViewport();
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
+
+test("returning to a previously non-scrollable chat keeps its original position", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const alpha = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Alpha" },
+		})
+	).json();
+	await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+		data: { name: "Beta" },
+	});
+	await page.goto(`${app.url}/?chat=${alpha.id}`);
+	const content = page.getByRole("region", { name: "Chat", exact: true });
+	await expect(
+		page.getByRole("button", { name: "Submit", exact: true }),
+	).toBeEnabled();
+	expect((await scrollState(content)).top).toBe(0);
+	await page.getByRole("button", { name: "Beta", exact: true }).click();
+	await expect(
+		page.getByRole("heading", { name: "Beta", exact: true }),
+	).toBeVisible();
+	await page.request.post(`${app.url}/api/chats/${alpha.id}`, {
+		data: { prompt: "Long new content\n".repeat(200) },
+	});
+	await page.getByRole("button", { name: "Alpha", exact: true }).click();
+	await expect(page.getByRole("log")).toContainText("Long new content");
+	await expect.poll(async () => (await scrollState(content)).top).toBe(0);
+	await expect
+		.poll(async () => (await scrollState(content)).bottom)
+		.toBeGreaterThan(0);
+});

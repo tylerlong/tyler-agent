@@ -292,7 +292,11 @@ function App() {
 		const previous = selectedRef.current;
 		if (previous !== null && previous !== id) {
 			const saved = readingPositions.current[previous];
-			if (saved) saved.bottom = false;
+			readingPositions.current[previous] = {
+				...saved,
+				top: chatContent.current?.scrollTop ?? 0,
+				bottom: false,
+			};
 		}
 		setSelected(id);
 	}, []);
