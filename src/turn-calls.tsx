@@ -84,7 +84,7 @@ export function TurnCalls({
 			}}
 		>
 			<summary className="cursor-pointer text-neutral-600 hover:text-neutral-950">
-				{kind === "request" ? "Request" : "Response"}
+				{t(kind)}
 			</summary>
 			{record.loading && <p role="status">{t("loading")}</p>}
 			{record.error && (

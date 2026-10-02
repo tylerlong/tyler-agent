@@ -33,10 +33,10 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const request = page
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Request$/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^(Request|请求)$/ }) });
 	const response = page
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Response$/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^(Response|响应)$/ }) });
 	await expect(request).toHaveCount(1);
 	expect(reads).toBe(0);
 	await request.locator("summary").click();
@@ -52,10 +52,12 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	gate.release();
 	await pending;
 	await expect(response.locator("pre")).toContainText("Test answer");
+	const cachedReads = reads;
 	await page.getByRole("button", { name: "Other", exact: true }).click();
 	await page.getByRole("button", { name: "First", exact: true }).click();
 	await expect(request.locator("pre")).toBeVisible();
 	await expect(response.locator("pre")).toBeVisible();
+	expect(reads).toBe(cachedReads);
 	await page.reload();
 	await expect(request.locator("pre")).not.toBeVisible();
 });
@@ -89,7 +91,7 @@ test("failed responses show actual text, retry reading, copy original and remain
 	);
 	const response = page
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Response$/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^(Response|响应)$/ }) });
 	await response.locator("summary").click();
 	await expect(response.getByRole("alert")).toContainText(
 		"Unable to read communication",
@@ -138,7 +140,7 @@ test("network failures have no copyable response and absent old records are expl
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const response = page
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Response$/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^(Response|响应)$/ }) });
 	await response.locator("summary").click();
 	await expect(response).toContainText("No response body was received");
 	await expect(response).toContainText("network disconnected");
@@ -148,7 +150,7 @@ test("network failures have no copyable response and absent old records are expl
 	);
 	const request = page
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Request$/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^(Request|请求)$/ }) });
 	await request.locator("summary").click();
 	await expect(request).toContainText("No communication record is available");
 });

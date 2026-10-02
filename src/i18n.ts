@@ -93,6 +93,8 @@ export const resources = {
 			modelNoAnswer: "OpenRouter did not return a text answer.",
 			modelInvalidResponse: "OpenRouter returned an invalid response.",
 
+			request: "Request",
+			response: "Response",
 			copy: "Copy",
 			copyFailed: "Unable to copy. Please retry.",
 			callsReadFailed: "Unable to read communication. Please retry.",
@@ -194,6 +196,8 @@ export const resources = {
 			modelNoAnswer: "OpenRouter 没有返回文本答案",
 			modelInvalidResponse: "OpenRouter 返回了无效响应",
 
+			request: "请求",
+			response: "响应",
 			copy: "复制",
 			copyFailed: "复制失败，请重试。",
 			callsReadFailed: "读取通信记录失败，请重试。",

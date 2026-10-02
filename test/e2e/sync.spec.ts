@@ -144,7 +144,7 @@ test("empty and unknown selections keep layout; language and missed updates reco
 	);
 	app.disconnectClients();
 	await page.request.put(`${app.url}/api/language`, {
-		data: { language: "en" },
+		data: { language: "zh-CN" },
 	});
 	await page.request.post(`${app.url}/api/projects`, {
 		data: { name: "Missed", folders: [app.folder] },
@@ -155,10 +155,10 @@ test("empty and unknown selections keep layout; language and missed updates reco
 			p.getByRole("heading", { name: "Missed", exact: true }),
 		).toBeVisible();
 		await expect(
-			p.getByRole("combobox", { name: "Interface language", exact: true }),
-		).toHaveValue("en");
+			p.getByRole("combobox", { name: "界面语言", exact: true }),
+		).toHaveValue("zh-CN");
 		await expect(
-			p.getByRole("region", { name: "Chat", exact: true }),
+			p.getByRole("region", { name: "对话", exact: true }),
 		).toBeEmpty();
 	}
 	await expect(other).toHaveURL(`${app.url}/?chat=999`);
