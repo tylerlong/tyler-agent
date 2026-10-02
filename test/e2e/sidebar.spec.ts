@@ -197,8 +197,12 @@ test("blur ends drag and restores selection; other windows and project events ke
 	await expect(sidebar(other)).toHaveCSS("width", "320px");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await other.getByRole("button", { name: "Settings", exact: true }).click();
-	await page.getByLabel("Off", { exact: true }).click();
-	await expect(other.getByLabel("Off", { exact: true })).toBeChecked();
+	await page
+		.getByRole("combobox", { name: "Interface language" })
+		.selectOption("zh-CN");
+	await expect(other.locator("html")).toHaveAttribute("lang", "zh-CN");
+	await page.getByRole("combobox", { name: "界面语言" }).selectOption("en");
+	await expect(other.locator("html")).toHaveAttribute("lang", "en");
 	await expect(sidebar(page)).toHaveCSS("width", "440px");
 	await expect(sidebar(other)).toHaveCSS("width", "320px");
 	for (const current of [page, other])

@@ -118,13 +118,13 @@ test("empty and unknown selections keep layout; language and missed updates reco
 	).toBeEmpty();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
-		page.getByLabel("Interface language", { exact: true }),
+		page.getByRole("combobox", { name: "Interface language", exact: true }),
 	).toHaveValue("en");
 	await page
-		.getByLabel("Interface language", { exact: true })
+		.getByRole("combobox", { name: "Interface language", exact: true })
 		.selectOption("en");
 	await expect(
-		page.getByLabel("Interface language", { exact: true }),
+		page.getByRole("combobox", { name: "Interface language", exact: true }),
 	).toHaveValue("en");
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=999`);
@@ -134,10 +134,10 @@ test("empty and unknown selections keep layout; language and missed updates reco
 		other.getByRole("region", { name: "Chat", exact: true }),
 	).toBeEmpty();
 	await page
-		.getByLabel("Interface language", { exact: true })
+		.getByRole("combobox", { name: "Interface language", exact: true })
 		.selectOption("en");
 	await expect(
-		other.getByLabel("Interface language", { exact: true }),
+		other.getByRole("combobox", { name: "Interface language", exact: true }),
 	).toHaveValue("en");
 	const connection = page.waitForResponse(
 		(response) => response.url() === `${app.url}/api/events`,
@@ -155,7 +155,7 @@ test("empty and unknown selections keep layout; language and missed updates reco
 			p.getByRole("heading", { name: "Missed", exact: true }),
 		).toBeVisible();
 		await expect(
-			p.getByLabel("Interface language", { exact: true }),
+			p.getByRole("combobox", { name: "Interface language", exact: true }),
 		).toHaveValue("en");
 		await expect(
 			p.getByRole("region", { name: "Chat", exact: true }),
