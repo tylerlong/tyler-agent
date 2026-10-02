@@ -183,8 +183,9 @@ function App() {
 	const [selected, setSelected] = useState<number | null>(urlChat);
 	const selectedRef = useRef(selected);
 	selectedRef.current = selected;
-	const [chatState, setChatState] = useState<{
+	type ChatState = {
 		id: number;
+		turns: { id: number; status: string }[];
 		messages: {
 			id: string;
 			role: string;
@@ -194,8 +195,51 @@ function App() {
 			errorDetails?: string;
 		}[];
 		busy: boolean;
-	} | null>(null);
-	const chatRevision = useRef(0);
+		hasMore: boolean;
+	};
+	const [chatCache, setChatCache] = useState<Record<number, ChatState>>({});
+	const cacheRef = useRef(chatCache);
+	const chatState = selected === null ? null : (chatCache[selected] ?? null);
+	const chatRevisions = useRef<Record<number, number>>({});
+	const syncedThrough = useRef<Record<number, number>>({});
+	const [historyErrors, setHistoryErrors] = useState<
+		Record<number, ApiError | null>
+	>({});
+	const [loadingEarlier, setLoadingEarlier] = useState<Set<number>>(
+		() => new Set(),
+	);
+	const earlierRequests = useRef(new Set<number>());
+	const [earlierErrors, setEarlierErrors] = useState<
+		Record<number, ApiError | null>
+	>({});
+	const mergeChat = useCallback(
+		(id: number, data: ChatState, older = false) => {
+			const previous = cacheRef.current[id];
+			const turns = new Map(previous?.turns.map((turn) => [turn.id, turn]));
+			const messages = new Map(
+				previous?.messages.map((message) => [message.id, message]),
+			);
+			for (const turn of data.turns)
+				if (!older || !turns.has(turn.id)) turns.set(turn.id, turn);
+			for (const message of data.messages)
+				if (!older || !messages.has(message.id))
+					messages.set(message.id, message);
+			const next = {
+				id,
+				turns: [...turns.values()].sort((a, b) => a.id - b.id),
+				messages: [...messages.values()].sort(
+					(a, b) =>
+						Number(a.id.split("-")[0]) - Number(b.id.split("-")[0]) ||
+						(a.role === "user" ? -1 : 1),
+				),
+				busy: older && previous ? previous.busy : data.busy,
+				hasMore: older || !previous ? data.hasMore : previous.hasMore,
+			};
+			cacheRef.current = { ...cacheRef.current, [id]: next };
+			setChatCache(cacheRef.current);
+		},
+		[],
+	);
 	const [drafts, setDrafts] = useState<Record<number, string>>({});
 	const draftVersions = useRef<Record<number, number>>({});
 	const [chatErrors, setChatErrors] = useState<Record<number, ApiError | null>>(
@@ -208,28 +252,70 @@ function App() {
 		history.pushState(null, "", url);
 		setSelected(id);
 	}
-	const refreshChat = useCallback(async () => {
+	const refreshChat = useCallback(
+		async (chatId?: number) => {
+			const id = chatId ?? selectedRef.current;
+			if (id === null) return;
+			const revision = (chatRevisions.current[id] ?? 0) + 1;
+			chatRevisions.current[id] = revision;
+			const current = () => chatRevisions.current[id] === revision;
+			try {
+				const latest: ChatState = await api(`/api/chats/${id}`);
+				if (!current()) return;
+				const cached = cacheRef.current[id];
+				let cursor = cached?.turns.find(
+					(turn) => turn.status === "pending",
+				)?.id;
+				if (cursor !== undefined) cursor -= 1;
+				else cursor = cached ? (syncedThrough.current[id] ?? 0) : undefined;
+				const target = latest.turns.at(-1)?.id;
+				mergeChat(id, latest);
+				// Refresh cached pending records and fill unseen turns in bounded pages.
+				while (
+					cursor !== undefined &&
+					target !== undefined &&
+					cursor < target
+				) {
+					const next: ChatState = await api(`/api/chats/${id}?after=${cursor}`);
+					if (!current()) return;
+					mergeChat(id, next);
+					const last = next.turns.at(-1)?.id;
+					if (last === undefined || last <= cursor) break;
+					cursor = last;
+					syncedThrough.current[id] = last;
+				}
+				if (!current()) return;
+				syncedThrough.current[id] = Math.max(
+					syncedThrough.current[id] ?? 0,
+					target ?? 0,
+				);
+				setHistoryErrors((errors) => ({ ...errors, [id]: null }));
+			} catch (cause) {
+				if (current())
+					setHistoryErrors((errors) => ({ ...errors, [id]: appError(cause) }));
+			}
+		},
+		[mergeChat],
+	);
+	async function loadEarlier() {
 		const id = selectedRef.current;
-		const revision = ++chatRevision.current;
-		if (id === null) {
-			setChatState(null);
-			return;
-		}
+		if (id === null || earlierRequests.current.has(id)) return;
+		const state = cacheRef.current[id];
+		const before = state?.turns[0]?.id;
+		if (!state?.hasMore || before === undefined) return;
+		earlierRequests.current.add(id);
+		setLoadingEarlier(new Set(earlierRequests.current));
 		try {
-			const data = await api(`/api/chats/${id}`);
-			if (revision === chatRevision.current && selectedRef.current === id) {
-				setChatState({ id, ...data });
-			}
+			const data: ChatState = await api(`/api/chats/${id}?before=${before}`);
+			mergeChat(id, data, true);
+			setEarlierErrors((errors) => ({ ...errors, [id]: null }));
 		} catch (cause) {
-			if (revision === chatRevision.current && selectedRef.current === id) {
-				setChatState(null);
-				setChatErrors((current) => ({
-					...current,
-					[id]: appError(cause),
-				}));
-			}
+			setEarlierErrors((errors) => ({ ...errors, [id]: appError(cause) }));
+		} finally {
+			earlierRequests.current.delete(id);
+			setLoadingEarlier(new Set(earlierRequests.current));
 		}
-	}, []);
+	}
 	useEffect(() => {
 		selectedRef.current = selected;
 		void refreshChat();
@@ -287,21 +373,35 @@ function App() {
 		await languageState.refresh();
 	}, [languageState]);
 	useEffect(() => {
-		void refresh();
+		const sync = () => {
+			void refresh();
+			const ids = new Set(Object.keys(cacheRef.current).map(Number));
+			if (selectedRef.current !== null) ids.add(selectedRef.current);
+			for (const id of ids) void refreshChat(id);
+		};
+		const visible = () => {
+			if (document.visibilityState === "visible") sync();
+		};
+		sync();
 		const events = new EventSource("/api/events");
-		events.onopen = () => {
-			void refresh();
-			void refreshChat();
-		};
-		events.onmessage = () => {
-			void refresh();
-			void refreshChat();
-		};
+		events.onopen = sync;
+		events.onmessage = sync;
 		events.onerror = () => {
-			++chatRevision.current;
-			setChatState(null);
+			for (const id of Object.keys(cacheRef.current).map(Number)) {
+				chatRevisions.current[id] = (chatRevisions.current[id] ?? 0) + 1;
+				setHistoryErrors((errors) => ({
+					...errors,
+					[id]: new ApiError("networkFailed"),
+				}));
+			}
 		};
-		return () => events.close();
+		window.addEventListener("focus", sync);
+		document.addEventListener("visibilitychange", visible);
+		return () => {
+			events.close();
+			window.removeEventListener("focus", sync);
+			document.removeEventListener("visibilitychange", visible);
+		};
 	}, [refresh, refreshChat]);
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [creatingProject, setCreatingProject] = useState<number | null>(null);
@@ -729,12 +829,12 @@ function App() {
 							{errorText(error)}
 						</p>
 					)}
-					{selected !== null && !chat && chatErrors[selected] && (
+					{selected !== null && !chat && historyErrors[selected] && (
 						<p
 							role="alert"
 							className="mt-4 whitespace-pre-wrap break-words text-red-700"
 						>
-							{errorText(chatErrors[selected])}
+							{errorText(historyErrors[selected])}
 						</p>
 					)}
 				</div>
@@ -820,6 +920,41 @@ function App() {
 								</li>
 							))}
 						</ul>
+						{chatState?.hasMore && (
+							<button
+								type="button"
+								className={`${button} mt-6`}
+								disabled={loadingEarlier.has(chat.id)}
+								onClick={() => void loadEarlier()}
+							>
+								{t(loadingEarlier.has(chat.id) ? "loading" : "loadEarlier")}
+							</button>
+						)}
+						{earlierErrors[chat.id] && (
+							<p role="status" className="mt-4 text-red-700">
+								{errorText(earlierErrors[chat.id])}{" "}
+								<button
+									type="button"
+									className={button}
+									disabled={loadingEarlier.has(chat.id)}
+									onClick={() => void loadEarlier()}
+								>
+									{t("retry")}
+								</button>
+							</p>
+						)}
+						{historyErrors[chat.id] && (
+							<p role="status" className="mt-4 text-red-700">
+								{errorText(historyErrors[chat.id])}{" "}
+								<button
+									type="button"
+									className={button}
+									onClick={() => void refreshChat(chat.id)}
+								>
+									{t("retry")}
+								</button>
+							</p>
+						)}
 						<div
 							role="log"
 							aria-label={t("chatHistory")}

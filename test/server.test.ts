@@ -322,6 +322,8 @@ for (const version of [1, 2, 3, 4, 5])
 					],
 				});
 				assert.deepEqual(await (await fetch(`${base}/api/chats/9`)).json(), {
+					hasMore: false,
+					hasMoreNewer: false,
 					turns: [
 						{
 							id: 11,

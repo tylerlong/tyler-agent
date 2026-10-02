@@ -145,12 +145,31 @@ export function createServer(
 				busy: busy.has(Number(chat.id)),
 			})),
 		}));
-	const turns = (id: number) =>
-		database
+	const turnPage = (
+		id: number,
+		before: number | null,
+		after: number | null,
+	) => {
+		const rows = database
 			.prepare(
-				"SELECT id, user_content AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails FROM turns WHERE chat_id=? ORDER BY id",
+				`SELECT id, user_content AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails FROM turns WHERE chat_id=? ${before !== null ? "AND id<?" : after !== null ? "AND id>?" : ""} ORDER BY id ${after !== null ? "ASC" : "DESC"} LIMIT 11`,
 			)
-			.all(id);
+			.all(
+				...(before !== null
+					? [id, before]
+					: after !== null
+						? [id, after]
+						: [id]),
+			);
+		const more = rows.length > 10;
+		const page = rows.slice(0, 10);
+		if (after === null) page.reverse();
+		return {
+			turns: page,
+			hasMore: after === null && more,
+			hasMoreNewer: after !== null && more,
+		};
+	};
 	const messages = (id: number, successfulOnly = false) =>
 		database
 			.prepare(
@@ -509,9 +528,40 @@ export function createServer(
 				return;
 			}
 			if (request.method === "GET") {
+				const before = url.searchParams.get("before");
+				const after = url.searchParams.get("after");
+				if (
+					(before !== null && after !== null) ||
+					[before, after].some(
+						(value) =>
+							value !== null &&
+							(!/^(0|[1-9]\d*)$/.test(value) ||
+								!Number.isSafeInteger(Number(value))),
+					)
+				) {
+					json(response, 400, errorBody("invalidInput"));
+					return;
+				}
+				const page = turnPage(
+					id,
+					before === null ? null : Number(before),
+					after === null ? null : Number(after),
+				);
 				json(response, 200, {
-					turns: turns(id),
-					messages: messages(id),
+					...page,
+					messages: page.turns.flatMap((turn) => [
+						{ id: `${turn.id}-user`, role: "user", content: turn.question },
+						{
+							id: `${turn.id}-assistant`,
+							role: "assistant",
+							content: turn.answer ?? "",
+							...(turn.status !== "succeeded" && {
+								status: turn.status,
+								errorCode: turn.errorCode,
+								errorDetails: turn.errorDetails,
+							}),
+						},
+					]),
 					busy: busy.has(id),
 				});
 				return;
