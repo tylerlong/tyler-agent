@@ -31,7 +31,6 @@ test("language defaults to English, validates, persists and leaves other setting
 		assert.deepEqual(await (await request("/api/language")).json(), {
 			language: "en",
 		});
-		await request("/api/debug", { enabled: false });
 		await request("/api/sidebar-width", { width: 410 });
 		for (const language of ["fr", null, 42]) {
 			const response = await request("/api/language", { language });
@@ -42,9 +41,6 @@ test("language defaults to English, validates, persists and leaves other setting
 			(await request("/api/language", { language: "zh-CN" })).status,
 			200,
 		);
-		assert.deepEqual(await (await request("/api/debug")).json(), {
-			enabled: false,
-		});
 		assert.deepEqual(await (await request("/api/sidebar-width")).json(), {
 			width: 410,
 		});

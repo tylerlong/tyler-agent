@@ -47,10 +47,11 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				version !== 3 &&
 				version !== 4 &&
 				version !== 5 &&
-				version !== 6) ||
+				version !== 6 &&
+				version !== 7) ||
 			tables.join(",") !==
 				(Number(version) >= 3
-					? version === 6
+					? Number(version) >= 6
 						? "chats,folders,model_calls,projects,settings,turns"
 						: "chats,folders,projects,settings,turns"
 					: version === 2
@@ -67,7 +68,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			columns("chats") !==
 				`id,project_id,name,created_at,last_question_at${Number(version) >= 4 ? ",archived" : ""}` ||
 			columns("turns") !==
-				`id,chat_id,user_content,assistant_content${version === 6 ? ",status,created_at,error_code,error_details" : ""}`
+				`id,chat_id,user_content,assistant_content${Number(version) >= 6 ? ",status,created_at,error_code,error_details" : ""}`
 		)
 			throw new Error("Invalid database schema");
 		if (version === 2 && columns("sidebar_width") !== "id,width")
@@ -75,7 +76,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		if (
 			Number(version) >= 3 &&
 			columns("settings") !==
-				`id,sidebar_width,debug_enabled${Number(version) >= 5 ? ",language" : ""}`
+				`id,sidebar_width${Number(version) < 7 ? ",debug_enabled" : ""}${Number(version) >= 5 ? ",language" : ""}`
 		)
 			throw new Error("Invalid database schema");
 		if (
@@ -160,6 +161,17 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			"id,turn_id,url,method,requested_at,request_body,status,http_status,response_body,duration_ms,error"
 		)
 			throw new Error("Invalid database schema");
+		if (Number(version) < 7) {
+			db.exec("BEGIN");
+			try {
+				db.exec(
+					"ALTER TABLE settings DROP COLUMN debug_enabled; PRAGMA user_version=7; COMMIT;",
+				);
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
+		}
 		db.exec(`BEGIN;
         UPDATE turns SET status='failed',error_code='modelInterrupted' WHERE status='pending';
         UPDATE model_calls SET status='failed',error='Service restarted before the call completed' WHERE status='pending';

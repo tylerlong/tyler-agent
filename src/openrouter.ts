@@ -1,5 +1,4 @@
 type Message = { role: "user" | "assistant"; content: string };
-let callId = 0;
 export class ModelError extends Error {
 	code: string;
 	details?: string;
@@ -26,7 +25,6 @@ export async function requestModel(
 	messages: Message[],
 	prompt: string,
 	fetchModel: typeof fetch,
-	debugEnabled: boolean,
 	record?: {
 		request: (request: CallRequest) => void;
 		result: (result: CallResult) => void;
@@ -49,31 +47,10 @@ export async function requestModel(
 		input: [...messages, { role: "user", content: prompt }],
 		stream: false,
 	});
-	const shouldLog = debugEnabled;
-	const id = shouldLog ? ++callId : 0;
 	const started = performance.now();
 	const escapedKey = JSON.stringify(apiKey).slice(1, -1);
 	const redact = (value: string) =>
 		value.replaceAll(apiKey, "[REDACTED]").replaceAll(escapedKey, "[REDACTED]");
-	const pretty = (value: unknown) => redact(JSON.stringify(value, null, 2));
-	const displayBody = (raw: string) => {
-		try {
-			return pretty(JSON.parse(raw));
-		} catch {
-			return redact(raw);
-		}
-	};
-	const log = (kind: string, details: unknown, raw?: string) => {
-		console.log(
-			`[OpenRouter #${id}] ${kind}\n${pretty(details)}${raw === undefined ? "" : `\nbody:\n${displayBody(raw)}`}`,
-		);
-	};
-	if (shouldLog)
-		log(
-			"request",
-			{ time: new Date().toISOString(), url, method: "POST" },
-			body,
-		);
 	let upstream: Response | undefined;
 	let rawBody: string;
 	record?.request({
@@ -93,26 +70,10 @@ export async function requestModel(
 			durationMs: Math.round(performance.now() - started),
 			error: redact(String(error)),
 		});
-		if (shouldLog)
-			log("error", {
-				...(upstream && { status: upstream.status }),
-				error: String(error),
-				durationMs: Math.round(performance.now() - started),
-			});
 		throw new ModelError(
 			"modelRequestFailed",
 			"OpenRouter request failed",
 			redact(String(error)),
-		);
-	}
-	if (shouldLog) {
-		log(
-			"response",
-			{
-				status: upstream.status,
-				durationMs: Math.round(performance.now() - started),
-			},
-			rawBody,
 		);
 	}
 	const result: CallResult = {

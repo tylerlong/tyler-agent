@@ -68,10 +68,6 @@ test("HTTP model failures retain external details while redacting credentials", 
 	const post = (path: string, body: unknown) =>
 		fetch(`${url}${path}`, { method: "POST", body: JSON.stringify(body) });
 	try {
-		await fetch(`${url}/api/debug`, {
-			method: "PUT",
-			body: JSON.stringify({ enabled: false }),
-		});
 		const project = await (
 			await post("/api/projects", { name: "P", folders: [] })
 		).json();

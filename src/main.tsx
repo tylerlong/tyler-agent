@@ -10,6 +10,7 @@ import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
 import i18n from "./i18n.ts";
 import { createSettingState } from "./setting-state.ts";
+import { TurnCalls } from "./turn-calls.tsx";
 import "./style.css";
 
 type Chat = {
@@ -273,22 +274,7 @@ function App() {
 	}
 	const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
 	const [error, setError] = useState<ApiError | null>(null);
-	const [debugEnabled, setDebugEnabled] = useState<boolean | null>(null);
-	const [debugPending, setDebugPending] = useState(false);
-	const [debugError, setDebugError] = useState("");
 	const settingsDialog = useRef<HTMLDialogElement>(null);
-	const [debugState] = useState(() =>
-		createSettingState(
-			async () => (await api("/api/debug")).enabled,
-			async (enabled) => {
-				await api("/api/debug", "PUT", { enabled });
-			},
-			(enabled) => {
-				setDebugEnabled(enabled);
-				setDebugError(enabled === null ? "debugReadFailed" : "");
-			},
-		),
-	);
 	const refreshRevision = useRef(0);
 	const refresh = useCallback(async () => {
 		const revision = ++refreshRevision.current;
@@ -298,8 +284,8 @@ function App() {
 		} catch (cause) {
 			if (revision === refreshRevision.current) setError(appError(cause));
 		}
-		await Promise.all([debugState.refresh(), languageState.refresh()]);
-	}, [debugState, languageState]);
+		await languageState.refresh();
+	}, [languageState]);
 	useEffect(() => {
 		void refresh();
 		const events = new EventSource("/api/events");
@@ -840,8 +826,8 @@ function App() {
 							className="mt-6 space-y-4"
 						>
 							{chatState?.id === chat.id &&
-								chatState.messages.map((message) => (
-									<p key={message.id} className="whitespace-pre-wrap">
+								chatState.messages.map((message, index) => (
+									<div key={message.id} className="whitespace-pre-wrap">
 										<strong>
 											{t(message.role === "user" ? "you" : "agent")}:{" "}
 										</strong>
@@ -856,7 +842,16 @@ function App() {
 													{message.errorDetails && `: ${message.errorDetails}`}
 												</span>
 											)}
-									</p>
+										<TurnCalls
+											turnId={Number(message.id.split("-")[0])}
+											kind={message.role === "user" ? "request" : "response"}
+											status={
+												(message.role === "user"
+													? chatState.messages[index + 1]?.status
+													: message.status) ?? "succeeded"
+											}
+										/>
+									</div>
 								))}
 						</div>
 						{readOnly && (
@@ -1157,55 +1152,7 @@ function App() {
 						</button>
 					</div>
 				)}
-				<fieldset
-					className="mt-4 disabled:opacity-60"
-					disabled={debugEnabled === null || debugPending}
-				>
-					<legend className="text-sm font-medium">{t("debug")}</legend>
-					<div className="mt-2 flex gap-6">
-						{[
-							{ label: t("off"), enabled: false },
-							{ label: t("on"), enabled: true },
-						].map(({ label, enabled }) => (
-							<label key={String(enabled)} className="flex items-center gap-2">
-								<input
-									type="radio"
-									name="debug"
-									checked={debugEnabled === enabled}
-									onChange={async () => {
-										setDebugPending(true);
-										try {
-											const result = await debugState.save(enabled);
-											if (result !== "saved") setDebugError("debugSaveFailed");
-											else setDebugError("");
-										} finally {
-											setDebugPending(false);
-										}
-									}}
-								/>
-								{label}
-							</label>
-						))}
-					</div>
-				</fieldset>
-				{debugError && (
-					<p
-						role="alert"
-						className="mt-4 whitespace-pre-wrap break-words text-red-700"
-					>
-						{t(debugError)}
-					</p>
-				)}
 				<div className="mt-4 flex justify-end gap-3">
-					{debugError && (
-						<button
-							type="button"
-							className={button}
-							onClick={() => void debugState.refresh()}
-						>
-							{t("retry")}
-						</button>
-					)}
 					<button
 						type="button"
 						className={button}

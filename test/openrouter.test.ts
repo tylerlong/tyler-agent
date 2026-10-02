@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { requestModel } from "../src/openrouter.ts";
 
-test("retained OpenRouter transport sends contextual JSON and redacts readable debug logs", async () => {
+test("retained OpenRouter transport sends contextual JSON without terminal communication logs", async () => {
 	const previousKey = process.env.OPENROUTER_API_KEY;
 	const previousModel = process.env.OPENROUTER_MODEL;
 	const original = console.log;
@@ -41,14 +41,10 @@ test("retained OpenRouter transport sends contextual JSON and redacts readable d
 				],
 				"double?",
 				fake,
-				true,
 			),
 			"2",
 		);
-		assert.match(logs.join("\n"), /request\n\{/);
-		assert.match(logs.join("\n"), /body:\n\{\n {2}"model"/);
-		assert.match(logs.join("\n"), /\[REDACTED\]/);
-		assert.doesNotMatch(logs.join("\n"), /fake|"headers"/);
+		assert.equal(logs.length, 0);
 		const count = logs.length;
 		await requestModel(
 			[
@@ -57,7 +53,6 @@ test("retained OpenRouter transport sends contextual JSON and redacts readable d
 			],
 			"double?",
 			fake,
-			false,
 		);
 		assert.equal(logs.length, count);
 		await assert.rejects(
@@ -66,32 +61,20 @@ test("retained OpenRouter transport sends contextual JSON and redacts readable d
 					[],
 					"bad",
 					async () => new Response("no", { status: 500 }),
-					true,
 				),
 			/OpenRouter request failed/,
 		);
 		await assert.rejects(() =>
-			requestModel([], "bad", async () => new Response("bad json"), true),
+			requestModel([], "bad", async () => new Response("bad json")),
 		);
 		await assert.rejects(
-			() =>
-				requestModel(
-					[],
-					"bad",
-					async () => Response.json({ output: [] }),
-					true,
-				),
+			() => requestModel([], "bad", async () => Response.json({ output: [] })),
 			/did not return a text answer/,
 		);
 		await assert.rejects(() =>
-			requestModel(
-				[],
-				"bad",
-				async () => {
-					throw new Error('network fake"secret');
-				},
-				true,
-			),
+			requestModel([], "bad", async () => {
+				throw new Error('network fake"secret');
+			}),
 		);
 		assert.doesNotMatch(logs.join("\n"), /fake/);
 	} finally {

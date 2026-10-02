@@ -8,7 +8,7 @@ export const test = base.extend<{
 	app: {
 		url: string;
 		folder: string;
-		failModel: () => void;
+		failModel: (kind?: "http" | "network") => void;
 		disconnectClients: () => void;
 		restart: () => Promise<void>;
 		holdModel: () => { entered: Promise<void>; release: () => void };
@@ -18,9 +18,9 @@ export const test = base.extend<{
 		process.env.OPENROUTER_API_KEY = "test";
 		process.env.OPENROUTER_MODEL = "test";
 		const folder = await mkdtemp(join(tmpdir(), "agent-e2e-"));
-		let fail = false;
-		const failModel = () => {
-			fail = true;
+		let fail: "http" | "network" | null = null;
+		const failModel = (kind: "http" | "network" = "http") => {
+			fail = kind;
 		};
 		let gate: { entered: () => void; wait: Promise<void> } | undefined;
 		function holdModel() {
@@ -41,7 +41,9 @@ export const test = base.extend<{
 			createServer(
 				async () => {
 					if (fail) {
-						fail = false;
+						const failure = fail;
+						fail = null;
+						if (failure === "network") throw new Error("network disconnected");
 						return new Response("upstream failure", { status: 500 });
 					}
 					const current = gate;

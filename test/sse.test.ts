@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
 
-test("two SSE clients see creations and debug changes; reconnection reads current shared state", async () => {
+test("two SSE clients see creations and language changes; reconnection reads current shared state", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-sse-"));
 	process.env.OPENROUTER_API_KEY = "test";
 	process.env.OPENROUTER_MODEL = "test";
@@ -61,7 +61,7 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 		const second = await connect();
 		const sharedState = async (chatId?: number) => ({
 			projects: (await (await fetch(`${base}/api/projects`)).json()).projects,
-			debug: await (await fetch(`${base}/api/debug`)).json(),
+			language: await (await fetch(`${base}/api/language`)).json(),
 			chat:
 				chatId === undefined
 					? null
@@ -75,8 +75,8 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 			assert.deepEqual(a, b);
 			return a;
 		}
-		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: true,
+		assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
+			language: "en",
 		});
 		const project = await (
 			await fetch(`${base}/api/projects`, {
@@ -136,48 +136,48 @@ test("two SSE clients see creations and debug changes; reconnection reads curren
 		);
 		const db = new DatabaseSync(join(directory, "db.sqlite"));
 		db.exec(
-			"CREATE TRIGGER reject_debug BEFORE UPDATE OF debug_enabled ON settings BEGIN SELECT RAISE(ABORT,'write failed'); END",
+			"CREATE TRIGGER reject_language BEFORE UPDATE OF language ON settings BEGIN SELECT RAISE(ABORT,'write failed'); END",
 		);
 		try {
 			assert.equal(
 				(
-					await fetch(`${base}/api/debug`, {
+					await fetch(`${base}/api/language`, {
 						method: "PUT",
 						headers: { "content-type": "application/json" },
-						body: JSON.stringify({ enabled: false }),
+						body: JSON.stringify({ language: "zh-CN" }),
 					})
 				).status,
 				500,
 			);
-			assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-				enabled: true,
+			assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
+				language: "en",
 			});
 			assert.equal(
-				db.prepare("SELECT debug_enabled FROM settings").get()?.debug_enabled,
-				1,
+				db.prepare("SELECT language FROM settings").get()?.language,
+				"en",
 			);
 		} finally {
-			db.exec("DROP TRIGGER reject_debug");
+			db.exec("DROP TRIGGER reject_language");
 			db.close();
 		}
-		await fetch(`${base}/api/debug`, {
+		await fetch(`${base}/api/language`, {
 			method: "PUT",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ enabled: false }),
+			body: JSON.stringify({ language: "zh-CN" }),
 		});
 		assert.deepEqual(await Promise.all([second.next(), reconnected.next()]), [
 			"data: changed",
 			"data: changed",
 		]);
-		assert.deepEqual(await (await fetch(`${base}/api/debug`)).json(), {
-			enabled: false,
+		assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
+			language: "zh-CN",
 		});
 		assert.equal(
 			(
-				await fetch(`${base}/api/debug`, {
+				await fetch(`${base}/api/language`, {
 					method: "PUT",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ enabled: "yes" }),
+					body: JSON.stringify({ language: "fr" }),
 				})
 			).status,
 			400,

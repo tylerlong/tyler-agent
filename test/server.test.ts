@@ -231,7 +231,7 @@ for (const version of [1, 2, 3, 4, 5])
 				const schema = new DatabaseSync(path);
 				assert.equal(
 					schema.prepare("PRAGMA user_version").get()?.user_version,
-					6,
+					7,
 				);
 				assert.equal(
 					schema
@@ -247,7 +247,6 @@ for (const version of [1, 2, 3, 4, 5])
 						id: 1,
 						language: version === 5 ? "zh-CN" : "en",
 						sidebar_width: version >= 2 && saved ? 410.5 : 320,
-						debug_enabled: version >= 3 && saved ? 0 : 1,
 					},
 				);
 				schema.close();

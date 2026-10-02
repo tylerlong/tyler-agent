@@ -89,15 +89,6 @@ test("failed and ambiguous language saves reconcile to server and existing error
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	const dialog = page.getByRole("dialog");
-	await page.route("**/api/debug", (route) =>
-		route.request().method() === "GET" ? route.abort() : route.continue(),
-	);
-	await page.request.put(`${app.url}/api/language`, {
-		data: { language: "en" },
-	});
-	await expect(dialog.getByRole("alert")).toHaveText(
-		"Unable to read logging settings. Please retry.",
-	);
 	await page.route("**/api/language", (route) =>
 		route.request().method() === "PUT"
 			? route.fulfill({
@@ -124,9 +115,6 @@ test("failed and ambiguous language saves reconcile to server and existing error
 		.getByRole("combobox", { name: "Interface language" })
 		.selectOption("zh-CN");
 	await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
-	await expect(
-		dialog.getByRole("alert").filter({ hasText: "读取日志设置失败，请重试" }),
-	).toBeVisible();
 	await page.unroute("**/api/language");
 	await page.getByRole("combobox", { name: "界面语言" }).selectOption("en");
 	await expect(page.locator("html")).toHaveAttribute("lang", "en");

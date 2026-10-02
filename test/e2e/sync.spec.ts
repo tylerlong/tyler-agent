@@ -106,7 +106,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 	).not.toBeVisible();
 });
 
-test("empty and unknown selections keep layout; debug and missed updates recover after real SSE disconnect", async ({
+test("empty and unknown selections keep layout; language and missed updates recover after real SSE disconnect", async ({
 	page,
 	context,
 	app,
@@ -117,9 +117,15 @@ test("empty and unknown selections keep layout; debug and missed updates recover
 		page.getByRole("region", { name: "Chat", exact: true }),
 	).toBeEmpty();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
-	await expect(page.getByLabel("On", { exact: true })).toBeChecked();
-	await page.getByLabel("Off", { exact: true }).click();
-	await expect(page.getByLabel("Off", { exact: true })).toBeChecked();
+	await expect(
+		page.getByLabel("Interface language", { exact: true }),
+	).toHaveValue("en");
+	await page
+		.getByLabel("Interface language", { exact: true })
+		.selectOption("en");
+	await expect(
+		page.getByLabel("Interface language", { exact: true }),
+	).toHaveValue("en");
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=999`);
 	await expect(other.getByRole("alert")).toHaveText("Chat does not exist.");
@@ -127,13 +133,19 @@ test("empty and unknown selections keep layout; debug and missed updates recover
 	await expect(
 		other.getByRole("region", { name: "Chat", exact: true }),
 	).toBeEmpty();
-	await page.getByLabel("On", { exact: true }).click();
-	await expect(other.getByLabel("On", { exact: true })).toBeChecked();
+	await page
+		.getByLabel("Interface language", { exact: true })
+		.selectOption("en");
+	await expect(
+		other.getByLabel("Interface language", { exact: true }),
+	).toHaveValue("en");
 	const connection = page.waitForResponse(
 		(response) => response.url() === `${app.url}/api/events`,
 	);
 	app.disconnectClients();
-	await page.request.put(`${app.url}/api/debug`, { data: { enabled: false } });
+	await page.request.put(`${app.url}/api/language`, {
+		data: { language: "en" },
+	});
 	await page.request.post(`${app.url}/api/projects`, {
 		data: { name: "Missed", folders: [app.folder] },
 	});
@@ -142,7 +154,9 @@ test("empty and unknown selections keep layout; debug and missed updates recover
 		await expect(
 			p.getByRole("heading", { name: "Missed", exact: true }),
 		).toBeVisible();
-		await expect(p.getByLabel("Off", { exact: true })).toBeChecked();
+		await expect(
+			p.getByLabel("Interface language", { exact: true }),
+		).toHaveValue("en");
 		await expect(
 			p.getByRole("region", { name: "Chat", exact: true }),
 		).toBeEmpty();

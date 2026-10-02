@@ -36,7 +36,6 @@ test("long chat and project lists scroll independently with sidebar header and f
 		).json();
 		if (i === 0) first = chat.id;
 	}
-	await page.request.put(`${app.url}/api/debug`, { data: { enabled: false } });
 	const answer = await page.request.post(`${app.url}/api/chats/${first}`, {
 		data: { prompt: "Long question. ".repeat(400) },
 	});

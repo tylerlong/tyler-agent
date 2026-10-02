@@ -28,8 +28,6 @@ const errorMessages: Record<string, string> = {
 	sidebarWidthFailed: "Could not read or save sidebar width",
 	invalidLanguage: "Unsupported interface language",
 	languageReadFailed: "Could not read interface language",
-	invalidDebug: "Invalid debug setting",
-	debugWriteFailed: "Could not save debug setting",
 	invalidDirectoryPath: "Invalid directory path",
 	directoryBrowseFailed: "Cannot browse the target directory",
 	projectCreateFailed: "Could not create project",
@@ -136,10 +134,6 @@ export function createServer(
 	const database = openDatabase(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
 		databasePath === undefined,
-	);
-	let debugEnabled = Boolean(
-		database.prepare("SELECT debug_enabled FROM settings WHERE id=1").get()
-			?.debug_enabled,
 	);
 	const home = homedir();
 	const busy = new Set<number>();
@@ -292,33 +286,6 @@ export function createServer(
 							? "languageWriteFailed"
 							: "languageReadFailed",
 					),
-				);
-			}
-			return;
-		}
-		if (path === "/api/debug" && request.method === "GET") {
-			json(response, 200, { enabled: debugEnabled });
-			return;
-		}
-		if (path === "/api/debug" && request.method === "PUT") {
-			try {
-				const input = await readJson(request);
-				if (typeof input.enabled !== "boolean")
-					throw new InputError("invalidDebug");
-				database
-					.prepare("UPDATE settings SET debug_enabled=? WHERE id=1")
-					.run(Number(input.enabled));
-				const changed = input.enabled !== debugEnabled;
-				debugEnabled = input.enabled;
-				json(response, 200, { enabled: debugEnabled });
-				if (changed) notifyChange();
-			} catch (error) {
-				if (!(error instanceof InputError))
-					console.error("Debug setting write failed", error);
-				json(
-					response,
-					error instanceof InputError ? 400 : 500,
-					caughtError(error, "debugWriteFailed"),
 				);
 			}
 			return;
@@ -510,10 +477,15 @@ export function createServer(
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
+			const kind = url.searchParams.get("kind");
+			if (kind !== null && kind !== "request" && kind !== "response") {
+				json(response, 400, errorBody("invalidInput"));
+				return;
+			}
 			json(response, 200, {
 				calls: database
 					.prepare(
-						"SELECT id,turn_id AS turnId,url,method,requested_at AS requestedAt,request_body AS requestBody,status,http_status AS httpStatus,response_body AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE turn_id=? ORDER BY id",
+						`SELECT id,turn_id AS turnId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE turn_id=? ORDER BY id`,
 					)
 					.all(turnId),
 			});
@@ -616,7 +588,6 @@ export function createServer(
 						messages(id, true).map(({ role, content }) => ({ role, content })),
 						input.prompt,
 						fetchModel,
-						debugEnabled,
 						{
 							request: (call) => {
 								callId = Number(

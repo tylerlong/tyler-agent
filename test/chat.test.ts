@@ -284,6 +284,15 @@ test("turn communication is exact, redacted, independently readable and survives
 		assert.equal(calls[0].httpStatus, 200);
 		assert.equal(calls[0].status, "succeeded");
 		assert.equal(typeof calls[0].durationMs, "number");
+		const requestOnly = (await get(`/api/turns/${turnId}/calls?kind=request`))
+			.calls[0];
+		assert.equal(requestOnly.requestBody, calls[0].requestBody);
+		assert.equal(requestOnly.responseBody, null);
+		const responseOnly = (await get(`/api/turns/${turnId}/calls?kind=response`))
+			.calls[0];
+		assert.equal(responseOnly.requestBody, null);
+		assert.equal(responseOnly.responseBody, calls[0].responseBody);
+		assert.equal((await fetch(`${url}/api/debug`)).status, 404);
 		assert(!("headers" in calls[0]));
 		for (mode of ["network", "read", "bad"]) {
 			assert.equal((await post(route, { prompt: mode })).status, 502);
