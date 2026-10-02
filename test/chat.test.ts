@@ -295,7 +295,13 @@ test("turn communication is exact, redacted, independently readable and survives
 		assert.equal((await fetch(`${url}/api/debug`)).status, 404);
 		assert(!("headers" in calls[0]));
 		for (mode of ["network", "read", "bad"]) {
-			assert.equal((await post(route, { prompt: mode })).status, 502);
+			const submission = await post(route, { prompt: mode });
+			assert.equal(submission.status, 502);
+			if (mode === "bad")
+				assert.doesNotMatch(
+					JSON.stringify(await submission.json()),
+					/not JSON/,
+				);
 			history = await get(route);
 			if (mode === "bad")
 				assert.doesNotMatch(JSON.stringify(history), /not JSON/);

@@ -1,5 +1,50 @@
 import { expect, test } from "./fixtures.ts";
 
+test("large failed responses stay folded and keep the composer visible until requested", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Failure" },
+		})
+	).json();
+	const raw = JSON.stringify({ error: "private diagnostic\n".repeat(1000) });
+	app.failModel("http", raw);
+	await page.setViewportSize({ width: 900, height: 600 });
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	let reads = 0;
+	page.on("request", (request) => {
+		if (request.url().includes("/calls")) reads++;
+	});
+	await page.getByLabel("Prompt").fill("question");
+	await page.getByRole("button", { name: "Submit", exact: true }).click();
+	await expect(page.getByRole("alert")).toHaveText(
+		"OpenRouter request failed.\nHTTP 500",
+	);
+	await expect(page.getByLabel("Prompt")).toBeInViewport();
+	await expect(
+		page.getByRole("button", { name: "Submit", exact: true }),
+	).toBeInViewport();
+	await expect(page.getByRole("log")).not.toContainText("private diagnostic");
+	expect(reads).toBe(0);
+	const response = page.locator("details").filter({
+		has: page.locator("summary", { hasText: /^Response$/ }),
+	});
+	await expect(response.locator("pre")).toHaveCount(0);
+	await response.locator("summary").click();
+	await expect(response.locator("pre")).toHaveText(
+		JSON.stringify(JSON.parse(raw), null, 2),
+	);
+	expect(reads).toBeGreaterThan(0);
+	await expect(page.getByLabel("Prompt")).toBeInViewport();
+});
+
 test("communication is lazy, formatted and copied as original text, retained across chats and updated after completion", async ({
 	page,
 	context,

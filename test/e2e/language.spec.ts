@@ -216,13 +216,13 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	app.failModel();
 	await page.getByRole("button", { name: "提交", exact: true }).click();
 	await expect(page.getByRole("alert")).toHaveText(
-		"OpenRouter 请求失败\nupstream failure",
+		"OpenRouter 请求失败\nHTTP 500",
 	);
 	await page.request.put(`${app.url}/api/language`, {
 		data: { language: "en" },
 	});
 	await expect(page.getByRole("alert")).toHaveText(
-		"OpenRouter request failed.\nupstream failure",
+		"OpenRouter request failed.\nHTTP 500",
 	);
 	await expect(
 		page.getByRole("textbox", { name: "Prompt", exact: true }),

@@ -37,7 +37,7 @@ test("HTTP errors provide stable identifiers independent of interface language",
 	}
 });
 
-test("HTTP model failures retain external details while redacting credentials", async () => {
+test("HTTP model failures return concise errors and keep redacted bodies in communication records", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-model-errors-"));
 	const oldKey = process.env.OPENROUTER_API_KEY;
 	const oldModel = process.env.OPENROUTER_MODEL;
@@ -75,19 +75,11 @@ test("HTTP model failures retain external details while redacting credentials", 
 			await post(`/api/projects/${project.id}/chats`, { name: "C" })
 		).json();
 		for (const [kind, code, details] of [
-			[
-				"upstream",
-				"modelRequestFailed",
-				'{"error":"provider detail [REDACTED]"}',
-			],
+			["upstream", "modelRequestFailed", "HTTP 429"],
 			["network", "modelRequestFailed", "Error: network [REDACTED]"],
-			["json", "modelInvalidResponse", "upstream malformed body"],
-			["empty", "modelNoAnswer", '{"output":[]}'],
-			[
-				"shape",
-				"modelNoAnswer",
-				'{"output":[null,{"type":"message","content":[null]}]}',
-			],
+			["json", "modelInvalidResponse", undefined],
+			["empty", "modelNoAnswer", undefined],
+			["shape", "modelNoAnswer", undefined],
 		] as const) {
 			failure = kind;
 			const response = await post(`/api/chats/${chat.id}`, {
@@ -97,7 +89,25 @@ test("HTTP model failures retain external details while redacting credentials", 
 			const body = await response.json();
 			assert.equal(body.code, code);
 			assert.equal(body.details, details);
-			assert.doesNotMatch(JSON.stringify(body), /secret/);
+			assert.doesNotMatch(
+				JSON.stringify(body),
+				/secret|provider detail|malformed body|output/,
+			);
+			const history = await (await fetch(`${url}/api/chats/${chat.id}`)).json();
+			const calls = await (
+				await fetch(
+					`${url}/api/turns/${history.turns.at(-1).id}/calls?kind=response`,
+				)
+			).json();
+			const expectedBodies = {
+				upstream: '{"error":"provider detail [REDACTED]"}',
+				network: null,
+				json: "upstream malformed body",
+				empty: '{"output":[]}',
+				shape: '{"output":[null,{"type":"message","content":[null]}]}',
+			};
+			assert.equal(calls.calls[0].responseBody, expectedBodies[kind]);
+			assert.doesNotMatch(JSON.stringify(calls), /secret/);
 		}
 		const history = await (await fetch(`${url}/api/chats/${chat.id}`)).json();
 		assert.equal(history.turns.length, 5);

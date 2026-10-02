@@ -88,7 +88,7 @@ export async function requestModel(
 		throw new ModelError(
 			"modelRequestFailed",
 			"OpenRouter request failed",
-			redact(rawBody),
+			`HTTP ${upstream.status}`,
 		);
 	let data: unknown;
 	try {
@@ -97,7 +97,6 @@ export async function requestModel(
 		throw new ModelError(
 			"modelInvalidResponse",
 			"OpenRouter returned an invalid response",
-			redact(rawBody),
 		);
 	}
 	const output =
@@ -127,7 +126,6 @@ export async function requestModel(
 		throw new ModelError(
 			"modelNoAnswer",
 			"OpenRouter did not return a text answer",
-			redact(rawBody),
 		);
 
 	record?.result({ ...result, status: "succeeded" });
