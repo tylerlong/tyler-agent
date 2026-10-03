@@ -321,9 +321,9 @@ test("directory network errors remain visible and translate while the picker sta
 	);
 	await expect(
 		chinese.getByRole("button", { name: "返回上级", exact: true }),
-	).toHaveText("..");
+	).toHaveText("返回上级");
 	await expect(
-		chinese.getByRole("button", { name: "选择此目录", exact: true }),
+		chinese.getByRole("button", { name: "选择当前文件夹", exact: true }),
 	).toBeDisabled();
 	await expect(
 		chinese.getByRole("button", { name: "重试", exact: true }),

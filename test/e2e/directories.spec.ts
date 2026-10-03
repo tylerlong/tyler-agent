@@ -25,18 +25,21 @@ test("real directory picker selects one folder at a time, preserves position and
 	await project.getByLabel("Name").fill("Work");
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "Select this directory" }),
+		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeEnabled();
 	await expect(
 		picker.getByRole("list", { name: "Subdirectories" }).getByRole("button"),
-	).toHaveText(["..", "Alpha/", "Link/", "Zulu/"]);
+	).toHaveText(["📁Alpha→", "📁Link→", "📁Zulu→"]);
 	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
-	await picker.getByRole("button", { name: "Alpha/", exact: true }).click();
+	await picker.getByRole("button", { name: "Alpha", exact: true }).click();
 	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Alpha"),
 	);
-	await expect(picker.getByRole("list").getByRole("button")).toHaveText([".."]);
-	await picker.getByRole("button", { name: "Select this directory" }).click();
+	await expect(picker.getByRole("list")).toHaveText("No subfolders");
+	await expect(
+		project.getByRole("region", { name: "Selected folders" }),
+	).not.toContainText(join(app.folder, "Alpha"));
+	await picker.getByRole("button", { name: "Select current folder" }).click();
 	await expect(picker).not.toBeVisible();
 	await add.click();
 	await expect(
@@ -45,13 +48,13 @@ test("real directory picker selects one folder at a time, preserves position and
 	await picker.getByRole("button", { name: "Cancel" }).click();
 	await expect(project.getByLabel("Name")).toHaveValue("Work");
 	await add.click();
-	await picker.getByRole("button", { name: "Parent directory" }).click();
+	await picker.getByRole("button", { name: "Up one level" }).click();
 	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
-	await picker.getByRole("button", { name: "Zulu/", exact: true }).click();
+	await picker.getByRole("button", { name: "Zulu", exact: true }).click();
 	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Zulu"),
 	);
-	await picker.getByRole("button", { name: "Select this directory" }).click();
+	await picker.getByRole("button", { name: "Select current folder" }).click();
 	await project
 		.getByRole("button", {
 			name: `Remove ${join(app.folder, "Alpha")}`,
@@ -77,9 +80,9 @@ test("real directory picker selects one folder at a time, preserves position and
 	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Zulu"),
 	);
-	await picker.getByRole("button", { name: "Parent directory" }).click();
+	await picker.getByRole("button", { name: "Up one level" }).click();
 	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
-	await picker.getByRole("button", { name: "Select this directory" }).click();
+	await picker.getByRole("button", { name: "Select current folder" }).click();
 	await project.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(project).not.toBeVisible();
 	await page.getByRole("button", { name: "New project", exact: true }).click();
@@ -116,7 +119,7 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	});
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "Select this directory" }),
+		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeDisabled();
 	await picker.getByRole("button", { name: "Cancel" }).click();
 	await expect(picker).not.toBeVisible();
@@ -127,7 +130,7 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	await page.unroute("**/api/directories*");
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "Select this directory" }),
+		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeEnabled();
 	let releaseAlpha!: () => void;
 	const alphaGate = new Promise<void>((resolve) => {
@@ -142,9 +145,14 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 			await alphaGate;
 		await route.fulfill({ response });
 	});
-	await picker.getByRole("button", { name: "Alpha/", exact: true }).click();
-	await expect(picker.getByRole("status")).toHaveText("Loading…");
-	await picker.getByRole("button", { name: "Beta/", exact: true }).click();
+	await picker.getByRole("button", { name: "Alpha", exact: true }).click();
+	await expect(picker.getByRole("status")).toHaveText(
+		`Loading ${join(app.folder, "Alpha")}…`,
+	);
+	await expect(
+		picker.getByRole("button", { name: "Select current folder" }),
+	).toBeDisabled();
+	await picker.getByRole("button", { name: "Beta", exact: true }).click();
 	await expect(picker.getByLabel("Current directory")).toHaveText(
 		join(app.folder, "Beta"),
 	);
@@ -183,28 +191,55 @@ test("showing a hidden picker sends no new browse request and preserves a naviga
 	const add = project.getByRole("button", { name: "Add folder" });
 	await add.click();
 	await expect(
-		picker.getByRole("button", { name: "Select this directory" }),
+		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeEnabled();
 	await rm(join(app.folder, "Gone"), { recursive: true });
-	await picker.getByRole("button", { name: "Gone/", exact: true }).click();
-	await expect(picker.getByRole("alert")).toHaveText(
+	await picker.getByRole("button", { name: "Gone", exact: true }).click();
+	await expect(picker.getByRole("alert")).toContainText(
 		"Target folder does not exist.",
 	);
 	expect(reads).toBe(2);
 	await picker.getByRole("button", { name: "Cancel" }).click();
 	await add.click();
-	await expect(picker.getByRole("alert")).toHaveText(
+	await expect(picker.getByRole("alert")).toContainText(
 		"Target folder does not exist.",
 	);
 	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
 	await expect(
-		picker.getByRole("button", { name: "Select this directory" }),
+		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeEnabled();
 	expect(reads).toBe(2);
+	await expect(picker.getByRole("alert")).toContainText(
+		`Could not open ${join(app.folder, "Gone")}.`,
+	);
+	await expect(picker.getByRole("alert")).toContainText(
+		`Still showing ${app.folder}.`,
+	);
+	await page.request.put(`${app.url}/api/language`, {
+		data: { language: "zh-CN" },
+	});
+	const chinese = page.getByRole("dialog", { name: "选择文件夹", exact: true });
+	await expect(chinese.getByRole("alert")).toContainText(
+		`无法打开 ${join(app.folder, "Gone")}。`,
+	);
+	await expect(chinese.getByRole("alert")).toContainText(
+		`仍显示 ${app.folder}`,
+	);
+	await expect(chinese.getByRole("button", { name: "返回上级" })).toBeVisible();
+	await expect(
+		chinese.getByRole("button", { name: "选择当前文件夹" }),
+	).toBeEnabled();
+	await page.request.put(`${app.url}/api/language`, {
+		data: { language: "en" },
+	});
+	await mkdir(join(app.folder, "Gone"));
 	await picker.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(picker.getByRole("alert")).toHaveCount(0);
+	await expect(picker.getByLabel("Current directory")).toHaveText(
+		join(app.folder, "Gone"),
+	);
 	await expect(
-		picker.getByRole("button", { name: "Select this directory" }),
+		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeEnabled();
 	expect(reads).toBe(3);
 });
@@ -212,8 +247,8 @@ test("showing a hidden picker sends no new browse request and preserves a naviga
 test("directory list scrolls with fixed controls and long paths remain selectable", async ({
 	page,
 	app,
-}) => {
-	await page.setViewportSize({ width: 720, height: 600 });
+}, testInfo) => {
+	await page.setViewportSize({ width: 1280, height: 720 });
 	for (let i = 0; i < 80; i++)
 		await mkdir(join(app.folder, `Folder${String(i).padStart(2, "0")}`));
 	const longName = "long-directory-name-".repeat(10);
@@ -233,9 +268,12 @@ test("directory list scrolls with fixed controls and long paths remain selectabl
 	});
 	const list = picker.getByRole("list", { name: "Subdirectories" });
 	const path = picker.getByLabel("Current directory");
-	const select = picker.getByRole("button", { name: "Select this directory" });
+	const select = picker.getByRole("button", { name: "Select current folder" });
 	const cancel = picker.getByRole("button", { name: "Cancel" });
-	await expect(list.getByRole("button")).toHaveCount(81);
+	await expect(list.getByRole("button")).toHaveCount(80);
+	await page.screenshot({
+		path: testInfo.outputPath("folder-minimum-populated.png"),
+	});
 	const before = await Promise.all([
 		path.boundingBox(),
 		select.boundingBox(),
@@ -254,45 +292,99 @@ test("directory list scrolls with fixed controls and long paths remain selectabl
 	expect(after).toEqual(before);
 	await expect(select).toBeInViewport();
 	await expect(cancel).toBeInViewport();
-	await list.getByRole("button", { name: "Folder79/", exact: true }).click();
-	await list.getByRole("button", { name: `${longName}/`, exact: true }).click();
+	await list.getByRole("button", { name: "Folder79", exact: true }).click();
+	await expect
+		.poll(() => list.evaluate((element) => element.scrollTop))
+		.toBe(0);
+	await list.getByRole("button", { name: longName, exact: true }).click();
 	await expect(path).toHaveText(join(app.folder, "Folder79", longName));
 	const pathBox = await path.boundingBox();
 	const selectBox = await select.boundingBox();
 	if (!pathBox || !selectBox) throw new Error("Missing path controls");
 	expect(pathBox.height).toBeGreaterThan(24);
-	expect(pathBox.x + pathBox.width).toBeLessThanOrEqual(selectBox.x);
+	expect(pathBox.y + pathBox.height).toBeLessThan(selectBox.y);
 	expect(
 		await picker.evaluate(
 			(element) => element.scrollWidth <= element.clientWidth,
 		),
 	).toBe(true);
 	await expect(select).toBeInViewport();
-	await page.setViewportSize({ width: 360, height: 600 });
-	await list
-		.getByRole("button", { name: `${nestedName}/`, exact: true })
-		.click();
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await list.getByRole("button", { name: nestedName, exact: true }).click();
 	await expect(path).toHaveText(deepPath);
 	await expect(path).toHaveAttribute("title", deepPath);
+	await page.screenshot({
+		path: testInfo.outputPath("folder-large-long-path.png"),
+	});
 	await expect(cancel).toBeInViewport({ ratio: 1 });
 	await expect(select).toBeInViewport({ ratio: 1 });
 	const listBox = await list.boundingBox();
 	if (!listBox) throw new Error("Missing directory list");
 	expect(listBox.height).toBeGreaterThanOrEqual(48);
 	await expect(
-		list.getByRole("button", { name: "Last/", exact: true }),
+		list.getByRole("button", { name: "Last", exact: true }),
 	).toBeInViewport({ ratio: 1 });
 	await rm(join(deepPath, "Last"), { recursive: true });
-	await list.getByRole("button", { name: "Last/", exact: true }).click();
-	await expect(picker.getByRole("alert")).toHaveText(
+	await list.getByRole("button", { name: "Last", exact: true }).click();
+	await expect(picker.getByRole("alert")).toContainText(
 		"Target folder does not exist.",
 	);
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await expect(cancel).toBeInViewport({ ratio: 1 });
 	await expect(select).toBeInViewport({ ratio: 1 });
+	await page.screenshot({
+		path: testInfo.outputPath("folder-minimum-failure.png"),
+	});
 	await picker.getByRole("button", { name: "Retry", exact: true }).click();
-	await expect(picker.getByRole("alert")).toHaveCount(0);
+	await expect(picker.getByRole("alert")).toContainText(
+		`Could not open ${join(deepPath, "Last")}.`,
+	);
+	await expect(picker.getByRole("alert")).toContainText(
+		`Still showing ${deepPath}.`,
+	);
 	await select.click();
 	await expect(
 		project.getByRole("region", { name: "Selected folders" }),
 	).toContainText(deepPath);
+});
+
+test("root parent is disabled and row navigation and cancellation return focus", async ({
+	page,
+	app,
+}) => {
+	await page.route("**/api/directories", async (route) => {
+		const response = await route.fetch({
+			url: `${app.url}/api/directories?path=%2F`,
+		});
+		await route.fulfill({ response });
+	});
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "New project", exact: true }).click();
+	const project = page.getByRole("dialog", {
+		name: "New project",
+		exact: true,
+	});
+	const add = project.getByRole("button", { name: "Add folder" });
+	await add.click();
+	const picker = page.getByRole("dialog", {
+		name: "Select folder",
+		exact: true,
+	});
+	await expect(picker.getByLabel("Current directory")).toHaveText("/");
+	await expect(
+		picker.getByRole("button", { name: "Up one level" }),
+	).toBeDisabled();
+	const row = picker.getByRole("list").getByRole("button").first();
+	await row.focus();
+	await expect(row).toBeFocused();
+	await row.press("Enter");
+	await expect(picker.getByLabel("Current directory")).not.toHaveText("/");
+	await expect(
+		project
+			.getByRole("region", { name: "Selected folders" })
+			.getByRole("listitem"),
+	).toHaveCount(0);
+	await picker.getByRole("button", { name: "Cancel" }).click();
+	await expect(add).toBeFocused();
+	await expect(project).toBeVisible();
 });

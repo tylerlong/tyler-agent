@@ -49,7 +49,7 @@ test("edit menus preserve hidden drafts, retry failures and sync without changin
 	await modal.getByRole("button", { name: "Add folder", exact: true }).click();
 	await page
 		.getByRole("dialog", { name: "Select folder", exact: true })
-		.getByRole("button", { name: "Select this directory", exact: true })
+		.getByRole("button", { name: "Select current folder", exact: true })
 		.click();
 	let failed = false;
 	await page.route("**/api/projects/*", async (route) => {

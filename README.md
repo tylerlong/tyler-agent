@@ -29,9 +29,11 @@ pnpm start --db /path/to/chat.sqlite
 
 ## 项目与对话
 
-左侧点击文件夹＋图标和“New project”文字入口，输入非空名称，通过“Add folder”打开独立目录选择框。浏览的是 **server 机器**的目录，首次从 server 用户 home 开始，路径和逐行可点击目录使用等宽字体，目录显示 `/` 后缀，首行 `..` 返回上级（根目录禁用），悬停显示下划线。路径旁可选择当前目录，header/footer 固定，只有中间目录列表滚动，长路径可换行，最多显示四行，悬停路径可查看完整内容；每次“选择此目录”添加一个绝对路径并关闭选择框。再次打开沿用当前浏览位置，可逐次添加多个目录，已选列表支持移除，重复路径不可再次选择。创建成功后清空表单，下一次新 project 从 home 开始；单纯显隐不重置输入或浏览位置。
+左侧点击文件夹＋图标和“New project”文字入口，输入非空名称，通过“Add folder”打开独立目录选择框。浏览的是 **server 机器**的目录，首次从 server 用户 home 开始。当前绝对路径完整换行显示；“返回上级”（Up one level）在根目录禁用。每个子目录整行可点击，显示文件夹图标、名称和进入箭头，并提供悬停及键盘焦点。点击只浏览，不添加。标题、当前位置和底部 Cancel / Select current folder（取消 / 选择当前文件夹）始终可见，仅目录列表滚动，成功进入目录后列表回到顶部。每次确认添加当前显示的绝对路径并关闭选择框。再次打开沿用当前浏览位置，可逐次添加多个目录，已选列表支持移除，重复路径显示 Already added（已添加）且不可再次选择。创建成功后清空表单，下一次新 project 从 home 开始；单纯显隐不重置输入或浏览位置。
 
-目录列表只枚举当前层的可见子目录，按名称排序，忽略普通文件和以 `.` 开头的项，不识别其他系统隐藏属性。可见目录符号链接允许浏览和选择；损坏链接跳过。允许浏览 server 用户有权限读取/进入的目录，home 只是起点；权限不足、目录缺失会显示错误并保留原视图。空目录仍可选择，加载中禁用选择但可随时关闭，关闭不会取消请求。浏览不读取文件内容、不更改文件、数据库或共享状态。
+Folder browsing: the server-machine path wraps in full. Use Up one level (disabled at root) or a full folder row to browse; navigation never adds a folder. Only the list scrolls, with location and Cancel / Select current folder kept visible. Successful navigation returns the list to the top. No subfolders still permits selecting the current folder; Already added prevents duplicates. Loading identifies the requested destination and disables selection. A failed request retains the previous successful location and list, identifies both the failed target and the still-displayed folder, and permits selecting that displayed folder. Retry requests the failed target. Cancel returns focus to Add folder and keeps the current edit-session position.
+
+目录列表只枚举当前层的可见子目录，按名称排序，忽略普通文件和以 `.` 开头的项，不识别其他系统隐藏属性。可见目录符号链接允许浏览和选择；损坏链接跳过。允许浏览 server 用户有权限读取/进入的目录，home 只是起点；权限不足、目录缺失会显示错误并保留上次成功的路径和列表，明确指出失败目标与仍显示的位置；“重试”请求失败目标，也可选择明确显示的原目录。空目录提示“没有子文件夹”，仍可选择；加载提示请求目标并禁用选择，但可随时关闭，关闭不会取消请求。浏览不读取文件内容、不更改文件、数据库或共享状态。
 
 创建框预填 `New project` / `New chat`，可修改，也可直接提交。名称会去掉首尾空白、不得为空，允许重复。隐藏再打开保留当前草稿和错误；创建成功后的新草稿重新使用默认名称。
 

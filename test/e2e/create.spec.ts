@@ -117,7 +117,7 @@ test("native creation modals support validation, cancellation and shared lists",
 	await modal.getByRole("button", { name: "Add folder" }).click();
 	await page
 		.getByRole("dialog", { name: "Select folder" })
-		.getByRole("button", { name: "Select this directory" })
+		.getByRole("button", { name: "Select current folder" })
 		.click();
 	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal.getByRole("alert")).toHaveText("Name must not be empty.");
@@ -180,7 +180,7 @@ test("pending project creation can hide and reopen without cancelling or closing
 	await modal.getByRole("button", { name: "Add folder" }).click();
 	await page
 		.getByRole("dialog", { name: "Select folder" })
-		.getByRole("button", { name: "Select this directory" })
+		.getByRole("button", { name: "Select current folder" })
 		.click();
 	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal.getByRole("button", { name: "Cancel" })).toBeEnabled();

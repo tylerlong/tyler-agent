@@ -659,11 +659,17 @@ function App() {
 	} | null>(null);
 	const [directoryError, setDirectoryError] = useState<ApiError | null>(null);
 	const [loadingDirectory, setLoadingDirectory] = useState(false);
+	const [directoryTarget, setDirectoryTarget] = useState<string>();
+	const directoryList = useRef<HTMLUListElement>(null);
+	useEffect(() => {
+		if (directory && directoryList.current) directoryList.current.scrollTop = 0;
+	}, [directory]);
 	const directoryRevision = useRef(0);
 	const directoryInitialized = useRef(false);
 	async function browse(path?: string) {
 		const revision = ++directoryRevision.current;
 		setLoadingDirectory(true);
+		setDirectoryTarget(path);
 		setDirectoryError(null);
 		try {
 			const data = await api(
@@ -681,6 +687,7 @@ function App() {
 		directoryInitialized.current = false;
 		++directoryRevision.current;
 		setDirectory(null);
+		setDirectoryTarget(undefined);
 		setDirectoryError(null);
 		setLoadingDirectory(false);
 	}
@@ -1499,57 +1506,58 @@ function App() {
 				closedby="any"
 				ref={folderDialog}
 				aria-labelledby="folder-title"
-				className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40 open:flex open:flex-col"
+				className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-hidden rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40 open:flex open:flex-col"
 			>
 				<header className="shrink-0">
 					<h2 id="folder-title" className="text-lg font-semibold">
 						{t("selectFolder")}
 					</h2>
-					<div className="mt-4 flex items-start gap-3">
-						<section
-							aria-label={t("currentDirectory")}
-							title={directory?.path}
-							className="line-clamp-4 min-w-0 flex-1 break-all font-mono"
-						>
-							{directory?.path}
-						</section>
-
-						<button
-							type="button"
-							className={`${button} shrink-0`}
-							disabled={
-								loadingDirectory ||
-								!directory ||
-								saving ||
-								modalReadOnly ||
-								folders.includes(directory.path)
-							}
-							onClick={() => {
-								if (directory)
-									setFolders((current) => [...current, directory.path]);
-								folderDialog.current?.close();
-							}}
-						>
-							{directory && folders.includes(directory.path)
-								? t("alreadyAdded")
-								: t("selectDirectory")}
-						</button>
-					</div>
-					{loadingDirectory && <p role="status">{t("loading")}</p>}
-
+					<p className="mt-4 text-sm text-neutral-600">
+						{t("currentDirectory")}
+					</p>
+					<section
+						aria-label={t("currentDirectory")}
+						title={directory?.path}
+						className="break-all font-mono"
+					>
+						{directory?.path}
+					</section>
+					<button
+						type="button"
+						className={`${button} mt-3`}
+						disabled={!directory?.parent}
+						onClick={() => {
+							if (directory?.parent) void browse(directory.parent);
+						}}
+					>
+						{t("parentDirectory")}
+					</button>
+					{loadingDirectory && (
+						<p role="status" className="mt-3 break-all">
+							{t("directoryLoading", {
+								path: directoryTarget ?? t("homeDirectory"),
+							})}
+						</p>
+					)}
 					{directoryError && (
-						<div className="mt-4">
+						<div className="mt-3">
 							<p
 								role="alert"
-								className="whitespace-pre-wrap break-words text-red-700"
+								className="whitespace-pre-wrap break-all text-red-700"
 							>
-								{errorText(directoryError)}
+								{errorText(directoryError)}{" "}
+								{t("directoryFailedTarget", {
+									path: directoryTarget ?? t("homeDirectory"),
+								})}
+								{directory && (
+									<> {t("directoryRetained", { path: directory.path })}</>
+								)}
 							</p>
 							<button
 								type="button"
-								className={button}
+								className={`${button} mt-2`}
 								disabled={loadingDirectory}
-								onClick={() => void browse(directory?.path)}
+								onClick={() => void browse(directoryTarget)}
 							>
 								{t("retry")}
 							</button>
@@ -1557,41 +1565,57 @@ function App() {
 					)}
 				</header>
 				<ul
+					ref={directoryList}
 					aria-label={t("subdirectories")}
 					className="my-4 min-h-12 overflow-y-auto font-mono"
 				>
-					<li>
-						<button
-							type="button"
-							aria-label={t("parentDirectory")}
-							className="text-left hover:underline disabled:text-neutral-400 disabled:no-underline"
-							disabled={!directory?.parent}
-							onClick={() => {
-								if (directory?.parent) void browse(directory.parent);
-							}}
-						>
-							..
-						</button>
-					</li>
 					{directory?.directories.map((child) => (
 						<li key={child.path}>
 							<button
 								type="button"
-								className="break-all text-left hover:underline"
+								aria-label={child.name}
+								className="flex w-full items-center gap-3 rounded px-3 py-2 text-left hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
 								onClick={() => void browse(child.path)}
 							>
-								{child.name}/
+								<span aria-hidden="true">📁</span>
+								<span className="min-w-0 flex-1 break-all">{child.name}</span>
+								<span aria-hidden="true">→</span>
 							</button>
 						</li>
 					))}
+					{directory &&
+						!loadingDirectory &&
+						directory.directories.length === 0 && (
+							<li className="py-3 text-neutral-600">{t("noSubfolders")}</li>
+						)}
 				</ul>
-				<footer className="flex shrink-0 justify-end">
+				<footer className="flex shrink-0 justify-end gap-3">
 					<button
 						type="button"
 						className={button}
 						onClick={() => folderDialog.current?.close()}
 					>
 						{t("cancel")}
+					</button>
+					<button
+						type="button"
+						className={button}
+						disabled={
+							loadingDirectory ||
+							!directory ||
+							saving ||
+							modalReadOnly ||
+							folders.includes(directory.path)
+						}
+						onClick={() => {
+							if (directory)
+								setFolders((current) => [...current, directory.path]);
+							folderDialog.current?.close();
+						}}
+					>
+						{directory && folders.includes(directory.path)
+							? t("alreadyAdded")
+							: t("selectDirectory")}
 					</button>
 				</footer>
 			</dialog>
