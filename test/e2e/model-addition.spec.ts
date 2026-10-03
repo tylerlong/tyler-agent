@@ -56,6 +56,44 @@ test("first addition fills the initiating empty composer even with history; pass
 	).toContainText("Default");
 });
 
+test("first addition initializes its composer before a delayed historical read completes", async ({
+	page,
+	app,
+}) => {
+	const [id] = await chats(page, app.url);
+	await page.request.post(`${app.url}/api/chats/${id}`, {
+		data: { modelId: "test", reasoningEffort: "high", prompt: "History" },
+	});
+	await page.request.delete(`${app.url}/api/models/test`);
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route(`**/api/chats/${id}`, async (route) => {
+		const response = await route.fetch();
+		await gate;
+		await route.fulfill({ response });
+	});
+	await page.goto(`${app.url}/?chat=${id}`);
+	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+	await settings
+		.getByRole("button", { name: "Add model", exact: true })
+		.click();
+	await settings
+		.getByRole("option", { name: "Second second", exact: true })
+		.click();
+	await expect(
+		settings.getByRole("button", { name: "Add model", exact: true }),
+	).toBeEnabled();
+	release();
+	await expect(page.getByRole("log", { name: "Chat history" })).toContainText(
+		"History",
+	);
+	await expect(
+		page.getByRole("combobox", { name: "Model", exact: true }),
+	).toHaveValue("second");
+});
+
 for (const action of ["navigation", "selection"] as const) {
 	test(`delayed first-add completion preserves later ${action}`, async ({
 		page,

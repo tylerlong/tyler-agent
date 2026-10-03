@@ -1668,7 +1668,7 @@ function App() {
 							)
 								return;
 							setTurnOptions((current) =>
-								current[id] && !current[id].modelId
+								!current[id]?.modelId
 									? { ...current, [id]: { modelId, reasoningEffort: null } }
 									: current,
 							);
