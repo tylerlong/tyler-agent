@@ -180,8 +180,17 @@ export function ModelConfiguration({
 			event.stopPropagation();
 			cancelAddition();
 		};
+		const cancelModal = (event: Event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			cancelAddition();
+		};
 		dialog?.addEventListener("keydown", cancel);
-		return () => dialog?.removeEventListener("keydown", cancel);
+		dialog?.addEventListener("cancel", cancelModal);
+		return () => {
+			dialog?.removeEventListener("keydown", cancel);
+			dialog?.removeEventListener("cancel", cancelModal);
+		};
 	}, [adding, open]);
 	const [catalogLoading, setCatalogLoading] = useState(false);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only modal openings refresh discovery

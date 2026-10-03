@@ -133,6 +133,19 @@ for (const action of ["navigation", "selection"] as const) {
 		await expect(
 			settings.getByRole("button", { name: "Cancel", exact: true }),
 		).toBeDisabled();
+		// Membership is committed by SSE while the initiating save is still pending.
+		await expect(model).toBeEnabled();
+		// Native cancellation must be isolated even if the disabled option lost focus.
+		expect(
+			await settings.evaluate((element) =>
+				element.dispatchEvent(new Event("cancel", { cancelable: true })),
+			),
+		).toBe(false);
+		// A disabled focused option can leave focus on the document on Chromium/Linux.
+		await page.evaluate(() => {
+			if (document.activeElement instanceof HTMLElement)
+				document.activeElement.blur();
+		});
 		await page.keyboard.press("Escape");
 		await expect(settings).toBeVisible();
 		// The committed membership arrives by SSE while its initiating response is held.
