@@ -92,7 +92,9 @@ test("model and effort choices stay local while busy and restore submitted histo
 	await effort.selectOption("low");
 	await page.getByLabel("Prompt", { exact: true }).fill("Fail this call");
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
-	await expect(page.getByRole("log")).toContainText("OpenRouter request failed.");
+	await expect(page.getByRole("log")).toContainText(
+		"OpenRouter request failed.",
+	);
 	await page.reload();
 	await expect(effort).toHaveValue("low");
 	await peer.close();
