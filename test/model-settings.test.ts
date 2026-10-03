@@ -156,17 +156,17 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 		wait = false;
 		release = undefined;
 		settings = await (await request("/api/model-settings")).json();
-		assert.equal(settings.defaultModelId, null);
+		assert.equal(settings.defaultModelId, "two");
 		assert.deepEqual(
 			settings.models.map((model: { id: string }) => model.id),
-			["plain", "two"],
+			["two", "plain"],
 		);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		server = createServer(fetch, path, anonymous).listen(0, "127.0.0.1");
 		const restartCalls = calls;
 		assert.deepEqual(await (await request("/api/model-settings")).json(), {
 			...settings,
-			models: [...settings.models].reverse(),
+			models: settings.models,
 		});
 		assert.equal(calls, restartCalls);
 		assert.equal((await stat(path)).mode & 0o777, 0o600);
@@ -415,14 +415,14 @@ test("popular discovery is bounded, preserves out-of-ranking default/history and
 			(await (await request("/api/model-settings")).json()).models.map(
 				(row: { id: string }) => row.id,
 			),
-			["rank-0", "rank-1"],
+			["rank-1", "rank-0"],
 		);
 		data = [catalogModel("rank-0", "Renamed")];
 		await request("/api/model-catalog", "POST");
 		const saved = await (await request("/api/model-settings")).json();
 		assert.equal(saved.defaultModelId, "rank-1");
-		assert.equal(saved.models[1].name, "Rank 1");
-		assert.equal(saved.models[1].catalogMissing, false);
+		assert.equal(saved.models[0].name, "Rank 1");
+		assert.equal(saved.models[0].catalogMissing, false);
 		malformed = true;
 		assert.equal((await request("/api/model-catalog", "POST")).status, 502);
 		assert.deepEqual(
@@ -438,5 +438,66 @@ test("popular discovery is bounded, preserves out-of-ranking default/history and
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("default removal is atomic, uses successful cached rank, and falls back to stable order after restart", async () => {
+	const folder = await mkdtemp(join(tmpdir(), "agent-replacement-"));
+	const path = join(folder, "db.sqlite");
+	let fail = false;
+	let data = [catalogModel("a"), catalogModel("b"), catalogModel("c")];
+	const start = () =>
+		createServer(fetch, path, async () => {
+			if (fail) throw Error("directory failed");
+			return Response.json({ data });
+		}).listen(0, "127.0.0.1");
+	let server = start();
+	const request = async (route: string, method = "GET", body?: unknown) => {
+		if (!server.listening)
+			await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		return fetch(`http://127.0.0.1:${address.port}${route}`, {
+			method,
+			...(body ? { body: JSON.stringify(body) } : {}),
+		});
+	};
+	const settings = async () => (await request("/api/model-settings")).json();
+	const setDefault = async (id: string) =>
+		request("/api/model-settings", "PUT", { defaultModelId: id });
+	try {
+		for (const id of ["a", "b", "c"])
+			await request("/api/models", "POST", { id });
+		await setDefault("a");
+		data = [catalogModel("c")];
+		await request("/api/model-catalog", "POST");
+		fail = true;
+		assert.equal((await request("/api/model-catalog", "POST")).status, 502);
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TRIGGER reject_replacement BEFORE UPDATE OF default_model_id ON settings WHEN NEW.default_model_id='c' BEGIN SELECT RAISE(ABORT,'disk failure'); END",
+		);
+		const before = await settings();
+		assert.equal((await request("/api/models/a", "DELETE")).status, 500);
+		assert.deepEqual(await settings(), before);
+		db.exec("DROP TRIGGER reject_replacement");
+		db.close();
+		await request("/api/models/a", "DELETE");
+		assert.equal((await settings()).defaultModelId, "c");
+		assert.deepEqual(
+			(await settings()).models.map((model: { id: string }) => model.id),
+			["b", "c"],
+		);
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		server = start();
+		await request("/api/models/c", "DELETE");
+		assert.equal((await settings()).defaultModelId, "b");
+		assert.equal((await request("/api/models/b", "DELETE")).status, 200);
+		assert.equal((await settings()).defaultModelId, null);
+		assert.deepEqual((await settings()).models, []);
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(folder, { recursive: true, force: true });
 	}
 });

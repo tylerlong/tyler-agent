@@ -290,14 +290,6 @@ export function createServer(
 	};
 	let catalog: ManagedModel[] | undefined;
 	let catalogLoading: Promise<ManagedModel[]> | undefined;
-	const rankedSettings = () => {
-		const settings = modelSettings(database);
-		const rank = new Map(catalog?.map((model, index) => [model.id, index]));
-		settings.models.sort(
-			(a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
-		);
-		return settings;
-	};
 	const loadCatalog = (refresh = false): Promise<ManagedModel[]> => {
 		if (!refresh && catalog) return Promise.resolve(catalog);
 		if (catalogLoading) return catalogLoading;
@@ -466,7 +458,7 @@ export function createServer(
 					}
 					notifyChange();
 				}
-				json(response, 200, rankedSettings());
+				json(response, 200, modelSettings(database));
 			} catch (error) {
 				json(
 					response,
@@ -504,7 +496,7 @@ export function createServer(
 					)
 					.run(id, name, JSON.stringify(metadata));
 				notifyChange();
-				json(response, 200, rankedSettings());
+				json(response, 200, modelSettings(database));
 			} catch (error) {
 				json(
 					response,
@@ -517,9 +509,29 @@ export function createServer(
 		if (path.startsWith("/api/models/") && request.method === "DELETE") {
 			try {
 				const id = decodeURIComponent(path.slice("/api/models/".length));
-				database.prepare("DELETE FROM managed_models WHERE id=?").run(id);
+				database.exec("BEGIN");
+				try {
+					const settings = modelSettings(database);
+					database.prepare("DELETE FROM managed_models WHERE id=?").run(id);
+					if (settings.defaultModelId === id) {
+						const remaining = settings.models.filter(
+							(model) => model.id !== id,
+						);
+						const replacement =
+							catalog?.find((model) =>
+								remaining.some((enabled) => enabled.id === model.id),
+							) ?? remaining[0];
+						database
+							.prepare("UPDATE settings SET default_model_id=? WHERE id=1")
+							.run(replacement?.id ?? null);
+					}
+					database.exec("COMMIT");
+				} catch (error) {
+					database.exec("ROLLBACK");
+					throw error;
+				}
 				notifyChange();
-				json(response, 200, rankedSettings());
+				json(response, 200, modelSettings(database));
 			} catch {
 				json(response, 500, errorBody("modelSettingsFailed"));
 			}

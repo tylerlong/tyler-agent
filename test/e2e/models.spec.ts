@@ -86,14 +86,33 @@ test("settings save write-only credentials and manage cached model choices acros
 	await dialog
 		.getByRole("checkbox", { name: "Second second", exact: true })
 		.check();
-	await expect(peer.getByLabel("Default model")).toContainText("Second");
-	await dialog.getByLabel("Default model").selectOption("second");
-	await expect(peer.getByLabel("Default model")).toHaveValue("second");
+	await expect(
+		peer.getByRole("list", { name: "Enabled models" }),
+	).toContainText("Second");
 	await dialog
-		.getByRole("checkbox", { name: "Second second", exact: true })
-		.uncheck();
-	await expect(dialog.getByLabel("Default model")).toHaveValue("");
-	await expect(peer.getByLabel("Default model")).toHaveValue("");
+		.getByRole("list", { name: "Enabled models" })
+		.getByRole("listitem")
+		.filter({ hasText: "Second" })
+		.getByRole("button", { name: "Set default" })
+		.click();
+	await expect(
+		peer
+			.getByRole("list", { name: "Enabled models" })
+			.getByRole("listitem")
+			.filter({ hasText: "Second" }),
+	).toContainText("Default");
+	await dialog
+		.getByRole("list", { name: "Enabled models" })
+		.getByRole("listitem")
+		.filter({ hasText: "Second" })
+		.getByRole("button", { name: "Disable model" })
+		.click();
+	await expect(
+		dialog.getByRole("list", { name: "Enabled models" }),
+	).toContainText("Default");
+	await expect(
+		peer.getByRole("list", { name: "Enabled models" }),
+	).toContainText("Default");
 	await dialog
 		.getByRole("button", { name: "Remove API key", exact: true })
 		.click();
@@ -102,7 +121,9 @@ test("settings save write-only credentials and manage cached model choices acros
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(page.getByText("No API key configured.")).toBeVisible();
-	await expect(page.getByLabel("Default model")).toHaveValue("");
+	await expect(
+		page.getByRole("list", { name: "Enabled models" }),
+	).toContainText("Default");
 	await peer.close();
 });
 
@@ -234,9 +255,18 @@ test("initial catalog failure differs from an empty filter and existing models r
 		dialog.getByText("No matching models in the top 100."),
 	).toHaveCount(0);
 	await expect(
-		dialog.getByRole("button", { name: "Remove model Test", exact: true }),
+		dialog
+			.getByRole("list", { name: "Enabled models" })
+			.getByRole("listitem")
+			.filter({ hasText: "Test" })
+			.getByRole("button", { name: "Disable model", exact: true }),
 	).toBeVisible();
-	await expect(dialog.getByLabel("Default model")).toHaveValue("test");
+	await expect(
+		dialog
+			.getByRole("list", { name: "Enabled models" })
+			.getByRole("listitem")
+			.filter({ hasText: "Test" }),
+	).toContainText("Default");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await page.unroute("**/api/model-catalog");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -275,10 +305,15 @@ test("ranking changes preserve selected default and historical model outside top
 	await dialog
 		.getByRole("checkbox", { name: "Second second", exact: true })
 		.check();
-	await expect(dialog.getByLabel("Default model").locator("option")).toHaveText(
-		["No default model", "Second", "Test"],
-	);
-	await expect(dialog.getByLabel("Default model")).toHaveValue("test");
+	await expect(
+		dialog.getByRole("list", { name: "Enabled models" }).getByRole("listitem"),
+	).toHaveText(["TesttestDefault×", "SecondsecondSet default×"]);
+	await expect(
+		dialog
+			.getByRole("list", { name: "Enabled models" })
+			.getByRole("listitem")
+			.filter({ hasText: "Test" }),
+	).toContainText("Default");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	app.setCatalog(
 		Array.from({ length: 100 }, (_, i) => ({
@@ -289,10 +324,19 @@ test("ranking changes preserve selected default and historical model outside top
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(dialog.getByRole("checkbox")).toHaveCount(100);
 	await expect(
-		dialog.getByRole("button", { name: "Remove model Test", exact: true }),
+		dialog
+			.getByRole("list", { name: "Enabled models" })
+			.getByRole("listitem")
+			.filter({ hasText: "Test" })
+			.getByRole("button", { name: "Disable model", exact: true }),
 	).toBeVisible();
 	await expect(dialog.getByText(/Not found in latest catalog/)).toHaveCount(0);
-	await expect(dialog.getByLabel("Default model")).toHaveValue("test");
+	await expect(
+		dialog
+			.getByRole("list", { name: "Enabled models" })
+			.getByRole("listitem")
+			.filter({ hasText: "Test" }),
+	).toContainText("Default");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await page.reload();
 	await expect(
@@ -301,4 +345,81 @@ test("ranking changes preserve selected default and historical model outside top
 	await expect(
 		page.getByRole("combobox", { name: "Reasoning level", exact: true }),
 	).toHaveValue("high");
+});
+
+test("row removal failures preserve default and composer, successful removal replaces only the global default", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Rows", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Draft" },
+		})
+	).json();
+	await page.request.post(`${app.url}/api/models`, { data: { id: "second" } });
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const model = page.getByRole("combobox", { name: "Model", exact: true });
+	await page
+		.getByRole("combobox", { name: "Reasoning level", exact: true })
+		.selectOption("high");
+	await page.getByLabel("Prompt", { exact: true }).fill("Keep draft");
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	const rows = dialog
+		.getByRole("list", { name: "Enabled models" })
+		.getByRole("listitem");
+	const first = rows.filter({ hasText: "Test" });
+	const second = rows.filter({ hasText: "Second" });
+	await second
+		.getByRole("button", { name: "Set default", exact: true })
+		.click();
+	await expect(second).toContainText("Default");
+	await expect(model).toHaveValue("test");
+	await first.getByRole("button", { name: "Set default", exact: true }).click();
+	await expect(first).toContainText("Default");
+	await page.route("**/api/models/test", (route) =>
+		route.fulfill({ status: 500, json: {} }),
+	);
+	await first
+		.getByRole("button", { name: "Disable model", exact: true })
+		.click();
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"Unable to save model settings. Please retry.",
+	);
+	await expect(rows).toHaveCount(2);
+	await expect(first).toContainText("Default");
+	await expect(model).toHaveValue("test");
+	await expect(
+		page.getByRole("combobox", { name: "Reasoning level", exact: true }),
+	).toHaveValue("high");
+	await page.unroute("**/api/models/test");
+	await first
+		.getByRole("button", { name: "Disable model", exact: true })
+		.click();
+	await expect(rows).toHaveCount(1);
+	await expect(second).toContainText("Default");
+	await expect(model).toHaveValue("");
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(
+		page.getByRole("combobox", { name: "Reasoning level", exact: true }),
+	).toBeHidden();
+	await expect(
+		page.getByRole("button", { name: "Submit", exact: true }),
+	).toBeDisabled();
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
+		"Keep draft",
+	);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await second
+		.getByRole("button", { name: "Disable model", exact: true })
+		.click();
+	await expect(rows).toHaveCount(0);
+	await expect(
+		dialog.getByRole("button", { name: "Close", exact: true }),
+	).toBeDisabled();
 });

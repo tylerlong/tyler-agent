@@ -167,7 +167,9 @@ test("empty configuration uses sole mandatory Settings, then explicit composer s
 		.getByRole("checkbox", { name: "Second second", exact: true })
 		.check();
 	await expect(close).toBeEnabled();
-	await expect(settings.getByLabel("Default model")).toHaveValue("");
+	await expect(
+		settings.getByRole("list", { name: "Enabled models" }),
+	).not.toContainText("Default");
 	await close.click();
 	const model = page.getByRole("combobox", { name: "Model", exact: true });
 	await expect(model).toHaveValue("");

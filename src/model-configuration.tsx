@@ -167,26 +167,47 @@ export function ModelConfiguration({
 							</button>
 						</div>
 					</form>
-					<label className="mt-4 block">
-						{t("defaultModel")}
-						<select
-							className={input}
-							disabled={pending}
-							value={settings.defaultModelId ?? ""}
-							onChange={(event) =>
-								void mutate("/api/model-settings", "PUT", {
-									defaultModelId: event.target.value || null,
-								})
-							}
-						>
-							<option value="">{t("noDefaultModel")}</option>
-							{settings.models.map((model) => (
-								<option key={model.id} value={model.id}>
+					<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
+						{settings.models.map((model) => (
+							<li
+								key={model.id}
+								className="flex items-center justify-between gap-3"
+							>
+								<span className="min-w-0 flex-1 break-words">
 									{model.name}
-								</option>
-							))}
-						</select>
-					</label>
+									<small className="block text-neutral-600">{model.id}</small>
+								</span>
+								{settings.defaultModelId === model.id ? (
+									<span className="text-sm text-neutral-600">
+										{t("default")}
+									</span>
+								) : (
+									<button
+										type="button"
+										className={button}
+										disabled={pending}
+										onClick={() =>
+											void mutate("/api/model-settings", "PUT", {
+												defaultModelId: model.id,
+											})
+										}
+									>
+										{t("setDefault")}
+									</button>
+								)}
+								<button
+									type="button"
+									className={button}
+									disabled={pending}
+									aria-label={t("disableModel")}
+									title={t("disableModel")}
+									onClick={() => void changeMembership(model.id, false)}
+								>
+									×
+								</button>
+							</li>
+						))}
+					</ul>
 					<label className="mt-4 block">
 						{t("filterModels")}
 						<input
@@ -226,7 +247,7 @@ export function ModelConfiguration({
 															? membershipChange.enabled
 															: enabled
 													}
-													disabled={pending}
+													disabled={pending || enabled}
 													onChange={() =>
 														void changeMembership(model.id, !enabled)
 													}
@@ -241,46 +262,6 @@ export function ModelConfiguration({
 										</li>
 									);
 								})}
-							</ul>
-						</>
-					)}
-					{settings.models.some(
-						(model) => !catalog?.some((row) => row.id === model.id),
-					) && (
-						<>
-							<h4 className="mt-4 font-semibold">{t("otherEnabledModels")}</h4>
-							<ul className="mt-2 space-y-2">
-								{settings.models
-									.filter(
-										(model) => !catalog?.some((row) => row.id === model.id),
-									)
-									.map((model) => (
-										<li
-											key={model.id}
-											className="flex items-center justify-between gap-2"
-										>
-											<span className="min-w-0 break-words">
-												{model.name}
-												<small className="block text-neutral-600">
-													{model.id}
-												</small>
-											</span>
-											<button
-												type="button"
-												className={button}
-												disabled={pending}
-												aria-label={t("removeModel", { name: model.name })}
-												onClick={() =>
-													void mutate(
-														`/api/models/${encodeURIComponent(model.id)}`,
-														"DELETE",
-													)
-												}
-											>
-												{t("remove")}
-											</button>
-										</li>
-									))}
 							</ul>
 						</>
 					)}
