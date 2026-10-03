@@ -69,3 +69,10 @@
 .action-menu button:disabled {
 	color: var(--color-neutral-400);
 }
+
+.composer-input {
+	field-sizing: content;
+	min-height: calc(2lh + 16px);
+	max-height: calc(8lh + 16px);
+	overflow-y: auto;
+}

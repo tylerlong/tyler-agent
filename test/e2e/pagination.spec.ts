@@ -87,6 +87,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 	await expect(log).toContainText("First question");
 	await expect(page.getByRole("status")).toHaveCount(0);
 	app.disconnectClients();
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
@@ -147,6 +148,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 		})
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
@@ -234,6 +236,7 @@ test("an initially empty chat catches up every turn after more than one unseen p
 		})
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();

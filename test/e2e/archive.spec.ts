@@ -23,6 +23,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 	await page.goto(`${app.url}/?chat=${a.id}`);
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${a.id}`);
+	await other.getByLabel("Prompt").fill("other draft");
 	const archive = page.getByRole("group", { name: "Archived", exact: true });
 	await expect(archive).toHaveCount(0);
 	const hold = app.holdModel();
@@ -92,7 +93,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(other.getByRole("log")).toContainText("Test answer");
 		await expect(
 			other.getByRole("textbox", { name: "Prompt", exact: true }),
-		).toHaveValue("");
+		).toHaveValue("other draft");
 		await group
 			.getByRole("button", { name: "Project actions", exact: true })
 			.click();

@@ -300,6 +300,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	await expect(response.locator("pre").last()).toContainText(
 		'  "delta": " later"',
 	);
+	await page.getByLabel("Prompt").fill("next draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeDisabled();

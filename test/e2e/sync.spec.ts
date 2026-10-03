@@ -29,8 +29,8 @@ test("two pages share activity, busy and history while keeping selections, folds
 		p.getByRole("navigation", { name: "Projects and chats" });
 	const submit = (p: typeof page) =>
 		p.getByRole("button", { name: "Submit", exact: true });
-	await expect(submit(page)).toBeEnabled();
-	await expect(submit(other)).toBeEnabled();
+	await expect(submit(page)).toBeHidden();
+	await expect(submit(other)).toBeHidden();
 	await expect(nav(page).getByRole("heading").first()).toHaveText("Newer");
 	await page
 		.getByRole("button", { name: "Collapse Newer", exact: true })
@@ -54,7 +54,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 	).not.toBeVisible();
 	await expect(other.getByLabel("Prompt")).toHaveValue("other alpha draft");
 	await other.getByRole("button", { name: "Beta", exact: true }).click();
-	await expect(submit(other)).toBeEnabled();
+	await expect(submit(other)).toBeHidden();
 	const second = app.holdModel();
 	await other.getByLabel("Prompt").fill("beta question");
 	await submit(other).click();
@@ -73,6 +73,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 		).toHaveText("Beta (running)");
 	}
 	await page.getByLabel("Prompt").fill("later alpha draft");
+	await other.getByLabel("Prompt").fill("next beta draft");
 	second.release();
 	await expect(other.getByRole("log")).toContainText("beta question");
 	await expect(submit(other)).toBeEnabled();

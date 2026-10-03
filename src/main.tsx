@@ -459,7 +459,8 @@ function App() {
 			readOnly ||
 			chatState?.id !== id ||
 			chatState.busy ||
-			submitting.has(id)
+			submitting.has(id) ||
+			!(drafts[id] ?? "").trim()
 		)
 			return;
 		readingPositions.current[id] = { top: 0, bottom: true };
@@ -1209,11 +1210,12 @@ function App() {
 				{project && chat && (
 					<div className="shrink-0 border-t border-neutral-200 px-6 py-4">
 						<form className="mx-auto max-w-2xl" onSubmit={submit}>
-							<label className="block">
-								{t("prompt")}
+							<div className="rounded-2xl border border-neutral-300 bg-white p-3 focus-within:border-neutral-500">
 								<textarea
-									className={control}
-									rows={4}
+									className="composer-input block w-full resize-none bg-transparent px-1 py-2 text-neutral-950 focus-visible:outline-2 focus-visible:outline-blue-600"
+									aria-label={t("prompt")}
+									placeholder={t("prompt")}
+									rows={2}
 									readOnly={readOnly}
 									value={drafts[chat.id] ?? ""}
 									onChange={(event) => {
@@ -1226,19 +1228,25 @@ function App() {
 									}}
 									required
 								/>
-							</label>
-							<button
-								type="submit"
-								className={`${button} mt-4`}
-								disabled={
-									readOnly ||
-									chatState?.id !== chat.id ||
-									chatState.busy ||
-									submitting.has(chat.id)
-								}
-							>
-								{t("submit")}
-							</button>
+								<div className="flex min-h-9 items-center justify-end gap-2 pt-2">
+									<button
+										type="submit"
+										aria-label={t("submit")}
+										hidden={!(drafts[chat.id] ?? "").trim()}
+										className="h-9 w-9 shrink-0 rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+										disabled={
+											readOnly ||
+											chatState?.id !== chat.id ||
+											chatState.busy ||
+											submitting.has(chat.id)
+										}
+									>
+										<span aria-hidden="true" className="text-2xl leading-none">
+											↑
+										</span>
+									</button>
+								</div>
+							</div>
 							{chatErrors[chat.id] && (
 								<p
 									role="alert"

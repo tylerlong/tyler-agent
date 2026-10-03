@@ -24,6 +24,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 		};
 	`);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
@@ -79,6 +80,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 	await submitted;
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 	await expect(page.getByRole("log")).toContainText("Test answer");
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
@@ -94,6 +96,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 			),
 	);
 	await expect(page.getByRole("log")).toContainText("Test answer");
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();

@@ -183,6 +183,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	} finally {
 		ownGate.release();
 	}
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
@@ -219,6 +220,7 @@ test("returning to a previously non-scrollable chat keeps its original position"
 	});
 	await page.goto(`${app.url}/?chat=${alpha.id}`);
 	const content = page.getByRole("region", { name: "Chat", exact: true });
+	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();

@@ -18,10 +18,12 @@ test("two pages show saved answer increments before completion using targeted tu
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${chat.id}`);
-	for (const browserPage of [page, other])
+	for (const browserPage of [page, other]) {
+		await browserPage.getByLabel("Prompt").fill("next local draft");
 		await expect(
 			browserPage.getByRole("button", { name: "Submit", exact: true }),
 		).toBeEnabled();
+	}
 	const stream = app.streamModel();
 	await page.getByLabel("Prompt").fill("stream question");
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
@@ -37,6 +39,7 @@ test("two pages show saved answer increments before completion using targeted tu
 	other.on("request", (request) => {
 		if (request.method() === "GET") reads.push(new URL(request.url()).pathname);
 	});
+	await page.getByLabel("Prompt").fill("edited next draft");
 	stream.release();
 	for (const browserPage of [page, other]) {
 		await expect(browserPage.getByRole("log")).toContainText("Test answer");
@@ -138,6 +141,7 @@ test("restart retains partial answers and labels them incomplete", async ({
 		})
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await page.getByLabel("Prompt").fill("draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
@@ -151,8 +155,10 @@ test("restart retains partial answers and labels them incomplete", async ({
 	await expect(page.getByRole("log")).toContainText("Test ");
 	await app.restart();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await page.getByLabel("Prompt").fill("draft");
 	await expect(page.getByRole("log")).toContainText("Test ");
 	await expect(page.getByRole("log")).toContainText("Incomplete answer.");
+	await page.getByLabel("Prompt").fill("new draft");
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
