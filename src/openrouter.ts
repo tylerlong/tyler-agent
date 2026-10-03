@@ -258,18 +258,12 @@ export async function requestModel(
 			body,
 		});
 		save("pending");
-		if (!upstream.ok) {
-			raw = await upstream.text();
-			throw new ModelError(
-				"modelRequestFailed",
-				"OpenRouter request failed",
-				`HTTP ${upstream.status}`,
-			);
-		}
 		if (!upstream.body)
 			throw new ModelError(
-				"modelInvalidResponse",
-				"OpenRouter returned an invalid response",
+				upstream.ok ? "modelInvalidResponse" : "modelRequestFailed",
+				upstream.ok
+					? "OpenRouter returned an invalid response"
+					: "OpenRouter request failed",
 			);
 		const reader = upstream.body.getReader();
 		const decoder = new TextDecoder();
@@ -279,7 +273,7 @@ export async function requestModel(
 				const { done, value } = await reader.read();
 				const text = decoder.decode(value, { stream: !done });
 				raw += text;
-				frames += text;
+				if (upstream.ok) frames += text;
 				let boundary = /\r?\n\r?\n/.exec(frames);
 				while (boundary) {
 					event(frames.slice(0, boundary.index));
@@ -293,6 +287,12 @@ export async function requestModel(
 			await reader.cancel().catch(() => {});
 			reader.releaseLock();
 		}
+		if (!upstream.ok)
+			throw new ModelError(
+				"modelRequestFailed",
+				"OpenRouter request failed",
+				`HTTP ${upstream.status}`,
+			);
 		if (!completed || terminalFailure)
 			throw new ModelError(
 				"modelInvalidResponse",

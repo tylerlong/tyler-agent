@@ -47,6 +47,24 @@ test("two pages show saved answer increments before completion using targeted tu
 	expect(reads.some((path) => /^\/api\/turns\/\d+$/.test(path))).toBe(true);
 	expect(reads).not.toContain("/api/projects");
 	expect(reads).not.toContain(`/api/chats/${chat.id}`);
+	const closingStream = app.streamModel();
+	await page.getByLabel("Prompt").fill("continue after closing this page");
+	await page.getByRole("button", { name: "Submit", exact: true }).click();
+	await closingStream.entered;
+	await expect(other.getByRole("log")).toContainText(
+		"continue after closing this page",
+	);
+	await expect(
+		other.getByRole("button", { name: "Submit", exact: true }),
+	).toBeDisabled();
+	await page.close();
+	closingStream.release();
+	await expect(
+		other.getByRole("log").getByText("Test answer", { exact: true }),
+	).toHaveCount(2);
+	await expect(
+		other.getByRole("button", { name: "Submit", exact: true }),
+	).toBeEnabled();
 });
 
 test("a live turn arriving before initial history preserves load-earlier pagination", async ({

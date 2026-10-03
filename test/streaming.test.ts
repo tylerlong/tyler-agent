@@ -368,54 +368,66 @@ test("split credentials are redacted before storage; later failed writes retain 
 	}
 });
 
-test("a read error retains previously saved answer and raw SSE without retrying", {
-	timeout: 10000,
-}, async () => {
-	let stream!: ReadableStreamDefaultController<Uint8Array>;
-	let requests = 0;
-	const f = await fixture(async () => {
-		requests++;
-		return new Response(
-			new ReadableStream({
-				start(controller) {
-					stream = controller;
-				},
-			}),
-		);
-	});
-	try {
-		const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "question" });
-		while (!stream) await new Promise((resolve) => setImmediate(resolve));
-		const raw = delta("saved answer");
-		stream.enqueue(new TextEncoder().encode(raw));
-		let saved = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
-		while (saved.output[0]?.content[0]?.text !== "saved answer") {
-			await new Promise((resolve) => setImmediate(resolve));
-			saved = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+for (const httpStatus of [200, 503])
+	test(`a ${httpStatus} read error retains saved content and raw communication without retrying`, {
+		timeout: 10000,
+	}, async () => {
+		let stream!: ReadableStreamDefaultController<Uint8Array>;
+		let requests = 0;
+		const f = await fixture(async () => {
+			requests++;
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						stream = controller;
+					},
+				}),
+				{ status: httpStatus },
+			);
+		});
+		try {
+			const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "question" });
+			while (!stream) await new Promise((resolve) => setImmediate(resolve));
+			const raw =
+				httpStatus === 200
+					? delta("saved answer")
+					: "partial stream-secret body";
+			stream.enqueue(new TextEncoder().encode(raw));
+			let saved = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			while (
+				(await f.get(`/api/turns/${saved.id}/calls`)).calls[0].responseBody !==
+				raw.replaceAll("stream-secret", "[REDACTED]")
+			) {
+				await new Promise((resolve) => setImmediate(resolve));
+				saved = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			}
+			stream.error(new Error("private upstream body stream-secret"));
+			const response = await pending;
+			assert.equal(response.status, 502);
+			assert.doesNotMatch(
+				JSON.stringify(await response.json()),
+				/private upstream body|stream-secret/,
+			);
+			const history = await f.get(`/api/chats/${f.chat.id}`);
+			assert.equal(history.busy, false);
+			assert.equal(history.turns.at(-1).status, "failed");
+			assert.equal(
+				history.turns.at(-1).output[0]?.content[0]?.text,
+				httpStatus === 200 ? "saved answer" : undefined,
+			);
+			const call = (await f.get(`/api/turns/${saved.id}/calls`)).calls[0];
+			assert.equal(
+				call.responseBody,
+				raw.replaceAll("stream-secret", "[REDACTED]"),
+			);
+			assert.equal(call.httpStatus, httpStatus);
+			assert.equal(call.status, "failed");
+			assert.doesNotMatch(call.error, /stream-secret/);
+			assert.equal(requests, 1);
+		} finally {
+			await f.close();
 		}
-		stream.error(new Error("private upstream body stream-secret"));
-		const response = await pending;
-		assert.equal(response.status, 502);
-		assert.doesNotMatch(
-			JSON.stringify(await response.json()),
-			/private upstream body|stream-secret/,
-		);
-		const history = await f.get(`/api/chats/${f.chat.id}`);
-		assert.equal(history.busy, false);
-		assert.equal(history.turns.at(-1).status, "failed");
-		assert.equal(
-			history.turns.at(-1).output[0].content[0].text,
-			"saved answer",
-		);
-		const call = (await f.get(`/api/turns/${saved.id}/calls`)).calls[0];
-		assert.equal(call.responseBody, raw);
-		assert.equal(call.status, "failed");
-		assert.doesNotMatch(call.error, /stream-secret/);
-		assert.equal(requests, 1);
-	} finally {
-		await f.close();
-	}
-});
+	});
 
 test("thinking summaries stay lazy while ordered parent-typed body and summaries persist live and after failure", async () => {
 	let stream!: ReadableStreamDefaultController<Uint8Array>;
