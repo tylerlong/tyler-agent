@@ -136,6 +136,38 @@ test("default updates preserve initialized choices and removal waits until Setti
 	await expect(model).toHaveValue("second");
 });
 
+test("empty setup explains how to add a model and enables selection after adding", async ({
+	page,
+	app,
+}) => {
+	const { first } = await chats(page.request, app.url);
+	await page.request.delete(`${app.url}/api/models/test`);
+	await page.request.delete(`${app.url}/api/models/second`);
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	const setup = page.getByRole("dialog", {
+		name: "Complete setup",
+		exact: true,
+	});
+	const model = setup.getByLabel("Model", { exact: true });
+	await expect(model).toBeDisabled();
+	await expect(
+		setup.getByText(
+			'No models configured. Use "Search models" below, then "Add" a model to make it available here.',
+		),
+	).toBeVisible();
+	await setup
+		.getByRole("button", { name: "Search models", exact: true })
+		.click();
+	await setup
+		.getByRole("button", { name: "Add model Second", exact: true })
+		.click();
+	await expect(model).toBeEnabled();
+	await expect(model).toContainText("Second");
+	await model.selectOption("second");
+	await expect(setup).toBeHidden();
+	await expect(page.getByLabel("Model", { exact: true })).toHaveValue("second");
+});
+
 test("required setup retains failed credential input, retries and never returns saved key", async ({
 	page,
 	app,

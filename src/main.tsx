@@ -1664,7 +1664,11 @@ function App() {
 							{t("completeSetup")}
 						</h2>
 						<p className="mt-2 text-sm text-neutral-600">
-							{t("setupRequired")}
+							{t(
+								modelSettings && modelSettings.models.length === 0
+									? "setupAddModel"
+									: "setupRequired",
+							)}
 						</p>
 						{options && (
 							<div className="mt-4 flex flex-wrap gap-2">

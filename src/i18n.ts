@@ -45,6 +45,9 @@ export const resources = {
 				"Chat is archived and read-only. Restore the chat to continue.",
 			model: "Model",
 			chooseModel: "Choose a model",
+			noConfiguredModels: "No configured models",
+			setupAddModel:
+				'No models configured. Use "Search models" below, then "Add" a model to make it available here.',
 			reasoningLevel: "Reasoning level",
 			modelDefault: "Model default",
 			invalidModel: "Choose a configured model.",
@@ -186,6 +189,9 @@ export const resources = {
 			chatArchivedReadOnly: "对话已归档，只读。恢复对话后可继续使用。",
 			model: "模型",
 			chooseModel: "选择模型",
+			noConfiguredModels: "尚未配置模型",
+			setupAddModel:
+				"尚未配置模型。请使用下方的“搜索模型”，然后“添加”模型，即可在此选择。",
 			reasoningLevel: "思考强度",
 			modelDefault: "模型默认",
 			invalidModel: "请选择已配置的模型。",

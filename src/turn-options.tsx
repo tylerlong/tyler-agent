@@ -42,7 +42,7 @@ export function TurnOptionPicker({
 				aria-label={t("model")}
 				className={control}
 				value={options.modelId ?? ""}
-				disabled={disabled}
+				disabled={disabled || models.length === 0}
 				onChange={(event) => {
 					const modelId = event.target.value || null;
 					const compatible = reasoningEfforts(
@@ -58,7 +58,9 @@ export function TurnOptionPicker({
 					});
 				}}
 			>
-				<option value="">{t("chooseModel")}</option>
+				<option value="">
+					{t(models.length === 0 ? "noConfiguredModels" : "chooseModel")}
+				</option>
 				{models.map((model) => (
 					<option key={model.id} value={model.id}>
 						{model.name}
