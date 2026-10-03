@@ -129,6 +129,17 @@ function saveSidebarWidth(width: number) {
 
 function App() {
 	const { t } = useTranslation();
+	const [undersized, setUndersized] = useState(
+		() => window.innerWidth < 1280 || window.innerHeight < 720,
+	);
+	const viewportNotice = useRef<HTMLDialogElement>(null);
+	const viewportFocus = useRef<HTMLElement | null>(null);
+	useEffect(() => {
+		const resize = () =>
+			setUndersized(window.innerWidth < 1280 || window.innerHeight < 720);
+		window.addEventListener("resize", resize);
+		return () => window.removeEventListener("resize", resize);
+	}, []);
 	const errorText = (error: ApiError | null) =>
 		error === null
 			? ""
@@ -1015,7 +1026,7 @@ function App() {
 	useEffect(() => {
 		void dialogChange;
 		const otherOpen = [dialog, folderDialog].some((ref) => ref.current?.open);
-		if (missingSetup && !otherOpen) openSettings();
+		if (missingSetup && !otherOpen && !undersized) openSettings();
 	});
 	const changeTurnOptions = (value: TurnOptions) => {
 		selectionVersion.current++;
@@ -1034,6 +1045,41 @@ function App() {
 			(editing?.kind === "chat" &&
 				modalProject?.chats.find((chat) => chat.id === editing.id)?.archived),
 	);
+	useLayoutEffect(() => {
+		const notice = viewportNotice.current;
+		if (!notice) return;
+		if (undersized && !notice.open) {
+			viewportFocus.current = document.activeElement as HTMLElement | null;
+			notice.showModal();
+		} else if (!undersized && notice.open) {
+			notice.close();
+			viewportFocus.current?.focus({ preventScroll: true });
+		}
+	});
+	const notice = (
+		<dialog
+			ref={viewportNotice}
+			closedby="none"
+			onCancel={(event) => event.preventDefault()}
+			aria-labelledby="viewport-title"
+			aria-describedby="viewport-description"
+			onKeyDown={(event) => {
+				if (event.key === "Tab") {
+					event.preventDefault();
+					event.currentTarget.focus();
+				}
+			}}
+			tabIndex={-1}
+			className="m-auto max-w-lg rounded-lg border border-neutral-300 p-6 text-neutral-700 backdrop:bg-white"
+		>
+			<h2 id="viewport-title" className="text-lg font-semibold">
+				{t("enlargeWindow")}
+			</h2>
+			<p id="viewport-description" className="mt-3">
+				{t("minimumViewport")}
+			</p>
+		</dialog>
+	);
 	if (!languageReady)
 		return (
 			<main className="p-6">
@@ -1051,10 +1097,11 @@ function App() {
 				) : (
 					<p role="status">{t("loading")}</p>
 				)}
+				{notice}
 			</main>
 		);
 	return (
-		<main className="flex h-dvh overflow-hidden text-neutral-700">
+		<main className="flex h-dvh min-h-[720px] min-w-[1280px] overflow-hidden text-neutral-700">
 			<aside
 				id="projects-panel"
 				aria-label={t("projects")}
@@ -1805,6 +1852,7 @@ function App() {
 					</button>
 				</footer>
 			</dialog>
+			{notice}
 		</main>
 	);
 }

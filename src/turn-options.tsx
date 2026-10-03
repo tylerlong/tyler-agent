@@ -68,28 +68,34 @@ export function TurnOptionPicker({
 				))}
 			</select>
 			{(efforts.length > 0 || invalid) && (
-				<select
-					aria-label={t("reasoningLevel")}
-					aria-invalid={invalid}
-					className={control}
-					value={options.reasoningEffort ?? ""}
-					disabled={disabled}
-					onChange={(event) =>
-						change({ ...options, reasoningEffort: event.target.value || null })
-					}
-				>
-					<option value="">{t("modelDefault")}</option>
-					{invalid && (
-						<option value={options.reasoningEffort ?? ""} disabled>
-							{t("unsupportedReasoning", { effort: options.reasoningEffort })}
-						</option>
-					)}
-					{efforts.map((effort) => (
-						<option key={effort} value={effort}>
-							{effort}
-						</option>
-					))}
-				</select>
+				<label className="flex min-w-0 max-w-full items-center gap-1">
+					<span>{t("reasoningLabel")}</span>
+					<select
+						aria-label={t("reasoningLevel")}
+						aria-invalid={invalid}
+						className={control}
+						value={options.reasoningEffort ?? ""}
+						disabled={disabled}
+						onChange={(event) =>
+							change({
+								...options,
+								reasoningEffort: event.target.value || null,
+							})
+						}
+					>
+						<option value="">{t("reasoningDefault")}</option>
+						{invalid && (
+							<option value={options.reasoningEffort ?? ""} disabled>
+								{t("unsupportedReasoning", { effort: options.reasoningEffort })}
+							</option>
+						)}
+						{efforts.map((effort) => (
+							<option key={effort} value={effort}>
+								{effort}
+							</option>
+						))}
+					</select>
+				</label>
 			)}
 		</>
 	);

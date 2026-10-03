@@ -16,7 +16,7 @@ test("large failed responses stay folded and keep the composer visible until req
 	).json();
 	const raw = JSON.stringify({ error: "private diagnostic\n".repeat(1000) });
 	app.failModel("http", raw);
-	await page.setViewportSize({ width: 900, height: 600 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	let reads = 0;
 	page.on("request", (request) => {

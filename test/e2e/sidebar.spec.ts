@@ -40,7 +40,7 @@ test("long chat and project lists scroll independently with sidebar header and f
 		data: { modelId: "test", prompt: "Long question. ".repeat(400) },
 	});
 	expect(answer.ok()).toBe(true);
-	await page.setViewportSize({ width: 900, height: 600 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${first}`);
 	const heading = page.getByRole("heading", {
 		name: "Tyler Agent",
@@ -77,8 +77,8 @@ test("long chat and project lists scroll independently with sidebar header and f
 	).toEqual(positions);
 	expect(await content.evaluate((el) => el.scrollTop)).toBe(rightScroll);
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);
-	await page.setViewportSize({ width: 480, height: 400 });
-	await expect(sidebar(page)).toHaveCSS("height", "400px");
+	await page.setViewportSize({ width: 1280, height: 720 });
+	await expect(sidebar(page)).toHaveCSS("height", "720px");
 	await expect(heading).toBeInViewport();
 	await expect(create).toBeInViewport();
 	await expect(settings).toBeInViewport();
@@ -120,7 +120,7 @@ test("drag saves once after release; fixed limits, double click and server resta
 	await expect(sidebar(page)).toHaveCSS("width", "240px");
 	await drag(page, 1000);
 	await expect(sidebar(page)).toHaveCSS("width", "600px");
-	await page.setViewportSize({ width: 800, height: 720 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await expect(sidebar(page)).toHaveCSS("width", "600px");
 	await expect(divider(page)).not.toHaveAttribute("tabindex", "0");
 	saved.length = 0;

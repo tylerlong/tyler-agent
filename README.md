@@ -53,11 +53,21 @@ project 可以有零个或多个文件夹，无需选择目录即可创建。添
 
 新数据库自动建立数据表，不生成默认项目或对话。用户配置使用单行 `settings` 表，保存 `sidebar_width`、`language`、密钥及默认模型；默认宽度 320px、界面语言英文，修改任一项不覆盖另一项。项目、文件夹、chat、历史、活动时间和归档状态重启保留。仅升级已知 v8 schema；未知或不支持的数据库报错且不重置。没有删除功能。
 
+## 桌面视口与思考强度
+
+支持的浏览器内容视口为宽 ≥1280 且高 ≥720 CSS 像素（包含边界），不是屏幕物理分辨率。任一尺寸不足会显示扩大窗口提示，阻止被遮挡的页面及弹窗交互；扩大后自动恢复选中的对话、草稿、提问选项、弹窗和阅读位置，已接受请求及同步继续。窗口尺寸不保存为偏好，也不修改面板宽度。此版本使用固定左右桌面布局，不提供移动端布局。
+
+输入区在原生强度选择框旁持续显示“思考”，默认项显示“默认”：不指定强度，使用模型或提供方行为，区别于显式 none 和全局默认模型。支持的级别、无效历史保护和进行中编辑下次草稿的行为不变。控件可换行，发送按钮保留在输入区右下方。
+
+The desktop workspace supports browser content viewports at least 1280×720 CSS pixels, including that exact boundary. If either dimension is smaller, an enlarge-window notice blocks obscured interactions. Enlarging restores the selected Chat, drafts, local Turn Options, dialogs and reading position; accepted work and synchronization continue. Resizing never saves a viewport or sidebar preference. The sidebar stays beside Chat, with its existing 320px default and 240–600px drag range.
+
+The composer visibly labels its native level selector **Reasoning**, with **Default** meaning omitted strength and provider/model behavior. It differs from explicit none and the global Default Model. Supported levels, invalid-history protection and editing future drafts while a request runs remain unchanged. Controls can wrap while Send stays at the lower right.
+
 ## 左侧面板宽度
 
 页面固定为窗口高度，左右内容独立滚动。左侧顶部标题和 New project、底部 Settings 始终可见，中间项目、对话与 Archived 列表独立滚动；右侧长聊天内容仅在右侧区域滚动。
 
-用鼠标或触控板拖动左侧面板右边的分隔线，两个区域实时调整；双击恢复默认宽度。默认 320px，最小 240px，最大 600px，范围不随窗口大小变化；窄窗口可由用户扩大窗口。边界始终为 1px 灰线，hover 和拖动稍微加深，8px 透明区域用于抓取。
+用鼠标或触控板拖动左侧面板右边的分隔线，两个区域实时调整；双击恢复默认宽度。默认 320px，最小 240px，最大 600px，范围不随窗口大小变化。边界始终为 1px 灰线，hover 和拖动稍微加深，8px 透明区域用于抓取。
 
 拖动开始后移出边界仍可调整，松手、窗口失焦或异常中断时保留当前宽度并结束；拖动期间不选择文字，结束恢复正常操作。结束时仅保存改变后的宽度一次，双击保存默认值，不在移动过程中发送请求。
 

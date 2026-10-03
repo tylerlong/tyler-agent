@@ -33,7 +33,7 @@ test("composer stays visible while reading, paging and returning to a chat prese
 				prompt: `Question ${i}.\n${"long line\n".repeat(8)}`,
 			},
 		});
-	await page.setViewportSize({ width: 900, height: 600 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${alpha.id}`);
 	const content = page.getByRole("region", { name: "Chat", exact: true });
 	const prompt = page.getByLabel("Prompt");
@@ -126,7 +126,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 				prompt: `Question ${i}.\n${"long line\n".repeat(8)}`,
 			},
 		});
-	await page.setViewportSize({ width: 900, height: 600 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${chat.id}`);
@@ -199,7 +199,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	await expect
 		.poll(async () => (await scrollState(content)).bottom)
 		.toBeLessThan(2);
-	await page.setViewportSize({ width: 480, height: 400 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await expect(page.getByLabel("Prompt")).toBeInViewport();
 	await expect(
 		page.getByRole("button", { name: "Submit", exact: true }),
@@ -260,7 +260,7 @@ test("growth and folding above an answer in the same turn preserve its reading a
 			data: { name: "Stream" },
 		})
 	).json();
-	await page.setViewportSize({ width: 900, height: 600 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {

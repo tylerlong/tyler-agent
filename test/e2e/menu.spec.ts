@@ -90,7 +90,7 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	await page.request.post(`${app.url}/api/projects/${p.id}/chats`, {
 		data: { name: "First" },
 	});
-	await page.setViewportSize({ width: 800, height: 600 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(app.url);
 	const project = page.getByRole("region", {
 		name: "Project Work",
@@ -141,18 +141,25 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	expect(bounds.y - anchor.y - anchor.height).toBeGreaterThanOrEqual(0);
 	expect(bounds.y - anchor.y - anchor.height).toBeLessThan(10);
 	await page.screenshot({ path: "/tmp/tyler-agent-46-menu.png" });
-	// Put a real trigger near the bottom using an Archived project.
+	// Put a real trigger near the bottom using a long Archived project list.
+	for (let i = 0; i < 30; i++)
+		await page.request.post(`${app.url}/api/projects/${p.id}/chats`, {
+			data: { name: `More ${i}` },
+		});
 	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
 	await page.request.put(`${app.url}/api/projects/${p.id}/archive`, {
 		data: { archived: true },
 	});
 	await page.getByText("Archived", { exact: true }).click();
-	await page.setViewportSize({ width: 800, height: 280 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	const archived = page.getByRole("group", { name: "Archived", exact: true });
 	const bottomTrigger = archived.getByRole("button", {
 		name: "Chat First actions",
 		exact: true,
 	});
+	await bottomTrigger.evaluate((element) =>
+		element.scrollIntoView({ block: "end" }),
+	);
 	await bottomTrigger.click();
 	const disabled = archived.getByRole("button", {
 		name: "Edit chat",
@@ -168,7 +175,7 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	expect(menu.y + menu.height).toBeLessThanOrEqual(bottom.y);
 	expect(menu.y).toBeGreaterThanOrEqual(0);
 	expect(menu.x).toBeGreaterThanOrEqual(0);
-	expect(menu.x + menu.width).toBeLessThanOrEqual(800);
+	expect(menu.x + menu.width).toBeLessThanOrEqual(1280);
 	await page.screenshot({ path: "/tmp/tyler-agent-46-archived-menu.png" });
 	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
 	await archived

@@ -63,7 +63,7 @@ test("compact composer grows and shrinks with drafts, bounds scrolling and guard
 	await expect(prompt).toHaveValue("Long draft line\n".repeat(30));
 	expect((await prompt.boundingBox())?.height).toBe(bounded);
 	await page.screenshot({ path: "/tmp/tyler-agent-66-composer.png" });
-	await page.setViewportSize({ width: 480, height: 400 });
+	await page.setViewportSize({ width: 1280, height: 720 });
 	await expect(prompt).toBeInViewport();
 	await expect(send).toBeInViewport();
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);

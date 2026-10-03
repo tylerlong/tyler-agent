@@ -56,6 +56,11 @@ export const resources = {
 			chooseModel: "Choose a model",
 			noConfiguredModels: "No configured models",
 			reasoningLevel: "Reasoning level",
+			reasoningLabel: "Reasoning",
+			reasoningDefault: "Default",
+			enlargeWindow: "Enlarge your window",
+			minimumViewport:
+				"This desktop workspace needs a browser viewport of at least 1280×720 CSS pixels. Enlarge your window to resume; your drafts and running work are preserved.",
 			modelDefault: "Model default",
 			invalidModel: "Choose a configured model.",
 			invalidReasoning: "Choose a supported reasoning level.",
@@ -232,6 +237,11 @@ export const resources = {
 			chooseModel: "选择模型",
 			noConfiguredModels: "尚未配置模型",
 			reasoningLevel: "思考强度",
+			reasoningLabel: "思考",
+			reasoningDefault: "默认",
+			enlargeWindow: "请扩大窗口",
+			minimumViewport:
+				"此桌面工作区需要至少 1280×720 CSS 像素的浏览器内容视口。扩大窗口即可继续；草稿和进行中的操作会保留。",
 			modelDefault: "模型默认",
 			invalidModel: "请选择已配置的模型。",
 			invalidReasoning: "请选择支持的思考强度。",

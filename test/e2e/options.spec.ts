@@ -90,7 +90,7 @@ test("model and effort choices stay local while busy and restore submitted histo
 	await page.screenshot({ path: "/tmp/tyler-agent-67-composer.png" });
 	await model.selectOption("second");
 	await model.selectOption("test");
-	await expect(effort.locator("option:checked")).toHaveText("Model default");
+	await expect(effort.locator("option:checked")).toHaveText("Default");
 	app.failModel();
 	await effort.selectOption("low");
 	await page.getByLabel("Prompt", { exact: true }).fill("Fail this call");
@@ -431,16 +431,19 @@ test("restored unsupported effort requires correction and model capabilities con
 	await expect(model).toHaveValue("test");
 	await expect(effort).toHaveValue("high");
 	await expect(effort).toHaveAttribute("aria-invalid", "true");
-	await expect(effort.locator("option:checked")).toBeDisabled();
+	await expect(effort.locator("option:checked")).toHaveJSProperty(
+		"disabled",
+		true,
+	);
 	await page.getByLabel("Prompt", { exact: true }).fill("Correct this effort");
 	const send = page.getByRole("button", { name: "Submit", exact: true });
 	await expect(send).toBeDisabled();
 	await effort.selectOption("");
 	await expect(send).toBeEnabled();
-	await expect(effort.locator("option")).toHaveText(["Model default", "low"]);
+	await expect(effort.locator("option")).toHaveText(["Default", "low"]);
 	await model.selectOption("gateway");
 	await expect(effort.locator("option")).toHaveText([
-		"Model default",
+		"Default",
 		"minimal",
 		"low",
 		"medium",
