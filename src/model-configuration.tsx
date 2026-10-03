@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ManagedModel, ModelSettings } from "./database.ts";
 
@@ -11,6 +11,7 @@ export function ModelConfiguration({
 	settings,
 	readFailed,
 	refresh,
+	open,
 }: {
 	open: boolean;
 	settings: ModelSettings | null;
@@ -22,6 +23,10 @@ export function ModelConfiguration({
 	const [query, setQuery] = useState("");
 	const [catalog, setCatalog] = useState<ManagedModel[] | null>(null);
 	const [pending, setPending] = useState(false);
+	const [membershipChange, setMembershipChange] = useState<{
+		id: string;
+		enabled: boolean;
+	} | null>(null);
 	const [error, setError] = useState("");
 	const [catalogError, setCatalogError] = useState(false);
 	async function request(path: string, method: string, body?: unknown) {
@@ -55,19 +60,41 @@ export function ModelConfiguration({
 			setPending(false);
 		}
 	}
-	async function loadCatalog(force = false) {
-		setPending(true);
-		setCatalogError(false);
-		try {
-			const data = await request("/api/model-catalog", force ? "POST" : "GET");
-			setCatalog(data.models);
-			if (force) await refresh();
-		} catch {
-			setCatalogError(true);
-		} finally {
-			setPending(false);
-		}
+	async function changeMembership(id: string, enabled: boolean) {
+		setMembershipChange({ id, enabled });
+		await (enabled
+			? mutate("/api/models", "POST", { id })
+			: mutate(`/api/models/${encodeURIComponent(id)}`, "DELETE"));
+		setMembershipChange(null);
 	}
+	const [catalogLoading, setCatalogLoading] = useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only modal openings refresh discovery
+	useEffect(() => {
+		if (!open) return;
+		let current = true;
+		setCatalogLoading(true);
+		setCatalogError(false);
+		void fetch("/api/model-catalog", { method: "POST" })
+			.then(async (response) => {
+				if (!response.ok) throw new Error("catalogReadFailed");
+				const data = await response.json();
+				if (current) setCatalog(data.models);
+				await refresh();
+			})
+			.catch(() => {
+				if (current) setCatalogError(true);
+			})
+			.finally(() => {
+				if (current) setCatalogLoading(false);
+			});
+		return () => {
+			current = false;
+		};
+		// Only closed-to-open transitions refresh discovery, not configuration saves.
+	}, [open]);
+	const matches = catalog?.filter((model) =>
+		`${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase()),
+	);
 	return (
 		<section
 			className="mt-6 border-t border-neutral-200 pt-4"
@@ -160,40 +187,8 @@ export function ModelConfiguration({
 							))}
 						</select>
 					</label>
-					<ul className="mt-3 space-y-2">
-						{settings.models.map((model) => (
-							<li
-								key={model.id}
-								className="flex items-center justify-between gap-2"
-							>
-								<span className="min-w-0 break-words">
-									{model.name}
-									<small className="block text-neutral-600">{model.id}</small>
-									{model.catalogMissing && (
-										<small className="block text-amber-700">
-											{t("catalogMissing")}
-										</small>
-									)}
-								</span>
-								<button
-									type="button"
-									className={button}
-									disabled={pending}
-									aria-label={t("removeModel", { name: model.name })}
-									onClick={() =>
-										void mutate(
-											`/api/models/${encodeURIComponent(model.id)}`,
-											"DELETE",
-										)
-									}
-								>
-									{t("remove")}
-								</button>
-							</li>
-						))}
-					</ul>
 					<label className="mt-4 block">
-						{t("searchModels")}
+						{t("filterModels")}
 						<input
 							type="search"
 							className={input}
@@ -201,72 +196,93 @@ export function ModelConfiguration({
 							onChange={(event) => setQuery(event.target.value)}
 						/>
 					</label>
-					<div className="mt-2 flex gap-2">
-						<button
-							type="button"
-							className={button}
-							disabled={pending}
-							onClick={() => void loadCatalog()}
-						>
-							{t("searchModels")}
-						</button>
-						<button
-							type="button"
-							className={button}
-							disabled={pending}
-							onClick={() => void loadCatalog(true)}
-						>
-							{t("refreshCatalog")}
-						</button>
-					</div>
+					<p className="mt-2 text-sm text-neutral-600">
+						{t("popularModelsScope")}
+					</p>
+					{catalogLoading && <p role="status">{t("loading")}</p>}
 					{catalogError && (
-						<div role="alert" className="mt-2 text-red-700">
-							{t("catalogReadFailed")}{" "}
-							<button
-								type="button"
-								className={button}
-								disabled={pending}
-								onClick={() => void loadCatalog(true)}
-							>
-								{t("retry")}
-							</button>
-						</div>
+						<p role="alert" className="mt-2 text-red-700">
+							{t("catalogReadFailed")}
+						</p>
 					)}
 					{catalog && (
-						<ul className="mt-3 max-h-48 space-y-2 overflow-y-auto">
-							{catalog
-								.filter(
-									(model) =>
-										`${model.id} ${model.name}`
-											.toLowerCase()
-											.includes(query.toLowerCase()) &&
-										!settings.models.some((saved) => saved.id === model.id),
-								)
-								.map((model) => (
-									<li
-										key={model.id}
-										className="flex items-center justify-between gap-2"
-									>
-										<span className="min-w-0 break-words">
-											{model.name}
-											<small className="block text-neutral-600">
-												{model.id}
-											</small>
-										</span>
-										<button
-											type="button"
-											className={button}
-											disabled={pending}
-											aria-label={t("addModel", { name: model.name })}
-											onClick={() =>
-												void mutate("/api/models", "POST", { id: model.id })
-											}
+						<>
+							{matches?.length === 0 && <p>{t("noMatchingModels")}</p>}
+							<ul
+								aria-label={t("popularModels")}
+								className="mt-3 max-h-64 space-y-2 overflow-y-auto"
+							>
+								{matches?.map((model) => {
+									const enabled = settings.models.some(
+										(saved) => saved.id === model.id,
+									);
+									return (
+										<li key={model.id}>
+											<label className="flex items-center gap-3">
+												<input
+													type="checkbox"
+													checked={
+														membershipChange?.id === model.id
+															? membershipChange.enabled
+															: enabled
+													}
+													disabled={pending}
+													onChange={() =>
+														void changeMembership(model.id, !enabled)
+													}
+												/>
+												<span className="min-w-0 break-words">
+													{model.name}
+													<small className="block text-neutral-600">
+														{model.id}
+													</small>
+												</span>
+											</label>
+										</li>
+									);
+								})}
+							</ul>
+						</>
+					)}
+					{settings.models.some(
+						(model) => !catalog?.some((row) => row.id === model.id),
+					) && (
+						<>
+							<h4 className="mt-4 font-semibold">{t("otherEnabledModels")}</h4>
+							<ul className="mt-2 space-y-2">
+								{settings.models
+									.filter(
+										(model) => !catalog?.some((row) => row.id === model.id),
+									)
+									.map((model) => (
+										<li
+											key={model.id}
+											className="flex items-center justify-between gap-2"
 										>
-											{t("add")}
-										</button>
-									</li>
-								))}
-						</ul>
+											<span className="min-w-0 break-words">
+												{model.name}
+												<small className="block text-neutral-600">
+													{model.id}
+												</small>
+											</span>
+											<button
+												type="button"
+												className={button}
+												disabled={pending}
+												aria-label={t("removeModel", { name: model.name })}
+												onClick={() =>
+													void mutate(
+														`/api/models/${encodeURIComponent(model.id)}`,
+														"DELETE",
+													)
+												}
+											>
+												{t("remove")}
+											</button>
+										</li>
+									))}
+							</ul>
+						</>
 					)}
 				</>
 			)}

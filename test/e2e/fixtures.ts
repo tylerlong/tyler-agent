@@ -8,6 +8,13 @@ import { createServer } from "../../src/server.ts";
 export const test = base.extend<{
 	app: {
 		url: string;
+		setCatalog: (
+			models: {
+				id: string;
+				name: string;
+				reasoning?: { supported_efforts: string[] };
+			}[],
+		) => void;
 		folder: string;
 		failModel: (kind?: "http" | "network", body?: string) => void;
 		disconnectClients: () => void;
@@ -78,6 +85,14 @@ export const test = base.extend<{
 				end: () => controller.close(),
 			};
 		}
+		let catalogModels = [
+			{
+				id: "test",
+				name: "Test",
+				reasoning: { supported_efforts: ["low", "high"] },
+			},
+			{ id: "second", name: "Second" },
+		];
 		const originalHome = process.env.HOME;
 		process.env.HOME = folder;
 		const start = () =>
@@ -153,20 +168,10 @@ export const test = base.extend<{
 				join(folder, "db.sqlite"),
 				async () =>
 					Response.json({
-						data: [
-							{
-								id: "test",
-								name: "Test",
-								architecture: { output_modalities: ["text"] },
-								supported_parameters: ["reasoning"],
-								reasoning: { supported_efforts: ["low", "high"] },
-							},
-							{
-								id: "second",
-								name: "Second",
-								architecture: { output_modalities: ["text"] },
-							},
-						],
+						data: catalogModels.map((model) => ({
+							...model,
+							architecture: { output_modalities: ["text"] },
+						})),
 					}),
 			).listen(0, "127.0.0.1");
 		let server = start();
@@ -179,6 +184,9 @@ export const test = base.extend<{
 		try {
 			const app = {
 				url: `http://127.0.0.1:${address.port}`,
+				setCatalog: (models: typeof catalogModels) => {
+					catalogModels = models;
+				},
 				folder,
 				holdModel,
 				streamModel,

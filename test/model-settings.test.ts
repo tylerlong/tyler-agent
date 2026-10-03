@@ -50,7 +50,10 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 	];
 	const anonymous: typeof fetch = async (url, init) => {
 		calls++;
-		assert.equal(url, "https://openrouter.ai/api/v1/models");
+		assert.equal(
+			url,
+			"https://openrouter.ai/api/v1/models?sort=most-popular&limit=100&output_modalities=text",
+		);
 		assert.equal(init?.method, "GET");
 		assert.equal(new Headers(init?.headers).has("authorization"), false);
 		if (wait)
@@ -127,7 +130,7 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 		assert.equal(settings.apiKeyConfigured, true);
 		assert.equal(settings.models[0].name, "Renamed");
 		assert.deepEqual(settings.models[0].supportedEfforts, ["low"]);
-		assert.equal(settings.models[1].catalogMissing, true);
+		assert.equal(settings.models[1].catalogMissing, false);
 		assert.equal(settings.models[1].supportedEfforts, null);
 		fail = true;
 		const failure = await request("/api/model-catalog", "POST");
@@ -156,15 +159,15 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 		assert.equal(settings.defaultModelId, null);
 		assert.deepEqual(
 			settings.models.map((model: { id: string }) => model.id),
-			["two", "plain"],
+			["plain", "two"],
 		);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		server = createServer(fetch, path, anonymous).listen(0, "127.0.0.1");
 		const restartCalls = calls;
-		assert.deepEqual(
-			await (await request("/api/model-settings")).json(),
-			settings,
-		);
+		assert.deepEqual(await (await request("/api/model-settings")).json(), {
+			...settings,
+			models: [...settings.models].reverse(),
+		});
 		assert.equal(calls, restartCalls);
 		assert.equal((await stat(path)).mode & 0o777, 0o600);
 		assert.equal((await stat(directory)).mode & 0o777, 0o700);
@@ -369,6 +372,70 @@ test("accepted call keeps captured key/model through replacement and removal, wi
 		raw.close();
 	} finally {
 		release?.();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("popular discovery is bounded, preserves out-of-ranking default/history and only updates complete responses", async () => {
+	let data = Array.from({ length: 101 }, (_, index) =>
+		catalogModel(`rank-${index}`, `Rank ${index}`),
+	);
+	let malformed = false;
+	let calls = 0;
+	const directory = await mkdtemp(join(tmpdir(), "agent-ranked-"));
+	const server = createServer(
+		fetch,
+		join(directory, "db.sqlite"),
+		async (_url, init) => {
+			calls++;
+			assert.equal(new Headers(init?.headers).has("authorization"), false);
+			return Response.json({ data: malformed ? [{ id: "rank-0" }] : data });
+		},
+	).listen(0, "127.0.0.1");
+	await new Promise<void>((resolve) => server.once("listening", resolve));
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const request = (path: string, method = "GET", body?: unknown) =>
+		fetch(`http://127.0.0.1:${address.port}${path}`, {
+			method,
+			...(body ? { body: JSON.stringify(body) } : {}),
+		});
+	try {
+		const initial = await (await request("/api/model-catalog", "POST")).json();
+		assert.equal(initial.models.length, 100);
+		assert.equal(
+			(await request("/api/models", "POST", { id: "rank-100" })).status,
+			400,
+		);
+		await request("/api/models", "POST", { id: "rank-1" });
+		await request("/api/models", "POST", { id: "rank-0" });
+		await request("/api/model-settings", "PUT", { defaultModelId: "rank-1" });
+		assert.deepEqual(
+			(await (await request("/api/model-settings")).json()).models.map(
+				(row: { id: string }) => row.id,
+			),
+			["rank-0", "rank-1"],
+		);
+		data = [catalogModel("rank-0", "Renamed")];
+		await request("/api/model-catalog", "POST");
+		const saved = await (await request("/api/model-settings")).json();
+		assert.equal(saved.defaultModelId, "rank-1");
+		assert.equal(saved.models[1].name, "Rank 1");
+		assert.equal(saved.models[1].catalogMissing, false);
+		malformed = true;
+		assert.equal((await request("/api/model-catalog", "POST")).status, 502);
+		assert.deepEqual(
+			await (await request("/api/model-settings")).json(),
+			saved,
+		);
+		assert.equal(
+			(await (await request("/api/model-catalog")).json()).models[0].name,
+			"Renamed",
+		);
+		assert.equal(calls, 3);
+	} finally {
+		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(directory, { recursive: true, force: true });
 	}

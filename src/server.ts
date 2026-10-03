@@ -290,12 +290,20 @@ export function createServer(
 	};
 	let catalog: ManagedModel[] | undefined;
 	let catalogLoading: Promise<ManagedModel[]> | undefined;
+	const rankedSettings = () => {
+		const settings = modelSettings(database);
+		const rank = new Map(catalog?.map((model, index) => [model.id, index]));
+		settings.models.sort(
+			(a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
+		);
+		return settings;
+	};
 	const loadCatalog = (refresh = false): Promise<ManagedModel[]> => {
 		if (!refresh && catalog) return Promise.resolve(catalog);
 		if (catalogLoading) return catalogLoading;
 		catalogLoading = (async () => {
 			const response = await fetchCatalog(
-				"https://openrouter.ai/api/v1/models",
+				"https://openrouter.ai/api/v1/models?sort=most-popular&limit=100&output_modalities=text",
 				{ method: "GET" },
 			);
 			if (!response.ok) throw new InputError("modelCatalogFailed");
@@ -308,6 +316,16 @@ export function createServer(
 				architecture?: { output_modalities?: string[] };
 				reasoning?: { supported_efforts?: unknown; mandatory?: boolean };
 			}[];
+			if (
+				rows.some(
+					(row) =>
+						typeof row?.id !== "string" ||
+						!row.id.trim() ||
+						typeof row.name !== "string" ||
+						!Array.isArray(row.architecture?.output_modalities),
+				)
+			)
+				throw new InputError("modelCatalogFailed");
 			const next: ManagedModel[] = rows
 				.filter(
 					(row) =>
@@ -317,6 +335,7 @@ export function createServer(
 						Array.isArray(row.architecture?.output_modalities) &&
 						row.architecture.output_modalities.includes("text"),
 				)
+				.slice(0, 100)
 				.map((row) => ({
 					id: row.id,
 					name: row.name,
@@ -337,10 +356,8 @@ export function createServer(
 				// Read membership after the network wait, preserving concurrent additions/removals.
 				for (const model of modelSettings(database).models) {
 					const found = next.find((row) => row.id === model.id);
-					const { id, name, ...metadata } = found ?? {
-						...model,
-						catalogMissing: true,
-					};
+					if (!found) continue;
+					const { id, name, ...metadata } = found;
 					database
 						.prepare("UPDATE managed_models SET name=?,metadata=? WHERE id=?")
 						.run(name, JSON.stringify(metadata), id);
@@ -449,7 +466,7 @@ export function createServer(
 					}
 					notifyChange();
 				}
-				json(response, 200, modelSettings(database));
+				json(response, 200, rankedSettings());
 			} catch (error) {
 				json(
 					response,
@@ -487,7 +504,7 @@ export function createServer(
 					)
 					.run(id, name, JSON.stringify(metadata));
 				notifyChange();
-				json(response, 200, modelSettings(database));
+				json(response, 200, rankedSettings());
 			} catch (error) {
 				json(
 					response,
@@ -502,7 +519,7 @@ export function createServer(
 				const id = decodeURIComponent(path.slice("/api/models/".length));
 				database.prepare("DELETE FROM managed_models WHERE id=?").run(id);
 				notifyChange();
-				json(response, 200, modelSettings(database));
+				json(response, 200, rankedSettings());
 			} catch {
 				json(response, 500, errorBody("modelSettingsFailed"));
 			}

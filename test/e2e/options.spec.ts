@@ -164,11 +164,8 @@ test("empty configuration uses sole mandatory Settings, then explicit composer s
 	).toHaveValue("");
 	await expect(close).toBeDisabled();
 	await settings
-		.getByRole("button", { name: "Search models", exact: true })
-		.click();
-	await settings
-		.getByRole("button", { name: "Add model Second", exact: true })
-		.click();
+		.getByRole("checkbox", { name: "Second second", exact: true })
+		.check();
 	await expect(close).toBeEnabled();
 	await expect(settings.getByLabel("Default model")).toHaveValue("");
 	await close.click();
@@ -334,12 +331,12 @@ test("Settings retains inputs through hide/show and becomes mandatory after ordi
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	const key = settings.getByLabel("OpenRouter API key", { exact: true });
 	await key.fill("unsaved-draft");
-	await settings.getByLabel("Search models", { exact: true }).fill("Sec");
+	await settings.getByLabel("Filter models", { exact: true }).fill("Sec");
 	await settings.getByRole("button", { name: "Close", exact: true }).click();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(key).toHaveValue("unsaved-draft");
 	await expect(
-		settings.getByLabel("Search models", { exact: true }),
+		settings.getByLabel("Filter models", { exact: true }),
 	).toHaveValue("Sec");
 	await settings
 		.getByRole("button", { name: "Remove API key", exact: true })

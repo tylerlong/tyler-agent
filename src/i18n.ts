@@ -127,11 +127,17 @@ export const resources = {
 			defaultModel: "Default model",
 			noDefaultModel: "No default model",
 			removeModel: "Remove model {{name}}",
-			searchModels: "Search models",
-			refreshCatalog: "Refresh model catalog",
+			filterModels: "Filter models",
+			popularModels: "Popular models",
+			popularModelsScope:
+				"The 100 most popular text models. Filter by name or ID.",
+			noMatchingModels: "No matching models in the top 100.",
+			otherEnabledModels: "Other enabled models",
+
 			catalogMissing:
 				"Not found in latest catalog; last-known capabilities retained.",
-			catalogReadFailed: "Unable to read model catalog. Please retry.",
+			catalogReadFailed:
+				"Unable to load popular models. Close and reopen Settings to retry.",
 			configurationReadFailed: "Unable to read model settings. Please retry.",
 			configurationSaveFailed: "Unable to save model settings. Please retry.",
 			addModel: "Add model {{name}}",
@@ -266,10 +272,14 @@ export const resources = {
 			defaultModel: "默认模型",
 			noDefaultModel: "无默认模型",
 			removeModel: "移除模型 {{name}}",
-			searchModels: "搜索模型",
-			refreshCatalog: "刷新模型目录",
+			filterModels: "筛选模型",
+			popularModels: "热门模型",
+			popularModelsScope: "最热门的 100 个文本模型。按名称或 ID 筛选。",
+			noMatchingModels: "前 100 个热门模型中没有匹配项。",
+			otherEnabledModels: "其他已启用模型",
+
 			catalogMissing: "最新目录中未找到，保留上次能力信息。",
-			catalogReadFailed: "读取模型目录失败，请重试。",
+			catalogReadFailed: "加载热门模型失败。请关闭并重新打开设置以重试。",
 			configurationReadFailed: "读取模型配置失败，请重试。",
 			configurationSaveFailed: "保存模型配置失败，请重试。",
 			addModel: "添加模型 {{name}}",
