@@ -44,7 +44,9 @@ test("mandatory Settings explains reload recovery after an initial catalog failu
 			.getByRole("option"),
 	).toHaveCount(2);
 	await expect(settings.getByRole("alert")).toHaveCount(0);
-	const filter = settings.getByRole("combobox", { name: "Filter models" });
+	const filter = settings.getByRole("combobox", {
+		name: "Search models by name or ID",
+	});
 	await filter.fill("second");
 	await filter.press("Escape");
 	await expect(filter).toHaveCount(0);
@@ -62,6 +64,8 @@ test("mandatory Settings explains reload recovery after an initial catalog failu
 		.getByRole("button", { name: "Save API key", exact: true })
 		.click();
 	await expect(close).toBeDisabled();
+	await expect(filter).toBeEnabled();
+	await filter.focus();
 	await settings
 		.getByRole("option", { name: "Second second", exact: true })
 		.click();
@@ -225,10 +229,12 @@ test("each opening refreshes once; the combobox filters unenabled ranked models 
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	const add = dialog.getByRole("button", { name: "Add model", exact: true });
 	await expect(
-		dialog.getByRole("combobox", { name: "Filter models" }),
+		dialog.getByRole("combobox", { name: "Search models by name or ID" }),
 	).toHaveCount(0);
 	await add.click();
-	const filter = dialog.getByRole("combobox", { name: "Filter models" });
+	const filter = dialog.getByRole("combobox", {
+		name: "Search models by name or ID",
+	});
 	const options = dialog
 		.getByRole("listbox", { name: "Popular models" })
 		.getByRole("option");
@@ -251,7 +257,9 @@ test("each opening refreshes once; the combobox filters unenabled ranked models 
 	await expect(filter).toBeVisible();
 	await filter.fill("absent");
 	await expect(
-		dialog.getByText("No matching unenabled models in the top 100."),
+		dialog.getByText(
+			"No matching models in the popular 100. Enabled models are excluded.",
+		),
 	).toBeVisible();
 	await filter.press("Enter");
 	await expect(
@@ -339,7 +347,9 @@ test("initial catalog failure differs from an empty filter and existing models r
 	).toBeVisible();
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await expect(
-		dialog.getByText("No matching unenabled models in the top 100."),
+		dialog.getByText(
+			"No matching models in the popular 100. Enabled models are excluded.",
+		),
 	).toHaveCount(0);
 	await expect(
 		dialog

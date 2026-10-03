@@ -44,7 +44,7 @@ test("desktop boundary preserves drafts, modal addition and focus without prefer
 		.getByRole("button", { name: "Add model", exact: true })
 		.click();
 	const search = settings.getByRole("combobox", {
-		name: "Filter models",
+		name: "Search models by name or ID",
 		exact: true,
 	});
 	await search.fill("Sec");

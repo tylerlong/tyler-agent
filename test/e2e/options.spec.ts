@@ -340,13 +340,13 @@ test("Settings retains inputs through hide/show and becomes mandatory after ordi
 		.getByRole("button", { name: "Add model", exact: true })
 		.click();
 	await settings
-		.getByRole("combobox", { name: "Filter models", exact: true })
+		.getByRole("combobox", { name: "Search models by name or ID", exact: true })
 		.fill("Sec");
 	await settings.getByRole("button", { name: "Close", exact: true }).click();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(key).toHaveValue("unsaved-draft");
 	await expect(
-		settings.getByLabel("Filter models", { exact: true }),
+		settings.getByLabel("Search models by name or ID", { exact: true }),
 	).toHaveValue("Sec");
 	await settings
 		.getByRole("button", { name: "Remove API key", exact: true })

@@ -160,11 +160,10 @@ export const resources = {
 			disableModel: "Disable model",
 			noDefaultModel: "No default model",
 			removeModel: "Remove model {{name}}",
-			filterModels: "Filter models",
+			filterModels: "Search models by name or ID",
 			popularModels: "Popular models",
-			popularModelsScope:
-				"The 100 most popular text models. Filter by name or ID.",
-			noMatchingModels: "No matching unenabled models in the top 100.",
+			noMatchingModels:
+				"No matching models in the popular 100. Enabled models are excluded.",
 			otherEnabledModels: "Other enabled models",
 
 			catalogMissing:
@@ -338,10 +337,10 @@ export const resources = {
 			disableModel: "停用模型",
 			noDefaultModel: "无默认模型",
 			removeModel: "移除模型 {{name}}",
-			filterModels: "筛选模型",
+			filterModels: "按名称或 ID 搜索模型",
 			popularModels: "热门模型",
-			popularModelsScope: "最热门的 100 个文本模型。按名称或 ID 筛选。",
-			noMatchingModels: "前 100 个热门模型中没有匹配的未启用模型。",
+			noMatchingModels:
+				"前 100 个热门模型中没有匹配模型。已启用的模型不在候选中。",
 			otherEnabledModels: "其他已启用模型",
 
 			catalogMissing: "最新目录中未找到，保留上次能力信息。",

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ManagedModel, ModelSettings } from "./database.ts";
 
@@ -26,13 +27,64 @@ export function ModelConfiguration({
 	const [catalog, setCatalog] = useState<ManagedModel[] | null>(null);
 	const [pending, setPending] = useState(false);
 	const [adding, setAdding] = useState(false);
+	const [expanded, setExpanded] = useState(false);
 	const [highlighted, setHighlighted] = useState<string | null>(null);
 	const addButton = useRef<HTMLButtonElement>(null);
 	const returnAdditionFocus = useRef(false);
 	const searchInput = useRef<HTMLInputElement>(null);
 	const section = useRef<HTMLDivElement>(null);
 	const saving = useRef(false);
+	const [popup, setPopup] = useState<{
+		dialog: HTMLDialogElement;
+		left: number;
+		width: number;
+		top: number;
+		maxHeight: number;
+		above: boolean;
+	} | null>(null);
+	useLayoutEffect(() => {
+		if (!adding || !open || !expanded) {
+			setPopup(null);
+			return;
+		}
+		const search = searchInput.current;
+		const dialog = section.current?.closest("dialog");
+		const content = section.current?.closest(".settings-content");
+		if (!search || !dialog || !content) return;
+		const position = () => {
+			const anchor = search.getBoundingClientRect();
+			const bounds = content.getBoundingClientRect();
+			if (anchor.top < bounds.top || anchor.bottom > bounds.bottom) {
+				setPopup(null);
+				return;
+			}
+			const below = Math.max(0, bounds.bottom - anchor.bottom - 8);
+			const above = Math.max(0, anchor.top - bounds.top - 8);
+			const upwards = below < 192 && above > below;
+			setPopup({
+				dialog,
+				left: anchor.left,
+				width: anchor.width,
+				top: upwards ? anchor.top - 4 : anchor.bottom + 4,
+				maxHeight: Math.min(320, upwards ? above : below),
+				above: upwards,
+			});
+		};
+		position();
+		const observer = new ResizeObserver(position);
+		observer.observe(dialog);
+		observer.observe(search);
+		if (section.current) observer.observe(section.current);
+		content.addEventListener("scroll", position);
+		window.addEventListener("resize", position);
+		return () => {
+			observer.disconnect();
+			content.removeEventListener("scroll", position);
+			window.removeEventListener("resize", position);
+		};
+	}, [adding, open, expanded]);
 	const [error, setError] = useState("");
+	const [additionError, setAdditionError] = useState("");
 	const [keyError, setKeyError] = useState("");
 	const [keySaving, setKeySaving] = useState(false);
 	const [keySaved, setKeySaved] = useState(false);
@@ -88,6 +140,7 @@ export function ModelConfiguration({
 		if (saving.current) return;
 		setAdding(false);
 		setQuery("");
+		setAdditionError("");
 		setHighlighted(null);
 		returnAdditionFocus.current = true;
 	}
@@ -102,7 +155,7 @@ export function ModelConfiguration({
 		const complete = beginAddition();
 		saving.current = true;
 		setPending(true);
-		setError("");
+		setAdditionError("");
 		try {
 			const result = await request("/api/models", "POST", { id });
 			await refresh();
@@ -110,7 +163,7 @@ export function ModelConfiguration({
 			saving.current = false;
 			cancelAddition();
 		} catch {
-			setError("configurationSaveFailed");
+			setAdditionError("configurationSaveFailed");
 		} finally {
 			saving.current = false;
 			setPending(false);
@@ -259,52 +312,6 @@ export function ModelConfiguration({
 						className="mt-6 border-t border-neutral-200 pt-4"
 					>
 						<h3 className="font-semibold">{t("modelConfiguration")}</h3>
-						<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
-							{settings.models.map((model) => (
-								<li
-									key={model.id}
-									className="flex items-center justify-between gap-3"
-								>
-									<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-										{model.name}
-										<small className="block text-neutral-600">{model.id}</small>
-									</span>
-									{settings.defaultModelId === model.id ? (
-										<span className="shrink-0 text-sm text-neutral-600">
-											{t("default")}
-										</span>
-									) : (
-										<button
-											type="button"
-											className={`${button} shrink-0`}
-											disabled={pending}
-											onClick={() =>
-												void mutate("/api/model-settings", "PUT", {
-													defaultModelId: model.id,
-												})
-											}
-										>
-											{t("setDefault")}
-										</button>
-									)}
-									<button
-										type="button"
-										className={button}
-										disabled={pending}
-										aria-label={t("disableModel")}
-										title={t("disableModel")}
-										onClick={() =>
-											void mutate(
-												`/api/models/${encodeURIComponent(model.id)}`,
-												"DELETE",
-											)
-										}
-									>
-										×
-									</button>
-								</li>
-							))}
-						</ul>
 						<div className="mt-4">
 							{!adding ? (
 								<button
@@ -323,16 +330,28 @@ export function ModelConfiguration({
 											ref={searchInput}
 											role="combobox"
 											aria-label={t("filterModels")}
+											placeholder={t("filterModels")}
 											aria-autocomplete="list"
-											aria-expanded={true}
+											aria-expanded={expanded && popup !== null}
 											aria-controls="model-candidates"
 											aria-activedescendant={
 												matches?.some((model) => model.id === highlighted)
 													? `candidate-${highlighted}`
 													: undefined
 											}
-											className={input}
+											className="min-w-0 flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2"
 											value={query}
+											onFocus={() => setExpanded(true)}
+											onBlur={(event) => {
+												if (
+													event.relatedTarget &&
+													!(
+														event.relatedTarget instanceof Element &&
+														event.relatedTarget.closest(".model-popup")
+													)
+												)
+													setExpanded(false);
+											}}
 											disabled={pending}
 											onChange={(event) => {
 												setQuery(event.target.value);
@@ -382,46 +401,134 @@ export function ModelConfiguration({
 											{t("cancel")}
 										</button>
 									</div>
-									{catalog && (
-										<>
-											{matches?.length === 0 && <p>{t("noMatchingModels")}</p>}
+									{popup &&
+										expanded &&
+										createPortal(
 											<div
-												id="model-candidates"
-												role="listbox"
-												aria-label={t("popularModels")}
-												className="mt-3 max-h-64 overflow-y-auto"
+												className="model-popup"
+												style={{
+													left: popup.left,
+													top: popup.top,
+													width: popup.width,
+													maxHeight: popup.maxHeight,
+													transform: popup.above
+														? "translateY(-100%)"
+														: undefined,
+												}}
 											>
-												{matches?.map((model) => (
-													<li key={model.id} role="presentation">
-														<button
-															id={`candidate-${model.id}`}
-															type="button"
-															role="option"
-															aria-selected={highlighted === model.id}
-															disabled={pending}
-															tabIndex={-1}
-															className={`w-full rounded-md px-3 py-2 text-left hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-blue-600 ${highlighted === model.id ? "bg-neutral-100 outline-2 outline-blue-600" : ""}`}
-															onClick={() => void addModel(model.id)}
-														>
-															{model.name}
-															<small className="block text-neutral-600">
-																{model.id}
-															</small>
-														</button>
-													</li>
-												))}
-											</div>
-										</>
-									)}
+												{catalogLoading && (
+													<p role="status" className="px-3 py-2">
+														{t("loading")}
+													</p>
+												)}
+												{catalogError && (
+													<p role="alert" className="px-3 py-2 text-red-700">
+														{t("catalogReadFailed")}
+													</p>
+												)}
+												{additionError && (
+													<p role="alert" className="px-3 py-2 text-red-700">
+														{t(additionError)}
+													</p>
+												)}
+												{matches?.length === 0 && (
+													<p role="status" className="px-3 py-2">
+														{t("noMatchingModels")}
+													</p>
+												)}
+												<div
+													id="model-candidates"
+													role="listbox"
+													aria-label={t("popularModels")}
+													className="min-h-0 overflow-y-auto overscroll-contain"
+												>
+													{matches?.map((model) => (
+														<li key={model.id} role="presentation">
+															<button
+																id={`candidate-${model.id}`}
+																type="button"
+																role="option"
+																aria-selected={highlighted === model.id}
+																disabled={pending}
+																tabIndex={-1}
+																className={`w-full px-3 py-2 text-left [overflow-wrap:anywhere] hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-blue-600 ${highlighted === model.id ? "bg-blue-50 outline-2 -outline-offset-2 outline-blue-600" : ""}`}
+																onClick={() => void addModel(model.id)}
+															>
+																{model.name}
+																<small className="block text-neutral-600">
+																	{model.id}
+																</small>
+															</button>
+														</li>
+													))}
+												</div>
+											</div>,
+											popup.dialog,
+										)}
 								</>
 							)}
 						</div>
-						<p className="mt-2 text-sm text-neutral-600">
-							{t("popularModelsScope")}
-						</p>
-						{catalogLoading && <p role="status">{t("loading")}</p>}
+						<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
+							{settings.models.map((model) => (
+								<li
+									key={model.id}
+									className="flex items-center justify-between gap-3"
+								>
+									<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+										{model.name}
+										<small className="block text-neutral-600">{model.id}</small>
+									</span>
+									{settings.defaultModelId === model.id ? (
+										<span className="shrink-0 text-sm text-neutral-600">
+											{t("default")}
+										</span>
+									) : (
+										<button
+											type="button"
+											className={`${button} shrink-0`}
+											disabled={pending}
+											onClick={() =>
+												void mutate("/api/model-settings", "PUT", {
+													defaultModelId: model.id,
+												})
+											}
+										>
+											{t("setDefault")}
+										</button>
+									)}
+									<button
+										type="button"
+										className={button}
+										disabled={pending}
+										aria-label={t("disableModel")}
+										title={t("disableModel")}
+										onClick={() =>
+											void mutate(
+												`/api/models/${encodeURIComponent(model.id)}`,
+												"DELETE",
+											)
+										}
+									>
+										×
+									</button>
+								</li>
+							))}
+						</ul>
+						{catalogLoading && (
+							<p
+								role="status"
+								aria-hidden={adding}
+								className={adding ? "invisible" : undefined}
+							>
+								{t("loading")}
+							</p>
+						)}
 						{catalogError && (
-							<p role="alert" className="mt-2 text-red-700">
+							<p
+								role="alert"
+								aria-hidden={adding}
+								className={`mt-2 text-red-700 ${adding ? "invisible" : ""}`}
+							>
 								{t("catalogReadFailed")}
 							</p>
 						)}
