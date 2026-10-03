@@ -91,7 +91,9 @@ pnpm test:e2e
 
 自动测试使用真实本地 HTTP server、临时 SQLite、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE/Copy、分页和阅读锚点；分页不截断完整成功上下文，失败部分内容不进入模型上下文。
 
-GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。本地失败文件同样位于 `playwright-report/` 和 `test-results/`，两者已忽略。
+GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。
+
+本地默认只输出终端结果，不生成 HTML 报告；失败时在 `test-results/` 保留 trace。`pnpm test:e2e` 全部通过后自动删除 `test-results/`，失败时保留结果和非零退出码。直接运行 `pnpm exec playwright test` 不执行这一步清理。`playwright-report/` 和 `test-results/` 均已忽略；已有 HTML 报告不会自动删除。
 
 ```sh
 pnpm exec playwright show-report playwright-report
