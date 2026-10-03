@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ManagedModel, ModelSettings } from "./database.ts";
 
@@ -28,6 +28,7 @@ export function ModelConfiguration({
 	const [adding, setAdding] = useState(false);
 	const [highlighted, setHighlighted] = useState<string | null>(null);
 	const addButton = useRef<HTMLButtonElement>(null);
+	const returnAdditionFocus = useRef(false);
 	const searchInput = useRef<HTMLInputElement>(null);
 	const section = useRef<HTMLDivElement>(null);
 	const saving = useRef(false);
@@ -88,8 +89,14 @@ export function ModelConfiguration({
 		setAdding(false);
 		setQuery("");
 		setHighlighted(null);
-		requestAnimationFrame(() => addButton.current?.focus());
+		returnAdditionFocus.current = true;
 	}
+	useLayoutEffect(() => {
+		if (returnAdditionFocus.current && !adding && !pending) {
+			returnAdditionFocus.current = false;
+			addButton.current?.focus();
+		}
+	}, [adding, pending]);
 	async function addModel(id: string) {
 		if (saving.current || pending) return;
 		const complete = beginAddition();
