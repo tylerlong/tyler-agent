@@ -7,7 +7,10 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		if (createDefaultDirectory) {
 			mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 			chmodSync(dirname(path), 0o700);
-		} else if (statSync(dirname(path)).mode & 0o077) {
+		} else if (
+			existsSync(dirname(path)) &&
+			statSync(dirname(path)).mode & 0o077
+		) {
 			throw new Error("Custom database directory must be private (mode 0700)");
 		}
 	}
