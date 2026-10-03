@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { listProjects, openDatabase } from "./database.ts";
-import { type CallResult, ModelError, requestModel } from "./openrouter.ts";
+import { ModelError, requestModel } from "./openrouter.ts";
 
 const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
@@ -64,8 +64,6 @@ function caughtError(error: unknown, fallback: string) {
 		? {
 				code: error.code,
 				error: error.message,
-				...(error instanceof ModelError &&
-					error.details !== undefined && { details: error.details }),
 			}
 		: errorBody(fallback);
 }
@@ -152,7 +150,7 @@ export function createServer(
 	) => {
 		const rows = database
 			.prepare(
-				`SELECT id, user_content AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails FROM turns WHERE chat_id=? ${before !== null ? "AND id<?" : after !== null ? "AND id>?" : ""} ORDER BY id ${after !== null ? "ASC" : "DESC"} LIMIT 11`,
+				`SELECT id, user_content AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails, output_json AS output FROM turns WHERE chat_id=? ${before !== null ? "AND id<?" : after !== null ? "AND id>?" : ""} ORDER BY id ${after !== null ? "ASC" : "DESC"} LIMIT 11`,
 			)
 			.all(
 				...(before !== null
@@ -162,7 +160,9 @@ export function createServer(
 						: [id]),
 			);
 		const more = rows.length > 10;
-		const page = rows.slice(0, 10);
+		const page = rows
+			.slice(0, 10)
+			.map((row) => ({ ...row, output: JSON.parse(String(row.output)) }));
 		if (after === null) page.reverse();
 		return {
 			turns: page,
@@ -194,7 +194,36 @@ export function createServer(
 					}),
 				},
 			]);
+	const turnMessages = (
+		turns: {
+			id?: unknown;
+			question?: unknown;
+			answer?: unknown;
+			status?: unknown;
+			errorCode?: unknown;
+			output: unknown;
+		}[],
+	) =>
+		turns.flatMap((turn) => [
+			{ id: `${turn.id}-user`, role: "user", content: turn.question },
+			{
+				id: `${turn.id}-assistant`,
+				role: "assistant",
+				content: turn.answer ?? "",
+				output: turn.output,
+				...(turn.status !== "succeeded" && {
+					status: turn.status,
+					errorCode: turn.errorCode,
+				}),
+			},
+		]);
 	const subscribers = new Set<ServerResponse>();
+	const notifyTurn = (chatId: number, turnId: number) => {
+		for (const subscriber of subscribers)
+			subscriber.write(
+				`event: turn\ndata: ${JSON.stringify({ chatId, turnId })}\n\n`,
+			);
+	};
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
 	};
@@ -489,6 +518,26 @@ export function createServer(
 			}
 			return;
 		}
+		const turnRoute = path.match(/^\/api\/turns\/(\d+)$/);
+		if (turnRoute && request.method === "GET") {
+			const row = database
+				.prepare(
+					"SELECT id,chat_id AS chatId,user_content AS question,assistant_content AS answer,status,created_at AS createdAt,error_code AS errorCode,output_json AS output FROM turns WHERE id=?",
+				)
+				.get(Number(turnRoute[1]));
+			if (!row) {
+				json(response, 404, errorBody("notFound"));
+				return;
+			}
+			const turns = [{ ...row, output: JSON.parse(String(row.output)) }];
+			json(response, 200, {
+				turns,
+				messages: turnMessages(turns),
+				busy: busy.has(Number(row.chatId)),
+				hasMore: false,
+			});
+			return;
+		}
 		const callRoute = path.match(/^\/api\/turns\/(\d+)\/calls$/);
 		if (callRoute && request.method === "GET") {
 			const turnId = Number(callRoute[1]);
@@ -549,19 +598,7 @@ export function createServer(
 				);
 				json(response, 200, {
 					...page,
-					messages: page.turns.flatMap((turn) => [
-						{ id: `${turn.id}-user`, role: "user", content: turn.question },
-						{
-							id: `${turn.id}-assistant`,
-							role: "assistant",
-							content: turn.answer ?? "",
-							...(turn.status !== "succeeded" && {
-								status: turn.status,
-								errorCode: turn.errorCode,
-								errorDetails: turn.errorDetails,
-							}),
-						},
-					]),
+					messages: turnMessages(page.turns),
 					busy: busy.has(id),
 				});
 				return;
@@ -596,6 +633,7 @@ export function createServer(
 				return;
 			}
 			let locked = false;
+			let acceptedTurnId: number | undefined;
 			try {
 				const input = await readJson(request);
 				if (typeof input.prompt !== "string" || !input.prompt.trim())
@@ -628,11 +666,11 @@ export function createServer(
 					database.exec("ROLLBACK");
 					throw error;
 				}
+				acceptedTurnId = turnId;
 				notifyChange();
 				let answer: string | undefined;
 				let failure: unknown;
 				let callId: number | undefined;
-				let callResult: CallResult | undefined;
 				try {
 					answer = await requestModel(
 						messages(id, true).map(({ role, content }) => ({ role, content })),
@@ -653,10 +691,49 @@ export function createServer(
 											call.requestBody,
 										).lastInsertRowid,
 								);
-								notifyChange();
+								notifyTurn(id, turnId);
 							},
-							result: (result) => {
-								callResult = result;
+							result: (result, output) => {
+								if (callId === undefined)
+									throw new Error("Missing saved model call");
+								database.exec("BEGIN");
+								try {
+									database
+										.prepare(
+											"UPDATE model_calls SET status=?,http_status=?,response_body=?,duration_ms=?,error=? WHERE id=?",
+										)
+										.run(
+											result.status,
+											result.httpStatus,
+											result.responseBody,
+											result.durationMs,
+											result.error,
+											callId,
+										);
+									const partial = output
+										.filter((item) => item.type === "message")
+										.flatMap((item) =>
+											item.content
+												.filter(
+													(part) =>
+														part.type === "output_text" ||
+														part.type === "refusal",
+												)
+												.map((part) => part.text),
+										)
+										.join("\n")
+										.trim();
+									database
+										.prepare(
+											"UPDATE turns SET assistant_content=?,output_json=? WHERE id=?",
+										)
+										.run(partial || null, JSON.stringify(output), turnId);
+									database.exec("COMMIT");
+								} catch (error) {
+									database.exec("ROLLBACK");
+									throw error;
+								}
+								notifyTurn(id, turnId);
 							},
 						},
 					);
@@ -665,34 +742,18 @@ export function createServer(
 				}
 				database.exec("BEGIN");
 				try {
-					if (callId !== undefined && callResult)
-						database
-							.prepare(
-								"UPDATE model_calls SET status=?,http_status=?,response_body=?,duration_ms=?,error=? WHERE id=?",
-							)
-							.run(
-								callResult.status,
-								callResult.httpStatus,
-								callResult.responseBody,
-								callResult.durationMs,
-								callResult.error ??
-									(failure instanceof ModelError ? failure.message : null),
-								callId,
-							);
 					const savedError = failure
 						? caughtError(failure, "answerWriteFailed")
 						: null;
 					database
 						.prepare(
-							"UPDATE turns SET status=?,assistant_content=?,error_code=?,error_details=? WHERE id=?",
+							"UPDATE turns SET status=?,assistant_content=COALESCE(?,assistant_content),error_code=?,error_details=? WHERE id=?",
 						)
 						.run(
 							failure ? "failed" : "succeeded",
 							answer ?? null,
 							savedError?.code ?? null,
-							failure instanceof ModelError && callResult?.responseBody == null
-								? (failure.details ?? null)
-								: null,
+							null,
 							turnId,
 						);
 					database.exec("COMMIT");
@@ -715,7 +776,7 @@ export function createServer(
 			} finally {
 				if (locked) {
 					busy.delete(id);
-					notifyChange();
+					if (acceptedTurnId !== undefined) notifyTurn(id, acceptedTurnId);
 				}
 			}
 			return;

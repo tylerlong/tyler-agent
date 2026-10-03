@@ -186,7 +186,16 @@ function App() {
 	selectedRef.current = selected;
 	type ChatState = {
 		id: number;
-		turns: { id: number; status: string }[];
+		turns: {
+			id: number;
+			status: string;
+			output: {
+				id: string;
+				index: number;
+				type: string;
+				content: { index: number; type: string; text: string }[];
+			}[];
+		}[];
 		messages: {
 			id: string;
 			role: string;
@@ -244,6 +253,7 @@ function App() {
 	});
 	const chatRevisions = useRef<Record<number, number>>({});
 	const syncedThrough = useRef<Record<number, number>>({});
+	const turnRevisions = useRef<Record<number, number>>({});
 	const [historyErrors, setHistoryErrors] = useState<
 		Record<number, ApiError | null>
 	>({});
@@ -255,16 +265,28 @@ function App() {
 		Record<number, ApiError | null>
 	>({});
 	const mergeChat = useCallback(
-		(id: number, data: ChatState, older = false) => {
+		(
+			id: number,
+			data: ChatState,
+			older = false,
+			revisions?: Record<number, number>,
+		) => {
 			const previous = cacheRef.current[id];
 			const turns = new Map(previous?.turns.map((turn) => [turn.id, turn]));
 			const messages = new Map(
 				previous?.messages.map((message) => [message.id, message]),
 			);
+			const changed = (turnId: number) =>
+				revisions !== undefined &&
+				(revisions[turnId] ?? 0) !== (turnRevisions.current[turnId] ?? 0);
 			for (const turn of data.turns)
-				if (!older || !turns.has(turn.id)) turns.set(turn.id, turn);
+				if ((!older || !turns.has(turn.id)) && !changed(turn.id))
+					turns.set(turn.id, turn);
 			for (const message of data.messages)
-				if (!older || !messages.has(message.id))
+				if (
+					(!older || !messages.has(message.id)) &&
+					!changed(Number(message.id.split("-")[0]))
+				)
 					messages.set(message.id, message);
 			const next = {
 				id,
@@ -274,7 +296,10 @@ function App() {
 						Number(a.id.split("-")[0]) - Number(b.id.split("-")[0]) ||
 						(a.role === "user" ? -1 : 1),
 				),
-				busy: older && previous ? previous.busy : data.busy,
+				busy:
+					previous && (older || previous.turns.some((turn) => changed(turn.id)))
+						? previous.busy
+						: data.busy,
 				hasMore: older || !previous ? data.hasMore : previous.hasMore,
 			};
 			cacheRef.current = { ...cacheRef.current, [id]: next };
@@ -313,6 +338,7 @@ function App() {
 			const revision = (chatRevisions.current[id] ?? 0) + 1;
 			chatRevisions.current[id] = revision;
 			const current = () => chatRevisions.current[id] === revision;
+			const turnVersions = { ...turnRevisions.current };
 			try {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
@@ -324,7 +350,7 @@ function App() {
 				if (pendingId !== undefined)
 					cursor = Math.min(cursor ?? pendingId - 1, pendingId - 1);
 				const target = latest.turns.at(-1)?.id;
-				mergeChat(id, latest);
+				mergeChat(id, latest, false, turnVersions);
 				// Refresh cached pending records and fill unseen turns in bounded pages.
 				while (
 					cursor !== undefined &&
@@ -333,7 +359,7 @@ function App() {
 				) {
 					const next: ChatState = await api(`/api/chats/${id}?after=${cursor}`);
 					if (!current()) return;
-					mergeChat(id, next);
+					mergeChat(id, next, false, turnVersions);
 					const last = next.turns.at(-1)?.id;
 					if (last === undefined || last <= cursor) break;
 					cursor = last;
@@ -348,6 +374,34 @@ function App() {
 			} catch (cause) {
 				if (current())
 					setHistoryErrors((errors) => ({ ...errors, [id]: appError(cause) }));
+			}
+		},
+		[mergeChat],
+	);
+	const refreshTurn = useCallback(
+		async (chatId: number, turnId: number) => {
+			const revision = (turnRevisions.current[turnId] ?? 0) + 1;
+			turnRevisions.current[turnId] = revision;
+			try {
+				const data: ChatState = await api(`/api/turns/${turnId}`);
+				if (turnRevisions.current[turnId] !== revision) return;
+				if (cacheRef.current[chatId] || selectedRef.current === chatId)
+					mergeChat(chatId, data);
+				setProjects((current) =>
+					current.map((project) => ({
+						...project,
+						chats: project.chats.map((chat) =>
+							chat.id === chatId ? { ...chat, busy: data.busy } : chat,
+						),
+					})),
+				);
+				setHistoryErrors((errors) => ({ ...errors, [chatId]: null }));
+			} catch (cause) {
+				if (turnRevisions.current[turnId] === revision)
+					setHistoryErrors((errors) => ({
+						...errors,
+						[chatId]: appError(cause),
+					}));
 			}
 		},
 		[mergeChat],
@@ -443,6 +497,10 @@ function App() {
 		const events = new EventSource("/api/events");
 		events.onopen = sync;
 		events.onmessage = sync;
+		events.addEventListener("turn", (event) => {
+			const { chatId, turnId } = JSON.parse(event.data);
+			void refreshTurn(chatId, turnId);
+		});
 		events.onerror = () => {
 			for (const id of Object.keys(cacheRef.current).map(Number)) {
 				chatRevisions.current[id] = (chatRevisions.current[id] ?? 0) + 1;
@@ -459,7 +517,7 @@ function App() {
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", visible);
 		};
-	}, [refresh, refreshChat]);
+	}, [refresh, refreshChat, refreshTurn]);
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [creatingProject, setCreatingProject] = useState<number | null>(null);
 	const [name, setName] = useState("");
@@ -1054,7 +1112,26 @@ function App() {
 											<strong>
 												{t(message.role === "user" ? "you" : "agent")}:{" "}
 											</strong>
-											{message.content}
+											{message.role === "assistant"
+												? (chatState.turns
+														.find(
+															(turn) =>
+																turn.id === Number(message.id.split("-")[0]),
+														)
+														?.output.filter((item) => item.type === "message")
+														.map((item) => (
+															<div key={`${item.index}-${item.id}`}>
+																{item.content
+																	.filter(
+																		(part) =>
+																			part.type === "output_text" ||
+																			part.type === "refusal",
+																	)
+																	.map((part) => part.text)
+																	.join("")}
+															</div>
+														)) ?? message.content)
+												: message.content}
 											{message.role === "assistant" &&
 												message.status === "pending" &&
 												t("turnPending")}

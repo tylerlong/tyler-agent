@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { completedBody, completedResponse } from "./model-fixture.ts";
 
 test("HTTP errors provide stable identifiers independent of interface language", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-errors-"));
@@ -47,9 +48,9 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 	const fake: typeof fetch = async () => {
 		if (failure === "network") throw new Error('network secret"key');
 		if (failure === "json") return new Response("upstream malformed body");
-		if (failure === "empty") return Response.json({ output: [] });
+		if (failure === "empty") return completedResponse({ output: [] });
 		if (failure === "shape")
-			return Response.json({
+			return completedResponse({
 				output: [null, { type: "message", content: [null] }],
 			});
 		return new Response(
@@ -75,8 +76,8 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 			await post(`/api/projects/${project.id}/chats`, { name: "C" })
 		).json();
 		for (const [kind, code, details] of [
-			["upstream", "modelRequestFailed", "HTTP 429"],
-			["network", "modelRequestFailed", "Error: network [REDACTED]"],
+			["upstream", "modelRequestFailed", undefined],
+			["network", "modelRequestFailed", undefined],
 			["json", "modelInvalidResponse", undefined],
 			["empty", "modelNoAnswer", undefined],
 			["shape", "modelNoAnswer", undefined],
@@ -103,8 +104,10 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 				upstream: '{"error":"provider detail [REDACTED]"}',
 				network: null,
 				json: "upstream malformed body",
-				empty: '{"output":[]}',
-				shape: '{"output":[null,{"type":"message","content":[null]}]}',
+				empty: completedBody({ output: [] }),
+				shape: completedBody({
+					output: [null, { type: "message", content: [null] }],
+				}),
 			};
 			assert.equal(calls.calls[0].responseBody, expectedBodies[kind]);
 			assert.doesNotMatch(JSON.stringify(calls), /secret/);

@@ -12,6 +12,7 @@ export const test = base.extend<{
 		disconnectClients: () => void;
 		restart: () => Promise<void>;
 		holdModel: () => { entered: Promise<void>; release: () => void };
+		streamModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
 	app: async ({ browserName: _browserName }, use) => {
@@ -28,6 +29,7 @@ export const test = base.extend<{
 			fail = kind;
 		};
 		let gate: { entered: () => void; wait: Promise<void> } | undefined;
+		let streamGate: { entered: () => void; wait: Promise<void> } | undefined;
 		function holdModel() {
 			let enter!: () => void;
 			let release!: () => void;
@@ -39,6 +41,12 @@ export const test = base.extend<{
 			});
 			gate = { entered: enter, wait };
 			return { entered, release };
+		}
+		function streamModel() {
+			const held = holdModel();
+			streamGate = gate;
+			gate = undefined;
+			return held;
 		}
 		const originalHome = process.env.HOME;
 		process.env.HOME = folder;
@@ -57,13 +65,52 @@ export const test = base.extend<{
 						current.entered();
 						await current.wait;
 					}
-					return Response.json({
-						output: [
-							{
-								type: "message",
-								content: [{ type: "output_text", text: "Test answer" }],
-							},
-						],
+					const streaming = streamGate;
+					streamGate = undefined;
+					const output = [
+						{
+							id: "answer",
+							type: "message",
+							content: [{ type: "output_text", text: "Test answer" }],
+						},
+					];
+					const encoder = new TextEncoder();
+					const body = new ReadableStream<Uint8Array>({
+						async start(controller) {
+							const send = (type: string, value: object) =>
+								controller.enqueue(
+									encoder.encode(
+										`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`,
+									),
+								);
+							if (streaming) {
+								send("response.output_item.added", {
+									output_index: 0,
+									item: { id: "answer", type: "message", content: [] },
+								});
+								send("response.output_text.delta", {
+									item_id: "answer",
+									output_index: 0,
+									content_index: 0,
+									delta: "Test ",
+								});
+								streaming.entered();
+								await streaming.wait;
+								send("response.output_text.delta", {
+									item_id: "answer",
+									output_index: 0,
+									content_index: 0,
+									delta: "answer",
+								});
+							}
+							send("response.completed", {
+								response: { status: "completed", output },
+							});
+							controller.close();
+						},
+					});
+					return new Response(body, {
+						headers: { "content-type": "text/event-stream" },
 					});
 				},
 				join(folder, "db.sqlite"),
@@ -80,6 +127,7 @@ export const test = base.extend<{
 				url: `http://127.0.0.1:${address.port}`,
 				folder,
 				holdModel,
+				streamModel,
 				failModel,
 				disconnectClients: () => server.closeAllConnections(),
 				restart: async () => {

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -109,75 +116,165 @@ test("invalid project inputs never create partial records; duplicate names and e
 	}
 });
 
-test("legacy schema resets once and invalid or read-only databases fail at startup", async () => {
+test("fresh schema initializes defaults and retains ordered partial output on restart", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-schema-"));
-	const path = join(directory, "legacy.sqlite");
+	const path = join(directory, "db.sqlite");
 	try {
+		const server = createServer(fetch, path);
+		server.emit("close");
 		const db = new DatabaseSync(path);
-		db.exec(
-			"CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1),folder TEXT NOT NULL);CREATE TABLE turns(id INTEGER PRIMARY KEY,user_content TEXT NOT NULL,assistant_content TEXT NOT NULL);INSERT INTO turns(user_content,assistant_content)VALUES('old','answer');",
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 8);
+		assert.deepEqual(
+			{ ...db.prepare("SELECT * FROM settings").get() },
+			{
+				id: 1,
+				sidebar_width: 320,
+				language: "en",
+			},
+		);
+		assert.equal(
+			db.prepare("SELECT COUNT(*) AS count FROM projects").get()?.count,
+			0,
+		);
+		assert.equal(
+			db.prepare("SELECT COUNT(*) AS count FROM chats").get()?.count,
+			0,
+		);
+		const output = JSON.stringify([
+			{
+				id: "answer-1",
+				type: "message",
+				content: [{ type: "output_text", text: "部分回答" }],
+			},
+			{
+				id: "thinking-2",
+				type: "reasoning",
+				content: [{ type: "reasoning_text", text: "仍在思考" }],
+			},
+		]);
+		db.exec(`INSERT INTO projects(name,created_at) VALUES('Saved',1);
+			INSERT INTO chats(project_id,name,created_at) VALUES(1,'Chat',2);
+			INSERT INTO turns(chat_id,user_content,assistant_content,status,created_at) VALUES(1,'Question','部分回答','pending',3);
+			INSERT INTO model_calls(turn_id,url,method,requested_at,request_body,status,response_body) VALUES(1,'https://example.test','POST','now','{}','pending','data: partial');
+			UPDATE settings SET sidebar_width=410.5,language='zh-CN' WHERE id=1;`);
+		assert.equal(
+			db.prepare("SELECT output_json FROM turns").get()?.output_json,
+			"[]",
+		);
+		db.prepare("UPDATE turns SET output_json=? WHERE id=1").run(output);
+		assert.throws(
+			() => db.prepare("UPDATE turns SET output_json=?").run("{}"),
+			/CHECK/,
 		);
 		db.close();
-		const server = createServer(fetch, path).listen(0, "127.0.0.1");
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
+		const restarted = createServer(async () => {
+			throw new Error("must not resume model");
+		}, path);
+		restarted.emit("close");
+		const saved = new DatabaseSync(path);
 		assert.deepEqual(
-			await (
-				await fetch(`http://127.0.0.1:${address.port}/api/projects`)
-			).json(),
-			{ projects: [] },
+			{
+				...saved
+					.prepare(
+						"SELECT assistant_content,output_json,status,error_code FROM turns",
+					)
+					.get(),
+			},
+			{
+				assistant_content: "部分回答",
+				output_json: output,
+				status: "failed",
+				error_code: "modelInterrupted",
+			},
 		);
-		const created = await (
-			await fetch(`http://127.0.0.1:${address.port}/api/projects`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ name: "New", folders: ["."] }),
-			})
-		).json();
-		assert.deepEqual(created.folders, [process.cwd()]);
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		const restarted = createServer(fetch, path).listen(0, "127.0.0.1");
-		try {
-			await new Promise<void>((resolve) =>
-				restarted.once("listening", resolve),
+		assert.deepEqual(
+			{
+				...saved
+					.prepare("SELECT response_body,status,error FROM model_calls")
+					.get(),
+			},
+			{
+				response_body: "data: partial",
+				status: "failed",
+				error: "Service restarted before the call completed",
+			},
+		);
+		assert.deepEqual(
+			{ ...saved.prepare("SELECT * FROM settings").get() },
+			{
+				id: 1,
+				sidebar_width: 410.5,
+				language: "zh-CN",
+			},
+		);
+		saved.close();
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("unsupported, invalid, corrupt and read-only databases fail without resetting data", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-invalid-schema-"));
+	try {
+		for (const version of [0, 1, 7, 9]) {
+			const path = join(directory, `unsupported-${version}.sqlite`);
+			const db = new DatabaseSync(path);
+			db.exec(
+				`CREATE TABLE precious(content TEXT); INSERT INTO precious VALUES('keep'); PRAGMA user_version=${version};`,
 			);
-			const restartAddress = restarted.address();
-			assert(restartAddress && typeof restartAddress !== "string");
-			const saved = (
-				await (
-					await fetch(`http://127.0.0.1:${restartAddress.port}/api/projects`)
-				).json()
-			).projects;
-			assert.equal(saved[0].id, created.id);
-			assert.equal(saved[0].name, "New");
-		} finally {
-			await new Promise<void>((resolve) => restarted.close(() => resolve()));
+			db.close();
+			assert.throws(() => createServer(fetch, path), /schema/);
+			const retained = new DatabaseSync(path);
+			assert.equal(
+				retained.prepare("SELECT content FROM precious").get()?.content,
+				"keep",
+			);
+			assert.equal(
+				retained.prepare("PRAGMA user_version").get()?.user_version,
+				version,
+			);
+			retained.close();
 		}
-		const invalid = join(directory, "invalid.sqlite");
-		const bad = new DatabaseSync(invalid);
-		bad.exec("CREATE TABLE surprise(id INTEGER)");
-		bad.close();
-		assert.throws(() => createServer(fetch, invalid), /schema/);
 		const broken = join(directory, "broken.sqlite");
 		await writeFile(broken, "not a database");
 		assert.throws(() => createServer(fetch, broken));
+		assert.equal(await readFile(broken, "utf8"), "not a database");
+		const path = join(directory, "current.sqlite");
+		createServer(fetch, path).emit("close");
 		await chmod(path, 0o444);
 		try {
 			assert.throws(() => createServer(fetch, path));
 		} finally {
 			await chmod(path, 0o644);
 		}
-		const damagedSettings = new DatabaseSync(path);
-		damagedSettings.exec("DELETE FROM settings WHERE id=1");
-		damagedSettings.close();
+		const db = new DatabaseSync(path);
+		db.exec("DELETE FROM settings WHERE id=1");
+		db.close();
 		assert.throws(() => createServer(fetch, path), /Corrupt database/);
+		const retained = new DatabaseSync(path);
+		assert.equal(
+			retained.prepare("SELECT COUNT(*) AS count FROM settings").get()?.count,
+			0,
+		);
+		retained.close();
+		const invalid = join(directory, "invalid.sqlite");
+		createServer(fetch, invalid).emit("close");
+		const invalidDb = new DatabaseSync(invalid);
+		invalidDb.exec("ALTER TABLE turns DROP COLUMN output_json");
+		invalidDb.close();
+		assert.throws(
+			() => createServer(fetch, invalid),
+			/Invalid database schema/,
+		);
 		const missing = join(directory, "missing", "db.sqlite");
 		assert.throws(() => createServer(fetch, missing));
 		const result = spawnSync(
 			process.execPath,
 			["src/server.ts", "--db", missing],
-			{ cwd: new URL("..", import.meta.url), encoding: "utf8" },
+			{
+				cwd: new URL("..", import.meta.url),
+				encoding: "utf8",
+			},
 		);
 		assert.notEqual(result.status, 0);
 		assert.match(result.stderr, /unable to open database/);
@@ -186,171 +283,77 @@ test("legacy schema resets once and invalid or read-only databases fail at start
 	}
 });
 
-for (const version of [1, 2, 3, 4, 5])
-	for (const saved of [false, true])
-		test(`settings migrate v${version} (saved width: ${saved}) without losing user content`, async () => {
-			const directory = await mkdtemp(join(tmpdir(), "agent-width-"));
-			const path = join(directory, "db.sqlite");
-			const db = new DatabaseSync(path);
-			db.exec(`
-		CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL);
-		CREATE TABLE folders (project_id INTEGER NOT NULL REFERENCES projects(id), path TEXT NOT NULL, PRIMARY KEY(project_id,path));
-		CREATE TABLE chats (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, last_question_at INTEGER);
-		CREATE TABLE turns (id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL REFERENCES chats(id), user_content TEXT NOT NULL, assistant_content TEXT NOT NULL);
-		INSERT INTO projects VALUES(7,'Existing project',100);
-		INSERT INTO folders VALUES(7,'/existing/folder');
-		INSERT INTO chats VALUES(9,7,'Existing chat',200,300);
-		INSERT INTO turns VALUES(11,9,'Existing question','Existing answer');
-		PRAGMA user_version = ${version};
-	`);
-			if (version === 2) {
-				db.exec(
-					"CREATE TABLE sidebar_width (id INTEGER PRIMARY KEY CHECK(id=1), width REAL NOT NULL CHECK(width BETWEEN 240 AND 600));",
-				);
-				if (saved) db.exec("INSERT INTO sidebar_width VALUES(1,410.5)");
-			}
-			if (version >= 3)
-				db.exec(
-					`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL, debug_enabled INTEGER NOT NULL); INSERT INTO settings VALUES(1,${saved ? "410.5" : "320"},${saved ? "0" : "1"});`,
-				);
-			if (version >= 4)
-				db.exec(
-					"ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0; ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0; UPDATE projects SET archived=1; UPDATE chats SET archived=1;",
-				);
-			if (version === 5)
-				db.exec(
-					"ALTER TABLE settings ADD COLUMN language TEXT NOT NULL DEFAULT 'en'; UPDATE settings SET language='zh-CN';",
-				);
-			db.close();
-			const server = createServer(fetch, path).listen(0, "127.0.0.1");
-			try {
-				await new Promise<void>((resolve) => server.once("listening", resolve));
-				const address = server.address();
-				assert(address && typeof address !== "string");
-				const base = `http://127.0.0.1:${address.port}`;
-				const schema = new DatabaseSync(path);
-				assert.equal(
-					schema.prepare("PRAGMA user_version").get()?.user_version,
-					7,
-				);
-				assert.equal(
-					schema
-						.prepare(
-							"SELECT name FROM sqlite_master WHERE name='sidebar_width'",
-						)
-						.get(),
-					undefined,
-				);
-				assert.deepEqual(
-					{ ...schema.prepare("SELECT * FROM settings").get() },
-					{
-						id: 1,
-						language: version === 5 ? "zh-CN" : "en",
-						sidebar_width: version >= 2 && saved ? 410.5 : 320,
-					},
-				);
-				schema.close();
-				assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
-					language: version === 5 ? "zh-CN" : "en",
-				});
-				const width = async () =>
-					(await (await fetch(`${base}/api/sidebar-width`)).json()).width;
-				assert.equal(await width(), version >= 2 && saved ? 410.5 : 320);
-				for (const input of [
-					{},
-					{ width: null },
-					{ width: "400" },
-					{ width: 239 },
-					{ width: 601 },
-					{ width: Number.POSITIVE_INFINITY },
-				]) {
-					assert.equal(
-						(
-							await fetch(`${base}/api/sidebar-width`, {
-								method: "PUT",
-								headers: { "content-type": "application/json" },
-								body: JSON.stringify(input),
-							})
-						).status,
-						400,
-					);
-					assert.equal(await width(), version >= 2 && saved ? 410.5 : 320);
-				}
-				assert.equal(
-					(
-						await fetch(`${base}/api/sidebar-width`, {
-							method: "PUT",
-							headers: { "content-type": "application/json" },
-							body: '{"width":1e309}',
-						})
-					).status,
-					400,
-				);
-				assert.equal(await width(), version >= 2 && saved ? 410.5 : 320);
-				for (const value of [240, 400.5, 600]) {
-					assert.equal(
-						(
-							await fetch(`${base}/api/sidebar-width`, {
-								method: "PUT",
-								headers: { "content-type": "application/json" },
-								body: JSON.stringify({ width: value }),
-							})
-						).status,
-						200,
-					);
-					assert.equal(await width(), value);
-				}
-				assert.deepEqual(await (await fetch(`${base}/api/projects`)).json(), {
-					projects: [
-						{
-							id: 7,
-							name: "Existing project",
-							archived: version >= 4,
-							createdAt: 100,
-							folders: ["/existing/folder"],
-							chats: [
-								{
-									id: 9,
-									name: "Existing chat",
-									archived: version >= 4,
-									createdAt: 200,
-									lastQuestionAt: 300,
-									busy: false,
-								},
-							],
-						},
-					],
-				});
-				assert.deepEqual(await (await fetch(`${base}/api/chats/9`)).json(), {
-					hasMore: false,
-					hasMoreNewer: false,
-					turns: [
-						{
-							id: 11,
-							question: "Existing question",
-							answer: "Existing answer",
-							status: "succeeded",
-							createdAt: 0,
-							errorCode: null,
-							errorDetails: null,
-						},
-					],
-					messages: [
-						{ id: "11-user", role: "user", content: "Existing question" },
-						{
-							id: "11-assistant",
-							role: "assistant",
-							content: "Existing answer",
-						},
-					],
-					busy: false,
-				});
-				assert.deepEqual(
-					await (await fetch(`${base}/api/turns/11/calls`)).json(),
-					{ calls: [] },
-				);
-			} finally {
-				await new Promise<void>((resolve) => server.close(() => resolve()));
-				await rm(directory, { recursive: true, force: true });
-			}
-		});
+test("sidebar width validates bounds and preserves language across restart", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-width-"));
+	const path = join(directory, "db.sqlite");
+	const server = createServer(fetch, path).listen(0, "127.0.0.1");
+	try {
+		await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		const base = `http://127.0.0.1:${address.port}`;
+		const width = async () =>
+			(await (await fetch(`${base}/api/sidebar-width`)).json()).width;
+		assert.equal(await width(), 320);
+		for (const body of [
+			"{}",
+			'{"width":null}',
+			'{"width":"400"}',
+			'{"width":239}',
+			'{"width":601}',
+			'{"width":1e309}',
+		]) {
+			assert.equal(
+				(
+					await fetch(`${base}/api/sidebar-width`, {
+						method: "PUT",
+						headers: { "content-type": "application/json" },
+						body,
+					})
+				).status,
+				400,
+			);
+			assert.equal(await width(), 320);
+		}
+		assert.equal(
+			(
+				await fetch(`${base}/api/language`, {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ language: "zh-CN" }),
+				})
+			).status,
+			200,
+		);
+		for (const value of [240, 400.5, 600]) {
+			assert.equal(
+				(
+					await fetch(`${base}/api/sidebar-width`, {
+						method: "PUT",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ width: value }),
+					})
+				).status,
+				200,
+			);
+			assert.equal(await width(), value);
+		}
+	} finally {
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+	}
+	try {
+		createServer(fetch, path).emit("close");
+		const db = new DatabaseSync(path);
+		assert.deepEqual(
+			{ ...db.prepare("SELECT * FROM settings").get() },
+			{
+				id: 1,
+				sidebar_width: 600,
+				language: "zh-CN",
+			},
+		);
+		db.close();
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { requestModel } from "../src/openrouter.ts";
+import { completedResponse } from "./model-fixture.ts";
 
 test("retained OpenRouter transport sends contextual JSON without terminal communication logs", async () => {
 	const previousKey = process.env.OPENROUTER_API_KEY;
@@ -24,9 +25,9 @@ test("retained OpenRouter transport sends contextual JSON without terminal commu
 					{ role: "assistant", content: "1" },
 					{ role: "user", content: "double?" },
 				],
-				stream: false,
+				stream: true,
 			});
-			return Response.json({
+			return completedResponse({
 				output: [
 					{ type: "message", content: [{ type: "output_text", text: "2" }] },
 				],
@@ -68,7 +69,8 @@ test("retained OpenRouter transport sends contextual JSON without terminal commu
 			requestModel([], "bad", async () => new Response("bad json")),
 		);
 		await assert.rejects(
-			() => requestModel([], "bad", async () => Response.json({ output: [] })),
+			() =>
+				requestModel([], "bad", async () => completedResponse({ output: [] })),
 			/did not return a text answer/,
 		);
 		await assert.rejects(() =>

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { completedBody, completedResponse } from "./model-fixture.ts";
 
 test("chat histories are isolated; busy rejects duplicates and allows parallel chats; failures release busy", async () => {
 	process.env.OPENROUTER_API_KEY = "test";
@@ -21,7 +22,7 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 					release = resolve;
 				});
 			if (fail) return new Response("broken", { status: 500 });
-			return Response.json({
+			return completedResponse({
 				output: [
 					{
 						type: "message",
@@ -123,8 +124,8 @@ test("all model and database failures preserve complete history and release chat
 	const fake: typeof fetch = async () => {
 		if (mode === "network") throw new Error("offline");
 		if (mode === "parse") return new Response("{");
-		if (mode === "empty") return Response.json({ output: [] });
-		return Response.json({
+		if (mode === "empty") return completedResponse({ output: [] });
+		return completedResponse({
 			output: [
 				{ type: "message", content: [{ type: "output_text", text: "saved" }] },
 			],
@@ -205,8 +206,12 @@ test("turn communication is exact, redacted, independently readable and survives
 	let mode = "hold";
 	let release: (() => void) | undefined;
 	let count = 0;
-	const raw =
-		' \n{"output":[{"type":"message","content":[{"type":"output_text","text":"Answer"}]}],"echo":"record-secret"}\n';
+	const raw = completedBody({
+		output: [
+			{ type: "message", content: [{ type: "output_text", text: "Answer" }] },
+		],
+		echo: "record-secret",
+	});
 	const fake: typeof fetch = async () => {
 		count++;
 		if (mode === "hold")

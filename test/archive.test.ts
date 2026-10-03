@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { completedResponse } from "./model-fixture.ts";
 
 test("archive flags remain independent, enforce read-only and persist without stopping answers", async () => {
 	process.env.OPENROUTER_API_KEY = "test";
@@ -24,7 +25,7 @@ test("archive flags remain independent, enforce read-only and persist without st
 		calls++;
 		enter();
 		await waiting;
-		return Response.json({
+		return completedResponse({
 			output: [
 				{ type: "message", content: [{ type: "output_text", text: "Answer" }] },
 			],

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { completedResponse } from "./model-fixture.ts";
 
 test("edits preserve identity/history and persist atomically, including missing unchanged folders", async () => {
 	const folder = await mkdtemp(join(tmpdir(), "agent-edit-"));
@@ -19,7 +20,7 @@ test("edits preserve identity/history and persist atomically, including missing 
 	const model = async () => {
 		entered();
 		await wait;
-		return Response.json({
+		return completedResponse({
 			output: [
 				{ type: "message", content: [{ type: "output_text", text: "answer" }] },
 			],

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { completedResponse } from "./model-fixture.ts";
 
 test("two SSE clients see creations and language changes; reconnection reads current shared state", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-sse-"));
@@ -17,7 +18,7 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 	const server = createServer(
 		async () => {
 			await held;
-			return Response.json({
+			return completedResponse({
 				output: [
 					{
 						type: "message",
@@ -43,16 +44,24 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 			assert(response.body);
 			const reader = response.body.getReader();
 			let buffer = "";
-			async function next() {
-				while (!buffer.includes("\n\n")) {
-					const chunk = await reader.read();
-					assert(!chunk.done);
-					buffer += new TextDecoder().decode(chunk.value);
+			async function next(kind?: "turn" | "changed") {
+				while (true) {
+					while (!buffer.includes("\n\n")) {
+						const chunk = await reader.read();
+						assert(!chunk.done);
+						buffer += new TextDecoder().decode(chunk.value);
+					}
+					const end = buffer.indexOf("\n\n");
+					const frame = buffer.slice(0, end);
+					buffer = buffer.slice(end + 2);
+					if (
+						!kind ||
+						(kind === "turn"
+							? frame.startsWith("event: turn")
+							: frame === "data: changed")
+					)
+						return frame;
 				}
-				const end = buffer.indexOf("\n\n");
-				const frame = buffer.slice(0, end);
-				buffer = buffer.slice(end + 2);
-				return frame;
 			}
 			assert.equal(await next(), ": connected");
 			return { next, controller };
@@ -85,10 +94,10 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 				body: JSON.stringify({ name: "Work", folders: [directory] }),
 			})
 		).json();
-		assert.deepEqual(await Promise.all([first.next(), second.next()]), [
-			"data: changed",
-			"data: changed",
-		]);
+		assert.deepEqual(
+			await Promise.all([first.next("changed"), second.next("changed")]),
+			["data: changed", "data: changed"],
+		);
 		assert.equal((await agree()).projects[0].id, project.id);
 		const chat = await (
 			await fetch(`${base}/api/projects/${project.id}/chats`, {
@@ -97,23 +106,23 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 				body: JSON.stringify({ name: "Question" }),
 			})
 		).json();
-		assert.deepEqual(await Promise.all([first.next(), second.next()]), [
-			"data: changed",
-			"data: changed",
-		]);
+		assert.deepEqual(
+			await Promise.all([first.next("changed"), second.next("changed")]),
+			["data: changed", "data: changed"],
+		);
 		assert.equal((await agree(chat.id)).projects[0].chats[0].id, chat.id);
 		const pending = fetch(`${base}/api/chats/${chat.id}`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ prompt: "question" }),
 		});
-		await Promise.all([first.next(), second.next()]);
+		await Promise.all([first.next("turn"), second.next("turn")]);
 		const active = await agree(chat.id);
 		assert.equal(active.chat.busy, true);
 		assert.equal(typeof active.projects[0].chats[0].lastQuestionAt, "number");
 		release();
 		assert.equal((await pending).status, 200);
-		await Promise.all([first.next(), second.next()]);
+		await Promise.all([first.next("turn"), second.next("turn")]);
 		const shared = (await agree(chat.id)).chat;
 		assert.equal(shared.busy, false);
 		assert.equal(shared.messages.length, 2);
@@ -123,7 +132,7 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ name: "Missed", folders: [directory] }),
 		});
-		await second.next();
+		await second.next("changed");
 		const reconnected = await connect();
 		const restored = await agree(chat.id);
 		assert.equal(restored.projects.length, 2);
@@ -165,10 +174,10 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ language: "zh-CN" }),
 		});
-		assert.deepEqual(await Promise.all([second.next(), reconnected.next()]), [
-			"data: changed",
-			"data: changed",
-		]);
+		assert.deepEqual(
+			await Promise.all([second.next("changed"), reconnected.next("changed")]),
+			["data: changed", "data: changed"],
+		);
 		assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
 			language: "zh-CN",
 		});

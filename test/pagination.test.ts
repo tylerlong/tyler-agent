@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { completedResponse } from "./model-fixture.ts";
 
 test("stable ten-turn pages and forward catch-up preserve complete model context", async () => {
 	process.env.OPENROUTER_API_KEY = "test";
@@ -13,7 +14,7 @@ test("stable ten-turn pages and forward catch-up preserve complete model context
 	const server = createServer(
 		async (_url, options) => {
 			lastInput = JSON.parse(String(options?.body)).input;
-			return Response.json({
+			return completedResponse({
 				output: [
 					{
 						type: "message",
