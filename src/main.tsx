@@ -870,6 +870,10 @@ function App() {
 			)}
 		</section>
 	);
+	const archivedProjects = projects.filter(
+		(project) =>
+			project.archived || project.chats.some((chat) => chat.archived),
+	);
 	const project = projects.find((project) =>
 		project.chats.some((chat) => chat.id === selected),
 	);
@@ -948,16 +952,11 @@ function App() {
 								}),
 							)}
 					</nav>
-					<details aria-label={t("archived")} className="mt-4">
-						<summary className="cursor-pointer">{t("archived")}</summary>
-						<div className="mt-4 space-y-4">
-							{projects
-								.filter(
-									(project) =>
-										project.archived ||
-										project.chats.some((chat) => chat.archived),
-								)
-								.map((project) =>
+					{archivedProjects.length > 0 && (
+						<details aria-label={t("archived")} className="mt-4">
+							<summary className="cursor-pointer">{t("archived")}</summary>
+							<div className="mt-4 space-y-4">
+								{archivedProjects.map((project) =>
 									renderProject(
 										{
 											...project,
@@ -968,8 +967,9 @@ function App() {
 										true,
 									),
 								)}
-						</div>
-					</details>
+							</div>
+						</details>
+					)}
 					{error && (
 						<p
 							role="alert"

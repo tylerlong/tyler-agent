@@ -24,7 +24,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${a.id}`);
 	const archive = page.getByRole("group", { name: "Archived", exact: true });
-	await expect(page.getByText("Archived", { exact: true })).toBeVisible();
+	await expect(archive).toHaveCount(0);
 	const hold = app.holdModel();
 	await page
 		.getByRole("textbox", { name: "Prompt", exact: true })
@@ -53,6 +53,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(
 			archive.getByRole("region", { name: "Project Work", exact: true }),
 		).toBeHidden();
+		await expect(page.getByText("Archived", { exact: true })).toBeVisible();
 		await page.getByText("Archived", { exact: true }).click();
 		await expect(
 			archive
@@ -106,8 +107,12 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 				.getByRole("region", { name: "Project Work", exact: true })
 				.getByRole("button", { name: "B", exact: true }),
 		).toBeVisible();
+		await expect(archive).toHaveCount(0);
+		await expect(
+			other.getByRole("group", { name: "Archived", exact: true }),
+		).toHaveCount(0);
 		await page.reload();
-		await expect(archive.getByRole("region")).toBeHidden();
+		await expect(archive).toHaveCount(0);
 	} finally {
 		hold.release();
 	}
@@ -234,6 +239,7 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 	await page.request.put(`${app.url}/api/projects/${work.id}/archive`, {
 		data: { archived: true },
 	});
+	await page.getByText("Archived", { exact: true }).click();
 	await expect(archived.getByRole("heading")).toHaveText([
 		"local edit (project archived)",
 		"Newer (project archived)",
