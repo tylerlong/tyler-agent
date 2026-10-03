@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as base, expect } from "@playwright/test";
+import { openDatabase } from "../../src/database.ts";
 import { createServer } from "../../src/server.ts";
 
 export const test = base.extend<{
@@ -17,9 +18,23 @@ export const test = base.extend<{
 	};
 }>({
 	app: async ({ browserName: _browserName }, use) => {
-		process.env.OPENROUTER_API_KEY = "test";
-		process.env.OPENROUTER_MODEL = "test";
 		const folder = await mkdtemp(join(tmpdir(), "agent-e2e-"));
+		const configured = openDatabase(join(folder, "db.sqlite"), false);
+		configured
+			.prepare("INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?)")
+			.run(
+				"test",
+				"Test",
+				JSON.stringify({
+					reasoningRequired: false,
+					catalogMissing: false,
+					supportedEfforts: ["low", "high"],
+				}),
+			);
+		configured
+			.prepare("UPDATE settings SET api_key=?,default_model_id=? WHERE id=1")
+			.run("test", "test");
+		configured.close();
 		let fail: "http" | "network" | null = null;
 		let failedBody = "upstream failure";
 		const failModel = (
@@ -136,6 +151,23 @@ export const test = base.extend<{
 					});
 				},
 				join(folder, "db.sqlite"),
+				async () =>
+					Response.json({
+						data: [
+							{
+								id: "test",
+								name: "Test",
+								architecture: { output_modalities: ["text"] },
+								supported_parameters: ["reasoning"],
+								reasoning: { supported_efforts: ["low", "high"] },
+							},
+							{
+								id: "second",
+								name: "Second",
+								architecture: { output_modalities: ["text"] },
+							},
+						],
+					}),
 			).listen(0, "127.0.0.1");
 		let server = start();
 		if (originalHome === undefined) delete process.env.HOME;

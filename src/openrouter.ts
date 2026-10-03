@@ -49,6 +49,11 @@ const object = (value: unknown): Record<string, unknown> =>
 	value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: {};
+export type ModelConfig = {
+	apiKey: string;
+	model: string;
+	reasoningEffort?: string | null;
+};
 export async function requestModel(
 	messages: Message[],
 	prompt: string,
@@ -57,9 +62,12 @@ export async function requestModel(
 		request: (request: CallRequest) => void;
 		result: (result: CallResult, output: OutputItem[]) => void;
 	},
+	config?: ModelConfig,
 ) {
-	const apiKey = process.env.OPENROUTER_API_KEY;
-	const model = process.env.OPENROUTER_MODEL;
+	const { apiKey, model, reasoningEffort } = config ?? {
+		apiKey: "",
+		model: "",
+	};
 	if (!apiKey || !model)
 		throw new ModelError(
 			"modelConfigMissing",
@@ -88,6 +96,7 @@ export async function requestModel(
 		model,
 		input: [...messages, { role: "user", content: prompt }],
 		stream: true,
+		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
 	});
 	const started = performance.now();
 	let upstream: Response | undefined;

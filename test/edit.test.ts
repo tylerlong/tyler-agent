@@ -4,15 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
+import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("edits preserve identity/history and persist atomically, including missing unchanged folders", async () => {
 	const folder = await mkdtemp(join(tmpdir(), "agent-edit-"));
 	const child = join(folder, "child");
 	await mkdir(child);
-	process.env.OPENROUTER_API_KEY = "test";
-	process.env.OPENROUTER_MODEL = "test";
 	let release!: () => void;
 	let entered!: () => void;
 	const wait = new Promise<void>((r) => (release = r));

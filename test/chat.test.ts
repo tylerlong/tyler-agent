@@ -4,12 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
+import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, completedResponse } from "./model-fixture.ts";
 
 test("chat histories are isolated; busy rejects duplicates and allows parallel chats; failures release busy", async () => {
-	process.env.OPENROUTER_API_KEY = "test";
-	process.env.OPENROUTER_MODEL = "test";
 	const directory = await mkdtemp(join(tmpdir(), "agent-chat-"));
 	const inputs: unknown[] = [];
 	let release: (() => void) | undefined;
@@ -118,8 +116,6 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 test("all model and database failures preserve complete history and release chat lock; restart preserves successful history", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-chat-fail-"));
 	const path = join(directory, "db.sqlite");
-	process.env.OPENROUTER_API_KEY = "test";
-	process.env.OPENROUTER_MODEL = "test";
 	let mode = "ok";
 	const fake: typeof fetch = async () => {
 		if (mode === "network") throw new Error("offline");
@@ -201,8 +197,6 @@ test("all model and database failures preserve complete history and release chat
 test("turn communication is exact, redacted, independently readable and survives interrupted completion", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-records-"));
 	const path = join(directory, "db.sqlite");
-	process.env.OPENROUTER_API_KEY = "record-secret";
-	process.env.OPENROUTER_MODEL = "fixture";
 	let mode = "hold";
 	let release: (() => void) | undefined;
 	let count = 0;
@@ -231,7 +225,10 @@ test("turn communication is exact, redacted, independently readable and survives
 		if (mode === "bad") return new Response("not JSON record-secret");
 		return new Response(raw);
 	};
-	let server = createServer(fake, path).listen(0, "127.0.0.1");
+	let server = createServer(fake, path, "record-secret", "fixture").listen(
+		0,
+		"127.0.0.1",
+	);
 	const base = async () => {
 		if (!server.listening)
 			await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -324,20 +321,21 @@ test("turn communication is exact, redacted, independently readable and survives
 			);
 			assert.doesNotMatch(JSON.stringify(call), /record-secret/);
 		}
-		delete process.env.OPENROUTER_MODEL;
+		await fetch(`${await base()}/api/model-settings`, {
+			method: "PUT",
+			body: JSON.stringify({ defaultModelId: null }),
+		});
 		const configuredCount = count;
 		assert.equal(
 			(await post(route, { prompt: "missing configuration" })).status,
-			502,
+			400,
 		);
 		history = await get(route);
-		assert.equal(history.turns.at(-1).errorCode, "modelConfigMissing");
-		assert.equal(
-			(await get(`/api/turns/${history.turns.at(-1).id}/calls`)).calls.length,
-			0,
-		);
 		assert.equal(count, configuredCount);
-		process.env.OPENROUTER_MODEL = "fixture";
+		await fetch(`${await base()}/api/model-settings`, {
+			method: "PUT",
+			body: JSON.stringify({ defaultModelId: "fixture" }),
+		});
 		mode = "ok";
 		const db = new DatabaseSync(path);
 		db.exec(
@@ -362,7 +360,10 @@ test("turn communication is exact, redacted, independently readable and survives
 		db.close();
 		await stop();
 		const sent = count;
-		server = createServer(fake, path).listen(0, "127.0.0.1");
+		server = createServer(fake, path, "record-secret", "fixture").listen(
+			0,
+			"127.0.0.1",
+		);
 		url = await base();
 		history = await get(route);
 		assert.equal(history.turns.at(-1).errorCode, "modelInterrupted");

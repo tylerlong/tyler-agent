@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
+import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
 
 const item = (id: string, text: string) => ({
@@ -21,11 +21,14 @@ const delta = (text: string, index = 0, part = 0) =>
 	});
 
 async function fixture(fake: typeof fetch) {
-	process.env.OPENROUTER_API_KEY = "stream-secret";
-	process.env.OPENROUTER_MODEL = "stream-fixture";
 	const directory = await mkdtemp(join(tmpdir(), "agent-stream-"));
 	const path = join(directory, "db.sqlite");
-	let server = createServer(fake, path).listen(0, "127.0.0.1");
+	let server = createServer(
+		fake,
+		path,
+		"stream-secret",
+		"stream-fixture",
+	).listen(0, "127.0.0.1");
 	let base = "";
 	async function listening() {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -59,7 +62,12 @@ async function fixture(fake: typeof fetch) {
 		events: (signal: AbortSignal) => fetch(`${base}/api/events`, { signal }),
 		restart: async () => {
 			await stop();
-			server = createServer(fake, path).listen(0, "127.0.0.1");
+			server = createServer(
+				fake,
+				path,
+				"stream-secret",
+				"stream-fixture",
+			).listen(0, "127.0.0.1");
 			await listening();
 		},
 		close: async () => {

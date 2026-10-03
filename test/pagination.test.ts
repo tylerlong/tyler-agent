@@ -3,12 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
+import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("stable ten-turn pages and forward catch-up preserve complete model context", async () => {
-	process.env.OPENROUTER_API_KEY = "test";
-	process.env.OPENROUTER_MODEL = "test";
 	const directory = await mkdtemp(join(tmpdir(), "agent-pages-"));
 	let lastInput: { content: string }[] = [];
 	const server = createServer(

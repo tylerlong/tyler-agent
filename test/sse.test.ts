@@ -4,13 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
+import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("two SSE clients see creations and language changes; reconnection reads current shared state", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-sse-"));
-	process.env.OPENROUTER_API_KEY = "test";
-	process.env.OPENROUTER_MODEL = "test";
 	let release!: () => void;
 	const held = new Promise<void>((resolve) => {
 		release = resolve;

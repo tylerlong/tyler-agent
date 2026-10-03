@@ -9,7 +9,9 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
+import type { ModelSettings } from "./database.ts";
 import i18n from "./i18n.ts";
+import { ModelConfiguration } from "./model-configuration.tsx";
 import { createSettingState } from "./setting-state.ts";
 import { TurnCalls } from "./turn-calls.tsx";
 import { type ReaderItem, TurnOutput } from "./turn-output.tsx";
@@ -152,6 +154,22 @@ function App() {
 			},
 		),
 	);
+	const [modelSettings, setModelSettings] = useState<ModelSettings | null>(
+		null,
+	);
+	const [modelSettingsError, setModelSettingsError] = useState(false);
+	const modelSettingsRead = useRef(0);
+	const refreshModelSettings = useCallback(async () => {
+		const version = ++modelSettingsRead.current;
+		try {
+			const value = await api("/api/model-settings");
+			if (version !== modelSettingsRead.current) return;
+			setModelSettings(value);
+			setModelSettingsError(false);
+		} catch {
+			if (version === modelSettingsRead.current) setModelSettingsError(true);
+		}
+	}, []);
 	const [sidebarWidth, setSidebarWidth] = useState(320);
 	const [sidebarDragging, setSidebarDragging] = useState(false);
 	const sidebarDrag = useRef<{
@@ -516,8 +534,8 @@ function App() {
 		} catch (cause) {
 			if (revision === refreshRevision.current) setError(appError(cause));
 		}
-		await languageState.refresh();
-	}, [languageState]);
+		await Promise.all([languageState.refresh(), refreshModelSettings()]);
+	}, [languageState, refreshModelSettings]);
 	useEffect(() => {
 		const sync = () => {
 			void refresh();
@@ -1505,6 +1523,11 @@ function App() {
 						</button>
 					</div>
 				)}
+				<ModelConfiguration
+					settings={modelSettings}
+					readFailed={modelSettingsError}
+					refresh={refreshModelSettings}
+				/>
 				<div className="mt-4 flex justify-end gap-3">
 					<button
 						type="button"

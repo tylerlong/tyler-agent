@@ -4,12 +4,10 @@ import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
+import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("archive flags remain independent, enforce read-only and persist without stopping answers", async () => {
-	process.env.OPENROUTER_API_KEY = "test";
-	process.env.OPENROUTER_MODEL = "test";
 	const folder = await mkdtemp(join(tmpdir(), "agent-archive-"));
 	const path = join(folder, "db.sqlite");
 	let release!: () => void;

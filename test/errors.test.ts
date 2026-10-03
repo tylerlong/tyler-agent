@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
+import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, completedResponse } from "./model-fixture.ts";
 
 test("HTTP errors provide stable identifiers independent of interface language", async () => {
@@ -40,10 +40,6 @@ test("HTTP errors provide stable identifiers independent of interface language",
 
 test("HTTP model failures return concise errors and keep redacted bodies in communication records", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-model-errors-"));
-	const oldKey = process.env.OPENROUTER_API_KEY;
-	const oldModel = process.env.OPENROUTER_MODEL;
-	process.env.OPENROUTER_API_KEY = 'secret"key';
-	process.env.OPENROUTER_MODEL = "test-model";
 	let failure = "upstream";
 	const fake: typeof fetch = async () => {
 		if (failure === "network") throw new Error('network secret"key');
@@ -58,10 +54,12 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 			{ status: 429 },
 		);
 	};
-	const server = createServer(fake, join(directory, "app.sqlite")).listen(
-		0,
-		"127.0.0.1",
-	);
+	const server = createServer(
+		fake,
+		join(directory, "app.sqlite"),
+		'secret"key',
+		"test-model",
+	).listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => server.once("listening", resolve));
 	const address = server.address();
 	assert(address && typeof address !== "string");
@@ -123,9 +121,5 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 	} finally {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(directory, { recursive: true, force: true });
-		if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = oldKey;
-		if (oldModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = oldModel;
 	}
 });

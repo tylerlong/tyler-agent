@@ -9,7 +9,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { listProjects, openDatabase } from "./database.ts";
+import {
+	listProjects,
+	type ManagedModel,
+	modelSettings,
+	openDatabase,
+} from "./database.ts";
 import {
 	answerText,
 	ModelError,
@@ -68,6 +73,12 @@ const errorMessages: Record<string, string> = {
 	chatCreateFailed: "Could not create chat",
 	notFound: "Not found",
 	languageWriteFailed: "Could not save interface language",
+	modelSettingsFailed: "Could not read or save model settings",
+	modelCatalogFailed: "Could not load model catalog",
+	invalidModel: "Choose a configured model",
+	invalidReasoning: "Choose a supported reasoning level",
+	invalidApiKey: "Invalid API key",
+	modelConfigMissing: "OpenRouter configuration is missing",
 };
 class InputError extends Error {
 	code: string;
@@ -148,6 +159,7 @@ function json(response: ServerResponse, status: number, body: unknown) {
 export function createServer(
 	fetchModel: typeof fetch = fetch,
 	databasePath?: string,
+	fetchCatalog: typeof fetch = fetch,
 ) {
 	const database = openDatabase(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
@@ -248,6 +260,77 @@ export function createServer(
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
 	};
+	let catalog: ManagedModel[] | undefined;
+	let catalogLoading: Promise<ManagedModel[]> | undefined;
+	const loadCatalog = (refresh = false): Promise<ManagedModel[]> => {
+		if (!refresh && catalog) return Promise.resolve(catalog);
+		if (catalogLoading) return catalogLoading;
+		catalogLoading = (async () => {
+			const response = await fetchCatalog(
+				"https://openrouter.ai/api/v1/models",
+				{ method: "GET" },
+			);
+			if (!response.ok) throw new InputError("modelCatalogFailed");
+			const body = await response.json();
+			if (!Array.isArray(body?.data))
+				throw new InputError("modelCatalogFailed");
+			const rows = body.data as {
+				id: string;
+				name: string;
+				architecture?: { output_modalities?: string[] };
+				reasoning?: { supported_efforts?: unknown; mandatory?: boolean };
+			}[];
+			const next: ManagedModel[] = rows
+				.filter(
+					(row) =>
+						typeof row?.id === "string" &&
+						row.id.trim() &&
+						typeof row.name === "string" &&
+						Array.isArray(row.architecture?.output_modalities) &&
+						row.architecture.output_modalities.includes("text"),
+				)
+				.map((row) => ({
+					id: row.id,
+					name: row.name,
+					...(row.reasoning &&
+					Object.hasOwn(row.reasoning, "supported_efforts") &&
+					(row.reasoning.supported_efforts === null ||
+						(Array.isArray(row.reasoning.supported_efforts) &&
+							row.reasoning.supported_efforts.every(
+								(effort: unknown) => typeof effort === "string",
+							)))
+						? { supportedEfforts: row.reasoning.supported_efforts }
+						: {}),
+					reasoningRequired: row.reasoning?.mandatory === true,
+					catalogMissing: false,
+				}));
+			database.exec("BEGIN");
+			try {
+				// Read membership after the network wait, preserving concurrent additions/removals.
+				for (const model of modelSettings(database).models) {
+					const found = next.find((row) => row.id === model.id);
+					const { id, name, ...metadata } = found ?? {
+						...model,
+						catalogMissing: true,
+					};
+					database
+						.prepare("UPDATE managed_models SET name=?,metadata=? WHERE id=?")
+						.run(name, JSON.stringify(metadata), id);
+				}
+				database.exec("COMMIT");
+			} catch (error) {
+				database.exec("ROLLBACK");
+				throw error;
+			}
+			catalog = next;
+			notifyChange();
+			return next;
+		})().finally(() => {
+			catalogLoading = undefined;
+		});
+		return catalogLoading;
+	};
+
 	return createHttpServer(async (request, response) => {
 		const url = new URL(request.url ?? "/", "http://localhost");
 		const path = url.pathname;
@@ -291,6 +374,113 @@ export function createServer(
 			response.on("close", () => subscribers.delete(response));
 			return;
 		}
+		if (
+			path === "/api/model-settings" &&
+			["GET", "PUT"].includes(request.method ?? "")
+		) {
+			try {
+				if (request.method === "PUT") {
+					const input = await readJson(request);
+					if (
+						input.apiKey !== undefined &&
+						(typeof input.apiKey !== "string" || /[\r\n]/.test(input.apiKey))
+					)
+						throw new InputError("invalidApiKey");
+					if (
+						input.removeApiKey !== undefined &&
+						typeof input.removeApiKey !== "boolean"
+					)
+						throw new InputError("invalidInput");
+					if (
+						input.defaultModelId !== undefined &&
+						input.defaultModelId !== null &&
+						(typeof input.defaultModelId !== "string" ||
+							!database
+								.prepare("SELECT 1 FROM managed_models WHERE id=?")
+								.get(input.defaultModelId))
+					)
+						throw new InputError("invalidModel");
+					database.exec("BEGIN");
+					try {
+						if (input.removeApiKey === true)
+							database
+								.prepare("UPDATE settings SET api_key=NULL WHERE id=1")
+								.run();
+						else if (typeof input.apiKey === "string" && input.apiKey.trim())
+							database
+								.prepare("UPDATE settings SET api_key=? WHERE id=1")
+								.run(input.apiKey.trim());
+						if (input.defaultModelId !== undefined)
+							database
+								.prepare("UPDATE settings SET default_model_id=? WHERE id=1")
+								.run(input.defaultModelId as string | null);
+						database.exec("COMMIT");
+					} catch (error) {
+						database.exec("ROLLBACK");
+						throw error;
+					}
+					notifyChange();
+				}
+				json(response, 200, modelSettings(database));
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "modelSettingsFailed"),
+				);
+			}
+			return;
+		}
+		if (
+			path === "/api/model-catalog" &&
+			["GET", "POST"].includes(request.method ?? "")
+		) {
+			try {
+				json(response, 200, {
+					models: await loadCatalog(request.method === "POST"),
+				});
+			} catch {
+				json(response, 502, errorBody("modelCatalogFailed"));
+			}
+			return;
+		}
+		if (path === "/api/models" && request.method === "POST") {
+			try {
+				const { id } = await readJson(request);
+				if (typeof id !== "string" || !id.trim())
+					throw new InputError("invalidModel");
+				const model = (await loadCatalog()).find((model) => model.id === id);
+				if (!model) throw new InputError("invalidModel");
+				const { name, ...metadata } = model;
+				delete (metadata as Partial<ManagedModel>).id;
+				database
+					.prepare(
+						"INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING",
+					)
+					.run(id, name, JSON.stringify(metadata));
+				notifyChange();
+				json(response, 200, modelSettings(database));
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "modelSettingsFailed"),
+				);
+			}
+			return;
+		}
+		if (path.startsWith("/api/models/") && request.method === "DELETE") {
+			try {
+				const id = decodeURIComponent(path.slice("/api/models/".length));
+				database.prepare("DELETE FROM managed_models WHERE id=?").run(id);
+				notifyChange();
+				json(response, 200, modelSettings(database));
+			} catch {
+				json(response, 500, errorBody("modelSettingsFailed"));
+			}
+			return;
+		}
+
 		if (
 			path === "/api/sidebar-width" &&
 			(request.method === "GET" || request.method === "PUT")
@@ -685,15 +875,25 @@ export function createServer(
 					json(response, 409, errorBody("chatBusy"));
 					return;
 				}
+				const settings = database
+					.prepare("SELECT api_key,default_model_id FROM settings WHERE id=1")
+					.get();
+				const config = {
+					apiKey: String(settings?.api_key ?? ""),
+					model: String(settings?.default_model_id ?? ""),
+				};
+				if (!config.apiKey || !config.model)
+					throw new InputError("modelConfigMissing");
 				busy.add(id);
 				locked = true;
 				let turnId: number;
 				database.exec("BEGIN");
 				try {
-					const key = process.env.OPENROUTER_API_KEY;
-					const question = key
-						? input.prompt.replaceAll(key, "[REDACTED]")
-						: input.prompt;
+					const key = config.apiKey;
+					const question = [key, JSON.stringify(key).slice(1, -1)].reduce(
+						(text, secret) => text.replaceAll(secret, "[REDACTED]"),
+						input.prompt,
+					);
 					turnId = Number(
 						database
 							.prepare(
@@ -767,6 +967,7 @@ export function createServer(
 								notifyTurn(id, turnId);
 							},
 						},
+						config,
 					);
 				} catch (error) {
 					failure = error;

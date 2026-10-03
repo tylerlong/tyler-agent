@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { requestModel } from "../src/openrouter.ts";
+import { requestModel as request } from "../src/openrouter.ts";
+
+const requestModel = (
+	messages: Parameters<typeof request>[0],
+	prompt: string,
+	fake: typeof fetch,
+) =>
+	request(messages, prompt, fake, undefined, {
+		apiKey: 'fake"secret',
+		model: "test-model",
+	});
+
 import { completedResponse } from "./model-fixture.ts";
 
 test("retained OpenRouter transport sends contextual JSON without terminal communication logs", async () => {
-	const previousKey = process.env.OPENROUTER_API_KEY;
-	const previousModel = process.env.OPENROUTER_MODEL;
 	const original = console.log;
 	const logs: string[] = [];
-	process.env.OPENROUTER_API_KEY = 'fake"secret';
-	process.env.OPENROUTER_MODEL = "test-model";
 	console.log = (...values) => logs.push(values.join(" "));
 	try {
 		const fake: typeof fetch = async (url, init) => {
@@ -31,7 +38,7 @@ test("retained OpenRouter transport sends contextual JSON without terminal commu
 				output: [
 					{ type: "message", content: [{ type: "output_text", text: "2" }] },
 				],
-				echo: process.env.OPENROUTER_API_KEY,
+				echo: 'fake"secret',
 			});
 		};
 		assert.equal(
@@ -81,9 +88,5 @@ test("retained OpenRouter transport sends contextual JSON without terminal commu
 		assert.doesNotMatch(logs.join("\n"), /fake/);
 	} finally {
 		console.log = original;
-		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
-		else process.env.OPENROUTER_API_KEY = previousKey;
-		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
-		else process.env.OPENROUTER_MODEL = previousModel;
 	}
 });

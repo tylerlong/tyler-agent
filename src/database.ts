@@ -1,9 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export function openDatabase(path: string, createDefaultDirectory: boolean) {
 	if (createDefaultDirectory) mkdirSync(dirname(path), { recursive: true });
+	if (existsSync(path) && !(statSync(path).mode & 0o222))
+		throw new Error("Database is read-only");
 	const db = new DatabaseSync(path);
 	try {
 		db.exec("PRAGMA foreign_keys = ON");
@@ -33,8 +35,11 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			version !== 8 ||
-			tables.join(",") !== "chats,folders,model_calls,projects,settings,turns"
+			![8, 9].includes(Number(version)) ||
+			tables.join(",") !==
+				(version === 9
+					? "chats,folders,managed_models,model_calls,projects,settings,turns"
+					: "chats,folders,model_calls,projects,settings,turns")
 		) {
 			throw new Error("Unknown database schema");
 		}
@@ -52,7 +57,11 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				"id,chat_id,user_content,assistant_content,status,created_at,error_code,error_details,output_json",
 			model_calls:
 				"id,turn_id,url,method,requested_at,request_body,status,http_status,response_body,duration_ms,error",
-			settings: "id,sidebar_width,language",
+			settings:
+				version === 9
+					? "id,sidebar_width,language,api_key,default_model_id"
+					: "id,sidebar_width,language",
+			...(version === 9 ? { managed_models: "id,name,metadata" } : {}),
 		})) {
 			if (columns(table) !== expected)
 				throw new Error("Invalid database schema");
@@ -70,6 +79,19 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			)
 		)
 			throw new Error("Corrupt database");
+		if (version !== 9) {
+			db.exec(`BEGIN;
+                CREATE TABLE managed_models (id TEXT PRIMARY KEY CHECK(length(trim(id))>0), name TEXT NOT NULL, metadata TEXT NOT NULL CHECK(json_valid(metadata)));
+                ALTER TABLE settings ADD COLUMN api_key TEXT;
+                ALTER TABLE settings ADD COLUMN default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL;
+                PRAGMA user_version=9;
+                COMMIT;`);
+		}
+		if (path !== ":memory:") {
+			chmodSync(dirname(path), 0o700);
+			chmodSync(path, 0o600);
+		}
+
 		db.exec(
 			"SAVEPOINT startup_check; INSERT INTO projects(name,created_at) VALUES ('startup',0); ROLLBACK TO startup_check; RELEASE startup_check;",
 		);
@@ -110,4 +132,37 @@ export function listProjects(db: DatabaseSync) {
 					archived: Boolean(chat.archived),
 				})),
 		}));
+}
+
+export type ManagedModel = {
+	id: string;
+	name: string;
+	supportedEfforts?: string[] | null;
+	reasoningRequired: boolean;
+	catalogMissing: boolean;
+};
+export type ModelSettings = {
+	apiKeyConfigured: boolean;
+	defaultModelId: string | null;
+	models: ManagedModel[];
+};
+export function modelSettings(db: DatabaseSync): ModelSettings {
+	const settings = db
+		.prepare("SELECT api_key,default_model_id FROM settings WHERE id=1")
+		.get();
+	return {
+		apiKeyConfigured: !!settings?.api_key,
+		defaultModelId:
+			settings?.default_model_id === null
+				? null
+				: String(settings?.default_model_id),
+		models: db
+			.prepare("SELECT id,name,metadata FROM managed_models ORDER BY rowid")
+			.all()
+			.map((row) => ({
+				id: String(row.id),
+				name: String(row.name),
+				...JSON.parse(String(row.metadata)),
+			})),
+	};
 }
