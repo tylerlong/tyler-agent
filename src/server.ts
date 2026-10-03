@@ -486,6 +486,11 @@ export function createServer(
 				const { id } = await readJson(request);
 				if (typeof id !== "string" || !id.trim())
 					throw new InputError("invalidModel");
+				const existing = modelSettings(database);
+				if (existing.models.some((model) => model.id === id)) {
+					json(response, 200, { ...existing, firstModelAdded: false });
+					return;
+				}
 				const model = (await loadCatalog()).find((model) => model.id === id);
 				if (!model) throw new InputError("invalidModel");
 				const { name, ...metadata } = model;

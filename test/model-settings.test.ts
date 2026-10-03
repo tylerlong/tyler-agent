@@ -512,12 +512,13 @@ test("default removal is atomic, uses successful cached rank, and falls back to 
 test("first model addition persists its default atomically and duplicates or later additions preserve selection and order", async () => {
 	const folder = await mkdtemp(join(tmpdir(), "agent-first-add-"));
 	const path = join(folder, "db.sqlite");
+	let failCatalog = false;
+	let data = [catalogModel("one"), catalogModel("two"), catalogModel("three")];
 	const start = () =>
-		createServer(fetch, path, async () =>
-			Response.json({
-				data: [catalogModel("one"), catalogModel("two"), catalogModel("three")],
-			}),
-		).listen(0, "127.0.0.1");
+		createServer(fetch, path, async () => {
+			if (failCatalog) throw Error("directory unavailable");
+			return Response.json({ data });
+		}).listen(0, "127.0.0.1");
 	let server = start();
 	const request = async (route: string, method = "GET", body?: unknown) => {
 		if (!server.listening)
@@ -563,8 +564,18 @@ test("first model addition persists its default atomically and duplicates or lat
 		assert.equal((await (await add("two")).json()).firstModelAdded, true);
 		const saved = await settings();
 		assert.equal(saved.defaultModelId, "two");
+		data = [catalogModel("three")];
+		assert.equal((await request("/api/model-catalog", "POST")).status, 200);
+		const retainedDuplicate = await add("two");
+		assert.equal(retainedDuplicate.status, 200);
+		assert.equal((await retainedDuplicate.json()).firstModelAdded, false);
+		assert.deepEqual(await settings(), saved);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
+		failCatalog = true;
 		server = start();
+		const restartedDuplicate = await add("two");
+		assert.equal(restartedDuplicate.status, 200);
+		assert.equal((await restartedDuplicate.json()).firstModelAdded, false);
 		assert.deepEqual(await settings(), saved);
 	} finally {
 		server.closeAllConnections();
