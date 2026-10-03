@@ -3,6 +3,15 @@ import { initReactI18next } from "react-i18next";
 export const resources = {
 	en: {
 		translation: {
+			loadingProjects: "Loading projects…",
+			loadingHistory: "Loading chat history…",
+			welcome: "Welcome to Tyler Agent",
+			createProjectGuidance:
+				"Create a project using New project in the sidebar to start a chat. Archived projects and chats remain available in Archived.",
+			chooseProjectChat:
+				"Select a chat from the sidebar, or create one within its project using New chat or +.",
+			firstQuestion: "Ask your first question below to begin this chat.",
+			chatOwner: "Project: {{name}}",
 			projects: "Projects",
 			projectsAndChats: "Projects and chats",
 			projectRegion: "Project {{name}}",
@@ -163,6 +172,15 @@ export const resources = {
 	},
 	"zh-CN": {
 		translation: {
+			loadingProjects: "正在加载项目…",
+			loadingHistory: "正在加载对话历史…",
+			welcome: "欢迎使用 Tyler Agent",
+			createProjectGuidance:
+				"点击侧栏的新建项目创建项目，然后在项目内开始对话。归档的项目与对话仍可在已归档中查看。",
+			chooseProjectChat:
+				"从侧栏选择对话，或在所属项目内点击新建对话或 + 创建对话。",
+			firstQuestion: "在下方输入第一个问题，开始此对话。",
+			chatOwner: "所属项目：{{name}}",
 			projects: "项目",
 			projectsAndChats: "项目和对话",
 			projectRegion: "项目 {{name}}",

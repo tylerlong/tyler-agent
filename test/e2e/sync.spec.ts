@@ -116,7 +116,7 @@ test("empty and unknown selections keep layout; language and missed updates reco
 	await expect(page.getByRole("navigation")).toBeEmpty();
 	await expect(
 		page.getByRole("region", { name: "Chat", exact: true }),
-	).toBeEmpty();
+	).toContainText("Create a project using New project");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
 		page.getByRole("combobox", { name: "Interface language", exact: true }),
@@ -134,7 +134,7 @@ test("empty and unknown selections keep layout; language and missed updates reco
 	await other.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
 		other.getByRole("region", { name: "Chat", exact: true }),
-	).toBeEmpty();
+	).toContainText("Create a project using New project");
 	await page
 		.getByRole("combobox", { name: "Interface language", exact: true })
 		.selectOption("en");
@@ -161,7 +161,7 @@ test("empty and unknown selections keep layout; language and missed updates reco
 		).toHaveValue("zh-CN");
 		await expect(
 			p.getByRole("region", { name: "对话", exact: true }),
-		).toBeEmpty();
+		).toContainText("从侧栏选择对话");
 	}
 	await expect(other).toHaveURL(`${app.url}/`);
 });

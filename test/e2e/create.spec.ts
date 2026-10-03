@@ -125,14 +125,13 @@ test("native creation modals support validation, cancellation and shared lists",
 	await modal.getByLabel("Name").fill("Work");
 	await modal.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(modal).not.toBeVisible();
-	await expect(page.getByRole("region", { name: "Chat" })).toBeEmpty();
+	await expect(page.getByRole("region", { name: "Chat" })).toContainText(
+		"Select a chat from the sidebar",
+	);
 	await expect(
 		other.getByRole("heading", { name: "Work", exact: true }),
 	).toBeVisible();
-	const createChat = page.getByRole("button", {
-		name: "New chat",
-		exact: true,
-	});
+	const createChat = page.getByTitle("New chat", { exact: true });
 	await createChat.click();
 	await modal.getByLabel("Name").fill(" ");
 	await modal.getByRole("button", { name: "Create", exact: true }).click();
@@ -151,7 +150,9 @@ test("native creation modals support validation, cancellation and shared lists",
 	await expect(
 		other.getByRole("button", { name: "Question", exact: true }),
 	).toBeVisible();
-	await expect(other.getByRole("region", { name: "Chat" })).toBeEmpty();
+	await expect(other.getByRole("region", { name: "Chat" })).toContainText(
+		"Select a chat from the sidebar",
+	);
 	await page.getByRole("button", { name: "Collapse Work" }).click();
 	await expect(
 		page.getByRole("button", { name: "Question", exact: true }),
@@ -223,7 +224,7 @@ test("pending chat creation keeps its input while hidden and completes in its or
 		await held;
 		await route.continue();
 	});
-	const trigger = page.getByRole("button", { name: "New chat", exact: true });
+	const trigger = page.getByTitle("New chat", { exact: true });
 	await trigger.click();
 	const modal = page.getByRole("dialog", { name: "New chat", exact: true });
 	await modal.getByLabel("Name").fill("Pending chat");

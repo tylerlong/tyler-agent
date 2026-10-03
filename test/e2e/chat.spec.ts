@@ -15,7 +15,7 @@ test("chat read failures retain the URL; confirmed missing chats return home", a
 	await expect(page).toHaveURL(`${app.url}/`);
 	await expect(
 		page.getByRole("region", { name: "Chat", exact: true }),
-	).toBeEmpty();
+	).toContainText("Create a project using New project");
 });
 
 test("URL navigation isolates history and drafts; refresh discards drafts and stale reads cannot change selection", async ({

@@ -213,6 +213,8 @@ function App() {
 		};
 	}, [finishSidebarDrag]);
 	const [projects, setProjects] = useState<Project[]>([]);
+	const [projectsLoaded, setProjectsLoaded] = useState(false);
+	const [projectsError, setProjectsError] = useState<ApiError | null>(null);
 	const [selected, setSelected] = useState<number | null>(urlChat);
 	const selectedRef = useRef(selected);
 	const selectionVersion = useRef(0);
@@ -585,11 +587,17 @@ function App() {
 	const [dialogChange, setDialogChange] = useState(0);
 	const refreshRevision = useRef(0);
 	const refresh = useCallback(async () => {
+		const settingsReads = Promise.all([
+			languageState.refresh(),
+			refreshModelSettings(),
+		]);
 		const revision = ++refreshRevision.current;
 		const read = ++readSequence.current;
 		try {
 			const data = await api("/api/projects");
-			if (revision === refreshRevision.current)
+			if (revision === refreshRevision.current) {
+				setProjectsLoaded(true);
+				setProjectsError(null);
 				setProjects((current) => {
 					const busy = new Map(
 						current.flatMap((project) =>
@@ -606,10 +614,12 @@ function App() {
 						}),
 					}));
 				});
+			}
 		} catch (cause) {
-			if (revision === refreshRevision.current) setError(appError(cause));
+			if (revision === refreshRevision.current)
+				setProjectsError(appError(cause));
 		}
-		await Promise.all([languageState.refresh(), refreshModelSettings()]);
+		await settingsReads;
 	}, [languageState, refreshModelSettings]);
 	useEffect(() => {
 		const sync = () => {
@@ -927,6 +937,20 @@ function App() {
 					</button>
 				</ActionMenu>
 			</div>
+			{!archivedArea &&
+				!collapsed.has(project.id) &&
+				project.chats.length === 0 && (
+					<button
+						type="button"
+						className={`${button} ml-5 mt-2`}
+						disabled={
+							saving && (editing !== null || creatingProject !== project.id)
+						}
+						onClick={() => openModal(project.id)}
+					>
+						{t("newChat")}
+					</button>
+				)}
 			{!collapsed.has(project.id) && (
 				<ul className="ml-5 mt-1 space-y-0.5">
 					{project.chats.map((chat) => (
@@ -1097,14 +1121,6 @@ function App() {
 							{errorText(error)}
 						</p>
 					)}
-					{selected !== null && !chat && historyErrors[selected] && (
-						<p
-							role="alert"
-							className="mt-4 whitespace-pre-wrap break-words text-red-700"
-						>
-							{errorText(historyErrors[selected])}
-						</p>
-					)}
 				</div>
 				<footer className="shrink-0 pt-3">
 					<button
@@ -1213,6 +1229,56 @@ function App() {
 						};
 					}}
 				>
+					{projectsError && (
+						<div
+							role="alert"
+							className="mx-auto max-w-2xl whitespace-pre-wrap break-words text-red-700"
+						>
+							{errorText(projectsError)}{" "}
+							<button
+								type="button"
+								className={button}
+								onClick={() => void refresh()}
+							>
+								{t("retry")}
+							</button>
+						</div>
+					)}
+					{!projectsLoaded && !projectsError && (
+						<p role="status">{t("loadingProjects")}</p>
+					)}
+					{selected === null && projectsLoaded && !projectsError && (
+						<div className="mx-auto max-w-2xl">
+							<h2 className="text-xl font-medium">{t("welcome")}</h2>
+							<p className="mt-3">
+								{t(
+									projects.some((project) => !project.archived)
+										? "chooseProjectChat"
+										: "createProjectGuidance",
+								)}
+							</p>
+						</div>
+					)}
+					{selected !== null &&
+						!chat &&
+						!historyErrors[selected] &&
+						projectsLoaded && <p role="status">{t("loadingHistory")}</p>}
+					{selected !== null && !chat && historyErrors[selected] && (
+						<p
+							role="alert"
+							className="whitespace-pre-wrap break-words text-red-700"
+						>
+							{errorText(historyErrors[selected])}{" "}
+							<button
+								type="button"
+								className={button}
+								onClick={() => void refreshChat(selected)}
+							>
+								{t("retry")}
+							</button>
+						</p>
+					)}
+
 					{project && chat && (
 						<div className="mx-auto max-w-2xl">
 							<p className="text-neutral-600">{project.name}</p>
@@ -1225,6 +1291,15 @@ function App() {
 									</li>
 								))}
 							</ul>
+							{!chatState?.historyLoaded && !historyErrors[chat.id] && (
+								<p role="status" className="mt-6">
+									{t("loadingHistory")}
+								</p>
+							)}
+							{chatState?.historyLoaded &&
+								chatState.messages.length === 0 &&
+								!historyErrors[chat.id] &&
+								!readOnly && <p className="mt-6">{t("firstQuestion")}</p>}
 							{chatState?.hasMore && (
 								<button
 									type="button"
@@ -1421,6 +1496,11 @@ function App() {
 								: "newChat",
 					)}
 				</h2>
+				{creatingProject !== null && !editing && (
+					<p className="mt-2 break-words">
+						{t("chatOwner", { name: modalProject?.name })}
+					</p>
+				)}
 				<form className="mt-4 space-y-4" onSubmit={saveModal}>
 					<label className="block">
 						{t("name")}
