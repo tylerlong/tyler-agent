@@ -310,7 +310,16 @@ test("split credentials are redacted before storage; later failed writes retain 
 		const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "accepted" });
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		const raw =
-			frame("unknown.event", { echo: "stream-secret" }) + delta("saved");
+			frame("unknown.event", { echo: "stream-secret" }) +
+			delta("saved") +
+			frame("response.output_item.added", {
+				output_index: 1,
+				item: {
+					id: "stream-secret",
+					type: "stream-secret",
+					content: [{ type: "stream-secret", text: "stream-secret" }],
+				},
+			});
 		const split = raw.indexOf("stream-secret") + 7;
 		stream.enqueue(new TextEncoder().encode(raw.slice(0, split)));
 		stream.enqueue(new TextEncoder().encode(raw.slice(split)));
@@ -325,6 +334,14 @@ test("split credentials are redacted before storage; later failed writes retain 
 			raw.replaceAll("stream-secret", "[REDACTED]"),
 		);
 		assert.doesNotMatch(JSON.stringify(calls), /stream-secret/);
+		assert.doesNotMatch(JSON.stringify(turn), /stream-secret/);
+		assert.doesNotMatch(
+			String(
+				db.prepare("SELECT output_json FROM turns WHERE id=?").get(turn.id)
+					?.output_json,
+			),
+			/stream-secret/,
+		);
 		db.exec(
 			"CREATE TRIGGER reject_progress BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'write rejected'); END",
 		);

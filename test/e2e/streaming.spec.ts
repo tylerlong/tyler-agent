@@ -48,3 +48,96 @@ test("two pages show saved answer increments before completion using targeted tu
 	expect(reads).not.toContain("/api/projects");
 	expect(reads).not.toContain(`/api/chats/${chat.id}`);
 });
+
+test("a live turn arriving before initial history preserves load-earlier pagination", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "History race" },
+		})
+	).json();
+	for (let index = 1; index <= 11; index++)
+		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+			data: { prompt: `old question ${index}` },
+		});
+	let releaseHistory!: () => void;
+	let historyStarted!: () => void;
+	const held = new Promise<void>((resolve) => {
+		releaseHistory = resolve;
+	});
+	const started = new Promise<void>((resolve) => {
+		historyStarted = resolve;
+	});
+	await page.route(`**/api/chats/${chat.id}`, async (route) => {
+		if (route.request().method() !== "GET") return route.continue();
+		const response = await route.fetch();
+		historyStarted();
+		await held;
+		await route.fulfill({ response });
+	});
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await started;
+	const stream = app.streamModel();
+	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { prompt: "live question" },
+	});
+	await stream.entered;
+	await expect(page.getByRole("log")).toContainText("live question");
+	await expect(page.getByRole("log")).toContainText("Test ");
+	releaseHistory();
+	const earlier = page.getByRole("button", {
+		name: "Load earlier turns",
+		exact: true,
+	});
+	await expect(earlier).toBeVisible();
+	await expect(page.locator('[data-message-id="1-user"]')).toHaveCount(0);
+	await earlier.click();
+	await expect(page.getByRole("log")).toContainText("old question 1");
+	await expect(earlier).not.toBeVisible();
+	stream.release();
+	await submitted;
+});
+
+test("restart retains partial answers and labels them incomplete", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Interrupted" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await expect(
+		page.getByRole("button", { name: "Submit", exact: true }),
+	).toBeEnabled();
+	const stream = app.streamModel();
+	const submitted = page.request
+		.post(`${app.url}/api/chats/${chat.id}`, {
+			data: { prompt: "partial question" },
+		})
+		.catch(() => undefined);
+	await stream.entered;
+	await expect(page.getByRole("log")).toContainText("Test ");
+	await app.restart();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await expect(page.getByRole("log")).toContainText("Test ");
+	await expect(page.getByRole("log")).toContainText("Incomplete answer.");
+	await expect(
+		page.getByRole("button", { name: "Submit", exact: true }),
+	).toBeEnabled();
+	stream.release();
+	await submitted;
+});

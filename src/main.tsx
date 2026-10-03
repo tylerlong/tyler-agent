@@ -206,6 +206,7 @@ function App() {
 		}[];
 		busy: boolean;
 		hasMore: boolean;
+		historyLoaded?: boolean;
 	};
 	const [chatCache, setChatCache] = useState<Record<number, ChatState>>({});
 	const cacheRef = useRef(chatCache);
@@ -270,6 +271,7 @@ function App() {
 			data: ChatState,
 			older = false,
 			revisions?: Record<number, number>,
+			targeted = false,
 		) => {
 			const previous = cacheRef.current[id];
 			const turns = new Map(previous?.turns.map((turn) => [turn.id, turn]));
@@ -300,7 +302,9 @@ function App() {
 					previous && (older || previous.turns.some((turn) => changed(turn.id)))
 						? previous.busy
 						: data.busy,
-				hasMore: older || !previous ? data.hasMore : previous.hasMore,
+				hasMore:
+					older || !previous?.historyLoaded ? data.hasMore : previous.hasMore,
+				historyLoaded: !targeted || previous?.historyLoaded === true,
 			};
 			cacheRef.current = { ...cacheRef.current, [id]: next };
 			setChatCache(cacheRef.current);
@@ -343,10 +347,12 @@ function App() {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
 				const cached = cacheRef.current[id];
-				let cursor = cached ? (syncedThrough.current[id] ?? 0) : undefined;
-				const pendingId = cached?.turns.find(
-					(turn) => turn.status === "pending",
-				)?.id;
+				let cursor = cached?.historyLoaded
+					? (syncedThrough.current[id] ?? 0)
+					: undefined;
+				const pendingId = cached?.historyLoaded
+					? cached.turns.find((turn) => turn.status === "pending")?.id
+					: undefined;
 				if (pendingId !== undefined)
 					cursor = Math.min(cursor ?? pendingId - 1, pendingId - 1);
 				const target = latest.turns.at(-1)?.id;
@@ -386,7 +392,7 @@ function App() {
 				const data: ChatState = await api(`/api/turns/${turnId}`);
 				if (turnRevisions.current[turnId] !== revision) return;
 				if (cacheRef.current[chatId] || selectedRef.current === chatId)
-					mergeChat(chatId, data);
+					mergeChat(chatId, data, false, undefined, true);
 				setProjects((current) =>
 					current.map((project) => ({
 						...project,
@@ -1138,6 +1144,7 @@ function App() {
 											{message.role === "assistant" &&
 												message.status === "failed" && (
 													<span role="status">
+														{message.content && <>{t("turnIncomplete")} </>}
 														{t(message.errorCode ?? "modelRequestFailed")}
 														{message.errorDetails &&
 															`: ${message.errorDetails}`}
