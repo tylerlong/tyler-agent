@@ -65,9 +65,13 @@ project 可以有零个或多个文件夹，无需选择目录即可创建。添
 
 ## OpenRouter 通信记录
 
+Settings 是唯一的总标题，语言、OpenRouter API 密钥、模型为并列分区。设置标题和底部 Close 始终可见，仅中间内容滚动；长模型名称和 ID 换行，行操作保留可用。可写对话缺少配置时，在标题附近明确提示缺少密钥、模型或两者。
+
+Settings has peer Language, OpenRouter API key and Models sections, with a fixed title and Close footer and scrolling content. Configured status is separate from the write-only replacement field. Blank saves send no request; meaningful saves show Saving, then Saved and clear the field. Failures retain confirmed settings and the draft. Removal is immediate, secondary, and retains the draft; credential and model errors appear in their respective sections. Required Settings identifies the missing key, models, or both beside its title.
+
 Settings 是唯一的配置界面，管理 OpenRouter API key、启用的文本模型和可选全局默认模型。SQLite 是用户配置的唯一来源。首次向空列表添加模型会在同一事务中指定它为全局默认；向非空列表添加不改变默认，包括已有列表没有默认的情况。首次添加成功时，仅为发起操作且仍处于当前页面的 chat 填入空的模型选择（包括已有历史的 chat）；期间切换聊天或改选模型后不再自动填入，不影响其他窗口。重复添加不改变默认或顺序。默认模型必须属于启用列表。设置中统一显示所有已启用模型，按添加顺序排列，每行显示名称和较小的模型 ID；非默认行提供 Set default，默认行显示不可点击的 Default，不提供清空默认操作。每行的 × 图标（Disable model）立即移除模型，无需确认。移除默认模型时，按最近成功目录排名自动选择剩余模型；排名内优先，无排名或缓存时选择最早添加的剩余模型。移除最后一个模型则清空默认。失败保留原配置和聊天选择，保存过程中避免重复操作。
 
-密钥在 SQLite 中明文保存，数据库备份也包含密钥；数据库目录和文件仅当前用户可访问，并保持 Git 忽略。密码输入用于替换密钥：留空保留，移除须点击专用按钮；保存成功清空输入。读取配置只返回是否已配置，旧密钥不回传浏览器，也不进入 SSE、公共错误或通信记录。保存密钥不执行付费验证。每个已接受请求捕获当时的密钥，后续替换或删除不改变正在运行的调用；prompt、请求、响应和错误使用同一密钥脱敏，包括跨网络 chunk 的内容。
+密钥在 SQLite 中明文保存，数据库备份也包含密钥；数据库目录和文件仅当前用户可访问，并保持 Git 忽略。密码输入用于输入新密钥或替换密钥，独立显示已配置/未配置状态。空白输入不能保存且不发送请求（server 仍支持空值保留）；保存期间显示保存中并防止重复提交，成功清空输入并显示已保存，失败保留原配置与输入。移除是无需确认的次要文字操作，保留尚未保存的替换草稿。密钥错误与模型错误分别显示在对应区域。读取配置只返回是否已配置，旧密钥不回传浏览器，也不进入 SSE、公共错误或通信记录。保存密钥不执行付费验证。每个已接受请求捕获当时的密钥，后续替换或删除不改变正在运行的调用；prompt、请求、响应和错误使用同一密钥脱敏，包括跨网络 chunk 的内容。
 
 每次打开 Settings 都匿名请求 OpenRouter 最热门的 100 个文本模型（不传 Authorization 或 API key），列表按过去一周 token 使用量排序，只下载一页。已启用列表下方的 Add model 打开自动聚焦的可输入选择组件、可滚动候选列表及 Cancel 按钮；候选仅包含尚未启用的模型，按热门顺序排列。在同一个输入中按名称或 ID 不区分大小写地即时筛选，不发送网络请求。点击候选立即添加；方向键选择候选，Enter 仅确认已高亮的有效候选，不接受任意 ID。成功后清空搜索并恢复 Add model 按钮和焦点，失败保留输入与候选以便重试。Cancel 或 Escape 取消未提交的添加、清空输入并返回 Add model；第一个 Escape 不关闭 Settings，再次 Escape 可关闭普通 Settings，强制设置仍不能关闭。已发出的保存不撤销，期间禁用取消和重复提交。移除在已启用列表中进行，不提供单独 Search、Refresh 或模型保存按钮。加载与筛选无结果分别提示，保存失败恢复已确认状态。服务启动、输入、配置保存与发送不刷新目录；添加仅验证 server 已缓存的候选，server 重启后若页面仍保留旧候选，添加会报错并保留输入，重新打开 Settings 下载目录后再试；刷新失败提示错误并保留上次成功列表，重新打开设置重试；若因缺少密钥或启用模型而无法关闭设置，重新加载页面重试（未保存输入会丢失）。排名仅缓存在 server 内存，SQLite 保存启用成员、名称及能力；成功刷新仅更新排名内已启用模型的信息，不覆盖并发成员修改。跌出前 100 的已启用模型保留能力、默认和历史选择，在统一已启用列表里仍可移除；排名变化不代表模型不可用。已启用列表始终按添加顺序排列，设置默认或排名刷新不会移动行；既存模型在目录失败时仍可使用。
 

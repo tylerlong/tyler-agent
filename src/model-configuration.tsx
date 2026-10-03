@@ -29,9 +29,12 @@ export function ModelConfiguration({
 	const [highlighted, setHighlighted] = useState<string | null>(null);
 	const addButton = useRef<HTMLButtonElement>(null);
 	const searchInput = useRef<HTMLInputElement>(null);
-	const section = useRef<HTMLElement>(null);
+	const section = useRef<HTMLDivElement>(null);
 	const saving = useRef(false);
 	const [error, setError] = useState("");
+	const [keyError, setKeyError] = useState("");
+	const [keySaving, setKeySaving] = useState(false);
+	const [keySaved, setKeySaved] = useState(false);
 	const [catalogError, setCatalogError] = useState(false);
 	async function request(path: string, method: string, body?: unknown) {
 		const response = await fetch(path, {
@@ -55,14 +58,27 @@ export function ModelConfiguration({
 		if (saving.current) return;
 		saving.current = true;
 		setPending(true);
-		setError("");
+		const credential =
+			path === "/api/model-settings" &&
+			body !== undefined &&
+			("apiKey" in (body as object) || "removeApiKey" in (body as object));
+		if (credential) {
+			setKeyError("");
+			setKeySaved(false);
+			setKeySaving(clearKey);
+		} else setError("");
 		try {
 			await request(path, method, body);
-			if (clearKey) setKey("");
+			if (clearKey) {
+				setKey("");
+				setKeySaved(true);
+			}
 			await refresh();
 		} catch {
-			setError("configurationSaveFailed");
+			if (credential) setKeyError("credentialSaveFailed");
+			else setError("configurationSaveFailed");
 		} finally {
+			setKeySaving(false);
 			saving.current = false;
 			setPending(false);
 		}
@@ -138,12 +154,7 @@ export function ModelConfiguration({
 			`${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase()),
 	);
 	return (
-		<section
-			ref={section}
-			className="mt-6 border-t border-neutral-200 pt-4"
-			aria-label={t("modelConfiguration")}
-		>
-			<h3 className="font-semibold">{t("modelConfiguration")}</h3>
+		<div ref={section} className="mt-6 border-t border-neutral-200 pt-4">
 			{readFailed && (
 				<div role="alert">
 					{t("configurationReadFailed")}{" "}
@@ -160,227 +171,261 @@ export function ModelConfiguration({
 				<p>{t("loading")}</p>
 			) : (
 				<>
-					<form
-						onSubmit={(event) => {
-							event.preventDefault();
-							void mutate("/api/model-settings", "PUT", { apiKey: key }, true);
-						}}
-					>
-						<input
-							type="text"
-							name="username"
-							autoComplete="username"
-							value="local-user"
-							readOnly
-							hidden
-						/>
-						<label className="mt-4 block">
-							{t("apiKey")}
+					<section aria-label={t("credentials")}>
+						<h3 className="font-semibold">{t("apiKey")}</h3>
+						<form
+							onSubmit={(event) => {
+								event.preventDefault();
+								if (key.trim())
+									void mutate(
+										"/api/model-settings",
+										"PUT",
+										{ apiKey: key },
+										true,
+									);
+							}}
+						>
 							<input
-								className={input}
-								type="password"
-								autoComplete="new-password"
-								value={key}
-								disabled={pending}
-								onChange={(event) => setKey(event.target.value)}
+								type="text"
+								name="username"
+								autoComplete="username"
+								value="local-user"
+								readOnly
+								hidden
 							/>
-						</label>
-						<p className="mt-2 text-sm text-neutral-600">
-							{t(
-								settings.apiKeyConfigured
-									? "apiKeyConfigured"
-									: "apiKeyMissing",
+							<label className="mt-4 block">
+								<span className="sr-only">{t("apiKey")}</span>
+								<input
+									className={input}
+									placeholder={t(
+										settings.apiKeyConfigured ? "replaceKey" : "enterKey",
+									)}
+									type="password"
+									autoComplete="new-password"
+									value={key}
+									disabled={pending}
+									onChange={(event) => setKey(event.target.value)}
+								/>
+							</label>
+							<p className="mt-2 text-sm text-neutral-600">
+								{t(
+									settings.apiKeyConfigured
+										? "apiKeyConfigured"
+										: "apiKeyMissing",
+								)}
+							</p>
+							<div className="mt-2 flex gap-2">
+								<button
+									type="submit"
+									className={button}
+									disabled={pending || !key.trim()}
+								>
+									{t(keySaving ? "savingKey" : "saveKey")}
+								</button>
+								<button
+									type="button"
+									className="px-2 py-2 text-red-700 hover:underline disabled:opacity-50"
+									disabled={pending || !settings.apiKeyConfigured}
+									onClick={() =>
+										void mutate("/api/model-settings", "PUT", {
+											removeApiKey: true,
+										})
+									}
+								>
+									{t("removeKey")}
+								</button>
+							</div>
+							{keySaved && (
+								<p role="status" className="mt-2 text-sm text-neutral-600">
+									{t("savedKey")}
+								</p>
 							)}
-						</p>
-						<div className="mt-2 flex gap-2">
-							<button type="submit" className={button} disabled={pending}>
-								{t("saveKey")}
-							</button>
-							<button
-								type="button"
-								className={button}
-								disabled={pending || !settings.apiKeyConfigured}
-								onClick={() =>
-									void mutate("/api/model-settings", "PUT", {
-										removeApiKey: true,
-									})
-								}
-							>
-								{t("removeKey")}
-							</button>
-						</div>
-					</form>
-					<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
-						{settings.models.map((model) => (
-							<li
-								key={model.id}
-								className="flex items-center justify-between gap-3"
-							>
-								<span className="min-w-0 flex-1 break-words">
-									{model.name}
-									<small className="block text-neutral-600">{model.id}</small>
-								</span>
-								{settings.defaultModelId === model.id ? (
-									<span className="text-sm text-neutral-600">
-										{t("default")}
+							{keyError && (
+								<p role="alert" className="mt-2 break-words text-red-700">
+									{t(keyError)}
+								</p>
+							)}
+						</form>
+					</section>
+					<section
+						aria-label={t("modelConfiguration")}
+						className="mt-6 border-t border-neutral-200 pt-4"
+					>
+						<h3 className="font-semibold">{t("modelConfiguration")}</h3>
+						<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
+							{settings.models.map((model) => (
+								<li
+									key={model.id}
+									className="flex items-center justify-between gap-3"
+								>
+									<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+										{model.name}
+										<small className="block text-neutral-600">{model.id}</small>
 									</span>
-								) : (
+									{settings.defaultModelId === model.id ? (
+										<span className="shrink-0 text-sm text-neutral-600">
+											{t("default")}
+										</span>
+									) : (
+										<button
+											type="button"
+											className={`${button} shrink-0`}
+											disabled={pending}
+											onClick={() =>
+												void mutate("/api/model-settings", "PUT", {
+													defaultModelId: model.id,
+												})
+											}
+										>
+											{t("setDefault")}
+										</button>
+									)}
 									<button
 										type="button"
 										className={button}
 										disabled={pending}
+										aria-label={t("disableModel")}
+										title={t("disableModel")}
 										onClick={() =>
-											void mutate("/api/model-settings", "PUT", {
-												defaultModelId: model.id,
-											})
+											void mutate(
+												`/api/models/${encodeURIComponent(model.id)}`,
+												"DELETE",
+											)
 										}
 									>
-										{t("setDefault")}
+										×
 									</button>
-								)}
+								</li>
+							))}
+						</ul>
+						<div className="mt-4">
+							{!adding ? (
 								<button
+									ref={addButton}
 									type="button"
 									className={button}
 									disabled={pending}
-									aria-label={t("disableModel")}
-									title={t("disableModel")}
-									onClick={() =>
-										void mutate(
-											`/api/models/${encodeURIComponent(model.id)}`,
-											"DELETE",
-										)
-									}
+									onClick={() => setAdding(true)}
 								>
-									×
+									{t("addModel")}
 								</button>
-							</li>
-						))}
-					</ul>
-					<div className="mt-4">
-						{!adding ? (
-							<button
-								ref={addButton}
-								type="button"
-								className={button}
-								disabled={pending}
-								onClick={() => setAdding(true)}
-							>
-								{t("addModel")}
-							</button>
-						) : (
-							<>
-								<div className="flex items-center gap-2">
-									<input
-										ref={searchInput}
-										role="combobox"
-										aria-label={t("filterModels")}
-										aria-autocomplete="list"
-										aria-expanded={true}
-										aria-controls="model-candidates"
-										aria-activedescendant={
-											matches?.some((model) => model.id === highlighted)
-												? `candidate-${highlighted}`
-												: undefined
-										}
-										className={input}
-										value={query}
-										disabled={pending}
-										onChange={(event) => {
-											setQuery(event.target.value);
-											setHighlighted(null);
-										}}
-										onKeyDown={(event) => {
-											if (pending) return;
-											if (
-												event.key === "ArrowDown" ||
-												event.key === "ArrowUp"
-											) {
-												event.preventDefault();
-												if (!matches?.length) return;
-												const index = matches.findIndex(
-													(model) => model.id === highlighted,
-												);
-												const next =
-													index < 0
-														? event.key === "ArrowDown"
-															? 0
-															: matches.length - 1
-														: (index +
-																(event.key === "ArrowDown" ? 1 : -1) +
-																matches.length) %
-															matches.length;
-												setHighlighted(matches[next].id);
-												requestAnimationFrame(() =>
-													document
-														.getElementById(`candidate-${matches[next].id}`)
-														?.scrollIntoView({ block: "nearest" }),
-												);
-											} else if (event.key === "Enter") {
-												event.preventDefault();
-												if (matches?.some((model) => model.id === highlighted))
-													void addModel(highlighted as string);
+							) : (
+								<>
+									<div className="flex items-center gap-2">
+										<input
+											ref={searchInput}
+											role="combobox"
+											aria-label={t("filterModels")}
+											aria-autocomplete="list"
+											aria-expanded={true}
+											aria-controls="model-candidates"
+											aria-activedescendant={
+												matches?.some((model) => model.id === highlighted)
+													? `candidate-${highlighted}`
+													: undefined
 											}
-										}}
-									/>
-									<button
-										type="button"
-										className={button}
-										disabled={pending}
-										onClick={cancelAddition}
-									>
-										{t("cancel")}
-									</button>
-								</div>
-								{catalog && (
-									<>
-										{matches?.length === 0 && <p>{t("noMatchingModels")}</p>}
-										<div
-											id="model-candidates"
-											role="listbox"
-											aria-label={t("popularModels")}
-											className="mt-3 max-h-64 overflow-y-auto"
+											className={input}
+											value={query}
+											disabled={pending}
+											onChange={(event) => {
+												setQuery(event.target.value);
+												setHighlighted(null);
+											}}
+											onKeyDown={(event) => {
+												if (pending) return;
+												if (
+													event.key === "ArrowDown" ||
+													event.key === "ArrowUp"
+												) {
+													event.preventDefault();
+													if (!matches?.length) return;
+													const index = matches.findIndex(
+														(model) => model.id === highlighted,
+													);
+													const next =
+														index < 0
+															? event.key === "ArrowDown"
+																? 0
+																: matches.length - 1
+															: (index +
+																	(event.key === "ArrowDown" ? 1 : -1) +
+																	matches.length) %
+																matches.length;
+													setHighlighted(matches[next].id);
+													requestAnimationFrame(() =>
+														document
+															.getElementById(`candidate-${matches[next].id}`)
+															?.scrollIntoView({ block: "nearest" }),
+													);
+												} else if (event.key === "Enter") {
+													event.preventDefault();
+													if (
+														matches?.some((model) => model.id === highlighted)
+													)
+														void addModel(highlighted as string);
+												}
+											}}
+										/>
+										<button
+											type="button"
+											className={`${button} shrink-0`}
+											disabled={pending}
+											onClick={cancelAddition}
 										>
-											{matches?.map((model) => (
-												<li key={model.id} role="presentation">
-													<button
-														id={`candidate-${model.id}`}
-														type="button"
-														role="option"
-														aria-selected={highlighted === model.id}
-														disabled={pending}
-														tabIndex={-1}
-														className={`w-full rounded-md px-3 py-2 text-left hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-blue-600 ${highlighted === model.id ? "bg-neutral-100 outline-2 outline-blue-600" : ""}`}
-														onClick={() => void addModel(model.id)}
-													>
-														{model.name}
-														<small className="block text-neutral-600">
-															{model.id}
-														</small>
-													</button>
-												</li>
-											))}
-										</div>
-									</>
-								)}
-							</>
-						)}
-					</div>
-					<p className="mt-2 text-sm text-neutral-600">
-						{t("popularModelsScope")}
-					</p>
-					{catalogLoading && <p role="status">{t("loading")}</p>}
-					{catalogError && (
-						<p role="alert" className="mt-2 text-red-700">
-							{t("catalogReadFailed")}
+											{t("cancel")}
+										</button>
+									</div>
+									{catalog && (
+										<>
+											{matches?.length === 0 && <p>{t("noMatchingModels")}</p>}
+											<div
+												id="model-candidates"
+												role="listbox"
+												aria-label={t("popularModels")}
+												className="mt-3 max-h-64 overflow-y-auto"
+											>
+												{matches?.map((model) => (
+													<li key={model.id} role="presentation">
+														<button
+															id={`candidate-${model.id}`}
+															type="button"
+															role="option"
+															aria-selected={highlighted === model.id}
+															disabled={pending}
+															tabIndex={-1}
+															className={`w-full rounded-md px-3 py-2 text-left hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-blue-600 ${highlighted === model.id ? "bg-neutral-100 outline-2 outline-blue-600" : ""}`}
+															onClick={() => void addModel(model.id)}
+														>
+															{model.name}
+															<small className="block text-neutral-600">
+																{model.id}
+															</small>
+														</button>
+													</li>
+												))}
+											</div>
+										</>
+									)}
+								</>
+							)}
+						</div>
+						<p className="mt-2 text-sm text-neutral-600">
+							{t("popularModelsScope")}
 						</p>
-					)}
+						{catalogLoading && <p role="status">{t("loading")}</p>}
+						{catalogError && (
+							<p role="alert" className="mt-2 text-red-700">
+								{t("catalogReadFailed")}
+							</p>
+						)}
+						{error && (
+							<p role="alert" className="mt-3 break-words text-red-700">
+								{t(error)}
+							</p>
+						)}
+					</section>
 				</>
 			)}
-			{error && (
-				<p role="alert" className="mt-3 text-red-700">
-					{t(error)}
-				</p>
-			)}
-		</section>
+		</div>
 	);
 }

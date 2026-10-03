@@ -95,12 +95,10 @@ test("settings save write-only credentials and manage cached model choices acros
 	await expect(key).toHaveValue("");
 	const settings = await page.request.get(`${app.url}/api/model-settings`);
 	expect(await settings.text()).not.toContain("replacement-secret");
-	await dialog
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
 	await expect(
-		dialog.getByText("API key configured. Leave empty to keep the saved key."),
-	).toBeVisible();
+		dialog.getByRole("button", { name: "Save API key", exact: true }),
+	).toBeDisabled();
+	await expect(dialog.getByText("Configured", { exact: true })).toBeVisible();
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await dialog
 		.getByRole("option", { name: "Second second", exact: true })
@@ -135,11 +133,11 @@ test("settings save write-only credentials and manage cached model choices acros
 	await dialog
 		.getByRole("button", { name: "Remove API key", exact: true })
 		.click();
-	await expect(dialog.getByText("No API key configured.")).toBeVisible();
+	await expect(dialog.getByText("Not configured")).toBeVisible();
 	await app.restart();
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
-	await expect(page.getByText("No API key configured.")).toBeVisible();
+	await expect(page.getByText("Not configured")).toBeVisible();
 	await expect(
 		page.getByRole("list", { name: "Enabled models" }),
 	).toContainText("Default");
@@ -168,7 +166,7 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 		.getByRole("button", { name: "Save API key", exact: true })
 		.click();
 	await expect(dialog.getByRole("alert")).toHaveText(
-		"Unable to save model settings. Please retry.",
+		"Unable to save API key. Please retry.",
 	);
 	await expect(
 		dialog.getByLabel("OpenRouter API key", { exact: true }),

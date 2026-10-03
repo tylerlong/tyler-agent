@@ -1710,80 +1710,91 @@ function App() {
 				}}
 				ref={settingsDialog}
 				aria-labelledby="settings-title"
-				className="m-auto max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
+				className="settings-dialog m-auto w-full max-w-lg rounded-lg border border-neutral-300 backdrop:bg-black/40"
 			>
-				<h2 id="settings-title" className="text-lg font-semibold">
-					{t("settings")}
-				</h2>
-				<label className="mt-4 block">
-					{t("language")}
-					<select
-						className={control}
-						value={language ?? i18n.language}
-						disabled={languagePending || language === null}
-						onChange={async (event) => {
-							setLanguagePending(true);
-							try {
-								const result = await languageState.save(event.target.value);
-								setLanguageError(
-									result === "saved" ? "" : "languageSaveFailed",
-								);
-							} finally {
-								setLanguagePending(false);
-							}
-						}}
-					>
-						<option value="en">English</option>
-						<option value="zh-CN">简体中文</option>
-					</select>
-				</label>
-				{languageError && (
-					<div className="mt-4">
-						<p
-							role="alert"
-							className="whitespace-pre-wrap break-words text-red-700"
-						>
-							{t(languageError)}
+				<header className="shrink-0 border-b border-neutral-200 px-6 py-4">
+					<h2 id="settings-title" className="text-lg font-semibold">
+						{t("settings")}
+					</h2>
+					{missingSetup && (
+						<p role="status" className="mt-2 break-words text-amber-700">
+							{t(
+								!modelSettings?.apiKeyConfigured
+									? modelSettings?.models.length
+										? "setupKeyRequired"
+										: "setupBothRequired"
+									: "setupModelsRequired",
+							)}
 						</p>
-						<button
-							type="button"
-							className={button}
-							disabled={languagePending}
-							onClick={() => void languageState.refresh()}
+					)}
+				</header>
+				<div className="settings-content min-h-0 overflow-y-auto px-6 py-4">
+					<h3 className="font-semibold">{t("settingsLanguage")}</h3>
+					<label className="block">
+						<span className="sr-only">{t("language")}</span>
+						<select
+							className={control}
+							value={language ?? i18n.language}
+							disabled={languagePending || language === null}
+							onChange={async (event) => {
+								setLanguagePending(true);
+								try {
+									const result = await languageState.save(event.target.value);
+									setLanguageError(
+										result === "saved" ? "" : "languageSaveFailed",
+									);
+								} finally {
+									setLanguagePending(false);
+								}
+							}}
 						>
-							{t("retry")}
-						</button>
-					</div>
-				)}
-				{missingSetup && (
-					<p role="status" className="mt-4 text-amber-700">
-						{t("setupRequired")}
-					</p>
-				)}
-				<ModelConfiguration
-					beginAddition={() => {
-						const id = selectedRef.current;
-						const version = selectionVersion.current;
-						return (modelId) => {
-							if (
-								id === null ||
-								selectedRef.current !== id ||
-								selectionVersion.current !== version
-							)
-								return;
-							setTurnOptions((current) =>
-								!current[id]?.modelId
-									? { ...current, [id]: { modelId, reasoningEffort: null } }
-									: current,
-							);
-						};
-					}}
-					open={settingsOpen}
-					settings={modelSettings}
-					readFailed={modelSettingsError}
-					refresh={refreshModelSettings}
-				/>
-				<div className="mt-4 flex justify-end gap-3">
+							<option value="en">English</option>
+							<option value="zh-CN">简体中文</option>
+						</select>
+					</label>
+					{languageError && (
+						<div className="mt-4">
+							<p
+								role="alert"
+								className="whitespace-pre-wrap break-words text-red-700"
+							>
+								{t(languageError)}
+							</p>
+							<button
+								type="button"
+								className={button}
+								disabled={languagePending}
+								onClick={() => void languageState.refresh()}
+							>
+								{t("retry")}
+							</button>
+						</div>
+					)}
+					<ModelConfiguration
+						beginAddition={() => {
+							const id = selectedRef.current;
+							const version = selectionVersion.current;
+							return (modelId) => {
+								if (
+									id === null ||
+									selectedRef.current !== id ||
+									selectionVersion.current !== version
+								)
+									return;
+								setTurnOptions((current) =>
+									!current[id]?.modelId
+										? { ...current, [id]: { modelId, reasoningEffort: null } }
+										: current,
+								);
+							};
+						}}
+						open={settingsOpen}
+						settings={modelSettings}
+						readFailed={modelSettingsError}
+						refresh={refreshModelSettings}
+					/>
+				</div>
+				<footer className="flex shrink-0 justify-end border-t border-neutral-200 px-6 py-4">
 					<button
 						type="button"
 						className={button}
@@ -1792,7 +1803,7 @@ function App() {
 					>
 						{t("close")}
 					</button>
-				</div>
+				</footer>
 			</dialog>
 		</main>
 	);
