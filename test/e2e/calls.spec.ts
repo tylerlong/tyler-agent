@@ -323,8 +323,8 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	);
 	await response.locator("summary").click();
 	const unknown =
-		'event: vendor.unknown\ndata: {"private":"fake-api-credential","payload":{"count":1}}\n\r\n';
-	const split = unknown.indexOf("fake-api-credential") + 5;
+		'event: vendor.unknown\ndata: {"private":"zkey","payload":{"count":1}}\n\r\n';
+	const split = unknown.indexOf("zkey") + 2;
 	stream.push(unknown.slice(0, split));
 	stream.push(unknown.slice(split));
 	const malformed = "event: vendor.raw\r\ndata: not-json\r\n\n";
@@ -344,7 +344,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 		prefix +
 		second +
 		hidden +
-		unknown.replace('"fake-api-credential"', '"[REDACTED]"') +
+		unknown.replace('"zkey"', '"[REDACTED]"') +
 		malformed +
 		tail;
 	await response.getByRole("button", { name: "Copy", exact: true }).click();

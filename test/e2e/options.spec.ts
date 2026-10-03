@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
 
@@ -241,4 +243,128 @@ test("another page removing the selected model prompts without changing its inde
 		peer.getByRole("dialog", { name: "Complete setup", exact: true }),
 	).toBeHidden();
 	await peer.close();
+});
+
+test("configuration read failures require retry without losing an initialized draft or override", async ({
+	page,
+	app,
+}) => {
+	const { first } = await chats(page.request, app.url);
+	let fail = true;
+	await page.route("**/api/model-settings", (route) =>
+		fail && route.request().method() === "GET"
+			? route.fulfill({ status: 503, json: {} })
+			: route.continue(),
+	);
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	const setup = page.getByRole("dialog", {
+		name: "Complete setup",
+		exact: true,
+	});
+	await expect(setup).toBeVisible();
+	await expect(setup.getByRole("alert")).toContainText(
+		"Unable to read model settings",
+	);
+	await page.keyboard.press("Escape");
+	await expect(setup).toBeVisible();
+	fail = false;
+	await setup.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(setup).toBeHidden();
+	const model = page.getByRole("combobox", { name: "Model", exact: true });
+	await model.selectOption("second");
+	await page
+		.getByLabel("Prompt", { exact: true })
+		.fill("Preserve draft on read error");
+	fail = true;
+	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+	await expect(setup).toBeVisible();
+	await expect(setup.getByLabel("Model", { exact: true })).toHaveValue(
+		"second",
+	);
+	fail = false;
+	await setup.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(setup).toBeHidden();
+	await expect(model).toHaveValue("second");
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
+		"Preserve draft on read error",
+	);
+	await expect(
+		page.getByRole("button", { name: "Submit", exact: true }),
+	).toBeEnabled();
+});
+
+test("restored unsupported effort requires correction and model capabilities control effort choices", async ({
+	page,
+	app,
+}) => {
+	const { first } = await chats(page.request, app.url);
+	const submitted = await page.request.post(
+		`${app.url}/api/chats/${first.id}`,
+		{
+			data: {
+				prompt: "Previously high",
+				modelId: "test",
+				reasoningEffort: "high",
+			},
+		},
+	);
+	expect(submitted.ok()).toBe(true);
+	const db = new DatabaseSync(join(app.folder, "db.sqlite"));
+	try {
+		db.prepare("UPDATE managed_models SET metadata=? WHERE id=?").run(
+			JSON.stringify({
+				supportedEfforts: ["low"],
+				reasoningRequired: false,
+				catalogMissing: false,
+			}),
+			"test",
+		);
+		db.prepare(
+			"INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?)",
+		).run(
+			"gateway",
+			"Gateway",
+			JSON.stringify({
+				supportedEfforts: null,
+				reasoningRequired: true,
+				catalogMissing: false,
+			}),
+		);
+	} finally {
+		db.close();
+	}
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	const model = page.getByRole("combobox", { name: "Model", exact: true });
+	const effort = page.getByRole("combobox", {
+		name: "Reasoning level",
+		exact: true,
+	});
+	await expect(model).toHaveValue("test");
+	await expect(effort).toHaveValue("high");
+	await expect(effort).toHaveAttribute("aria-invalid", "true");
+	await expect(effort.locator("option:checked")).toBeDisabled();
+	await page.getByLabel("Prompt", { exact: true }).fill("Correct this effort");
+	const send = page.getByRole("button", { name: "Submit", exact: true });
+	await expect(send).toBeDisabled();
+	await effort.selectOption("");
+	await expect(send).toBeEnabled();
+	await expect(effort.locator("option")).toHaveText(["Model default", "low"]);
+	await model.selectOption("gateway");
+	await expect(effort.locator("option")).toHaveText([
+		"Model default",
+		"minimal",
+		"low",
+		"medium",
+		"high",
+		"xhigh",
+	]);
+	await effort.selectOption("xhigh");
+	await model.selectOption("test");
+	await expect(effort).toHaveValue("");
+	await effort.selectOption("low");
+	await model.selectOption("gateway");
+	await expect(effort).toHaveValue("low");
+	await model.selectOption("second");
+	await expect(effort).toBeHidden();
+	await expect(send).toBeEnabled();
 });

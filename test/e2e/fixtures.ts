@@ -33,7 +33,7 @@ export const test = base.extend<{
 			);
 		configured
 			.prepare("UPDATE settings SET api_key=?,default_model_id=? WHERE id=1")
-			.run("fake-api-credential", "test");
+			.run("zkey", "test");
 		configured.close();
 		let fail: "http" | "network" | null = null;
 		let failedBody = "upstream failure";
