@@ -86,7 +86,7 @@ test("a live turn arriving before initial history preserves load-earlier paginat
 	).json();
 	for (let index = 1; index <= 11; index++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: `old question ${index}` },
+			data: { modelId: "test", prompt: `old question ${index}` },
 		});
 	let releaseHistory!: () => void;
 	let historyStarted!: () => void;
@@ -107,7 +107,7 @@ test("a live turn arriving before initial history preserves load-earlier paginat
 	await started;
 	const stream = app.streamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "live question" },
+		data: { modelId: "test", prompt: "live question" },
 	});
 	await stream.entered;
 	await expect(page.getByRole("log")).toContainText("live question");
@@ -148,7 +148,7 @@ test("restart retains partial answers and labels them incomplete", async ({
 	const stream = app.streamModel();
 	const submitted = page.request
 		.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: "partial question" },
+			data: { modelId: "test", prompt: "partial question" },
 		})
 		.catch(() => undefined);
 	await stream.entered;

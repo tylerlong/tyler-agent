@@ -219,7 +219,7 @@ test("known v8 database upgrades without losing history or unrelated settings; n
 			const base = `http://127.0.0.1:${address.port}`;
 			const response = await fetch(`${base}/api/chats/1`, {
 				method: "POST",
-				body: JSON.stringify({ prompt: "Try" }),
+				body: JSON.stringify({ modelId: "test", prompt: "Try" }),
 			});
 			assert.equal(response.status, 400);
 			assert.equal((await response.json()).code, "modelConfigMissing");
@@ -308,6 +308,7 @@ test("accepted call keeps captured key/model through replacement and removal, wi
 			await request(`/api/projects/${project.id}/chats`, "POST", { name: "C" })
 		).json();
 		const pending = request(`/api/chats/${chat.id}`, "POST", {
+			modelId: "old-model",
 			prompt: "Question old-secret",
 		});
 		await start;
@@ -330,8 +331,12 @@ test("accepted call keeps captured key/model through replacement and removal, wi
 		assert.doesNotMatch(communication, /old-secret/);
 		assert.match(communication, /old-model/);
 		assert.equal(
-			(await request(`/api/chats/${chat.id}`, "POST", { prompt: "Again" }))
-				.status,
+			(
+				await request(`/api/chats/${chat.id}`, "POST", {
+					modelId: "old-model",
+					prompt: "Again",
+				})
+			).status,
 			400,
 		);
 		assert.equal(calls, 1);

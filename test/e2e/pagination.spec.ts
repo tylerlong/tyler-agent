@@ -21,7 +21,7 @@ test("ten-turn pages retain history and drafts across chats and reset on refresh
 	).json();
 	for (let i = 1; i <= 25; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: `Question ${i}.` },
+			data: { modelId: "test", prompt: `Question ${i}.` },
 		});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const log = page.getByRole("log");
@@ -57,7 +57,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 		})
 	).json();
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "First question" },
+		data: { modelId: "test", prompt: "First question" },
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const log = page.getByRole("log");
@@ -76,7 +76,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 	await expect(log).toContainText("First question");
 	for (let i = 1; i <= 23; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: `Unseen ${i}.` },
+			data: { modelId: "test", prompt: `Unseen ${i}.` },
 		});
 	offline = false;
 	await page.evaluate(() =>
@@ -92,7 +92,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 		page.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "After reconnect" },
+		data: { modelId: "test", prompt: "After reconnect" },
 	});
 	await expect(log).toContainText("After reconnect");
 	await expect(log).toContainText("First question");
@@ -114,7 +114,7 @@ test("older-page errors preserve history and retry the same page", async ({
 	).json();
 	for (let i = 1; i <= 11; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: `Question ${i}.` },
+			data: { modelId: "test", prompt: `Question ${i}.` },
 		});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(page.getByRole("log")).toContainText("Question 11.");
@@ -154,7 +154,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	).toBeEnabled();
 	const gate = app.holdModel();
 	const pending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "Pending snapshot" },
+		data: { modelId: "test", prompt: "Pending snapshot" },
 	});
 	await gate.entered;
 	await expect(page.getByRole("log")).toContainText("Waiting for response");
@@ -192,11 +192,11 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	);
 	for (let i = 1; i <= 24; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: `Missed ${i}.` },
+			data: { modelId: "test", prompt: `Missed ${i}.` },
 		});
 	const missedGate = app.holdModel();
 	const missedPending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "Missed 25." },
+		data: { modelId: "test", prompt: "Missed 25." },
 	});
 	await missedGate.entered;
 	try {
@@ -249,7 +249,7 @@ test("an initially empty chat catches up every turn after more than one unseen p
 	);
 	for (let i = 1; i <= 12; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: `Initially unseen ${i}.` },
+			data: { modelId: "test", prompt: `Initially unseen ${i}.` },
 		});
 	offline = false;
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));

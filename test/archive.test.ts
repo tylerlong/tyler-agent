@@ -62,7 +62,10 @@ test("archive flags remain independent, enforce read-only and persist without st
 		const sibling = await (
 			await request(`/api/projects/${project.id}/chats`, "POST", { name: "B" })
 		).json();
-		pending = request(`/api/chats/${chat.id}`, "POST", { prompt: "Question" });
+		pending = request(`/api/chats/${chat.id}`, "POST", {
+			modelId: "test",
+			prompt: "Question",
+		});
 		const answer = pending;
 		await entered;
 		assert.equal(
@@ -85,7 +88,7 @@ test("archive flags remain independent, enforce read-only and persist without st
 			[`/api/projects/${project.id}`, "PUT", { name: "No", folders: [] }],
 			[`/api/projects/${project.id}/chats`, "POST", { name: "No" }],
 			[`/api/chats/${sibling.id}`, "PUT", { name: "No" }],
-			[`/api/chats/${sibling.id}`, "POST", { prompt: "No" }],
+			[`/api/chats/${sibling.id}`, "POST", { modelId: "test", prompt: "No" }],
 		] as const)
 			assert.equal((await request(route, method, body)).status, 409);
 		release();
@@ -115,7 +118,12 @@ test("archive flags remain independent, enforce read-only and persist without st
 		});
 		await request(`/api/chats/${chat.id}/archive`, "PUT", { archived: false });
 		assert.equal(
-			(await request(`/api/chats/${chat.id}`, "POST", { prompt: "No" })).status,
+			(
+				await request(`/api/chats/${chat.id}`, "POST", {
+					modelId: "test",
+					prompt: "No",
+				})
+			).status,
 			409,
 		);
 		assert.equal(

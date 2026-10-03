@@ -15,6 +15,7 @@ import {
 	modelSettings,
 	openDatabase,
 } from "./database.ts";
+import { supportedReasoningEfforts } from "./model-options.ts";
 import {
 	answerText,
 	ModelError,
@@ -203,6 +204,33 @@ export function createServer(
 			hasMoreNewer: after !== null && more,
 		};
 	};
+	const turnOptions = (id: number) => {
+		const calls = database
+			.prepare(
+				"SELECT request_body FROM model_calls JOIN turns ON turns.id=model_calls.turn_id WHERE turns.chat_id=? ORDER BY turns.id DESC,model_calls.id DESC",
+			)
+			.iterate(id);
+		for (const call of calls) {
+			try {
+				const body = JSON.parse(String(call.request_body));
+				if (typeof body?.model !== "string" || !body.model.trim()) continue;
+				return {
+					modelId: body.model,
+					reasoningEffort:
+						typeof body.reasoning?.effort === "string"
+							? body.reasoning.effort
+							: null,
+				};
+			} catch {
+				// Legacy or interrupted request records may not contain usable JSON.
+			}
+		}
+		return {
+			modelId: modelSettings(database).defaultModelId,
+			reasoningEffort: null,
+		};
+	};
+
 	const messages = (id: number, successfulOnly = false) =>
 		database
 			.prepare(
@@ -832,6 +860,7 @@ export function createServer(
 				json(response, 200, {
 					...page,
 					messages: turnMessages(page.turns),
+					turnOptions: turnOptions(id),
 					busy: busy.has(id),
 				});
 				return;
@@ -878,12 +907,32 @@ export function createServer(
 				const settings = database
 					.prepare("SELECT api_key,default_model_id FROM settings WHERE id=1")
 					.get();
+				if (
+					input.reasoningEffort != null &&
+					typeof input.reasoningEffort !== "string"
+				)
+					throw new InputError("invalidReasoning");
 				const config = {
 					apiKey: String(settings?.api_key ?? ""),
-					model: String(settings?.default_model_id ?? ""),
+					model: typeof input.modelId === "string" ? input.modelId : "",
+					reasoningEffort:
+						typeof input.reasoningEffort === "string"
+							? input.reasoningEffort
+							: null,
 				};
-				if (!config.apiKey || !config.model)
-					throw new InputError("modelConfigMissing");
+				if (!config.apiKey) throw new InputError("modelConfigMissing");
+				const selected = modelSettings(database).models.find(
+					(model) => model.id === config.model,
+				);
+				if (!selected) throw new InputError("invalidModel");
+				if (
+					config.reasoningEffort !== null &&
+					(typeof config.reasoningEffort !== "string" ||
+						!supportedReasoningEfforts(selected)?.includes(
+							config.reasoningEffort,
+						))
+				)
+					throw new InputError("invalidReasoning");
 				busy.add(id);
 				locked = true;
 				let turnId: number;

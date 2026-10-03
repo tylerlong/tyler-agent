@@ -124,7 +124,10 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 		]);
 		assert.equal(await a(), ": connected");
 		assert.equal(await b(), ": connected");
-		const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "question" });
+		const pending = f.post(`/api/chats/${f.chat.id}`, {
+			modelId: "stream-fixture",
+			prompt: "question",
+		});
 		const [acceptedA, acceptedB] = await Promise.all([a(), b()]);
 		assert.equal(acceptedA, acceptedB);
 		assert.match(acceptedA, /event: turn/);
@@ -254,6 +257,7 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 		]) {
 			raw = delta("partial") + terminal;
 			const response = await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
 				prompt: "failed question",
 			});
 			assert.equal(response.status, 502);
@@ -273,11 +277,21 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 		}
 		raw = completedBody({ output: [item("m0", "saved")] });
 		assert.equal(
-			(await f.post(`/api/chats/${f.chat.id}`, { prompt: "success" })).status,
+			(
+				await f.post(`/api/chats/${f.chat.id}`, {
+					modelId: "stream-fixture",
+					prompt: "success",
+				})
+			).status,
 			200,
 		);
 		assert.equal(
-			(await f.post(`/api/chats/${f.chat.id}`, { prompt: "followup" })).status,
+			(
+				await f.post(`/api/chats/${f.chat.id}`, {
+					modelId: "stream-fixture",
+					prompt: "followup",
+				})
+			).status,
 			200,
 		);
 		assert.deepEqual(inputs.at(-1), [
@@ -310,12 +324,20 @@ test("split credentials are redacted before storage; later failed writes retain 
 			"CREATE TRIGGER reject_request BEFORE INSERT ON model_calls BEGIN SELECT RAISE(ABORT,'rejected'); END",
 		);
 		assert.equal(
-			(await f.post(`/api/chats/${f.chat.id}`, { prompt: "not sent" })).status,
+			(
+				await f.post(`/api/chats/${f.chat.id}`, {
+					modelId: "stream-fixture",
+					prompt: "not sent",
+				})
+			).status,
 			500,
 		);
 		assert.equal(requests, 0);
 		db.exec("DROP TRIGGER reject_request");
-		const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "accepted" });
+		const pending = f.post(`/api/chats/${f.chat.id}`, {
+			modelId: "stream-fixture",
+			prompt: "accepted",
+		});
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		const raw =
 			frame("unknown.event", { echo: "stream-secret" }) +
@@ -394,7 +416,10 @@ for (const httpStatus of [200, 503])
 			);
 		});
 		try {
-			const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "question" });
+			const pending = f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "question",
+			});
 			while (!stream) await new Promise((resolve) => setImmediate(resolve));
 			const raw =
 				httpStatus === 200
@@ -460,7 +485,10 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 			},
 		});
 	try {
-		const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "think" });
+		const pending = f.post(`/api/chats/${f.chat.id}`, {
+			modelId: "stream-fixture",
+			prompt: "think",
+		});
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		stream.enqueue(
 			new TextEncoder().encode(
@@ -562,7 +590,10 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 	try {
 		const initial = await f.events(first.signal).then(events);
 		assert.equal(await initial(), ": connected");
-		const submitted = f.post(`/api/chats/${f.chat.id}`, { prompt: "recover" });
+		const submitted = f.post(`/api/chats/${f.chat.id}`, {
+			modelId: "stream-fixture",
+			prompt: "recover",
+		});
 		const turnId = JSON.parse((await initial()).split("data: ")[1]).turnId;
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		first.abort();
@@ -594,7 +625,12 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 			raw,
 		);
 		assert.equal(
-			(await f.post(`/api/chats/${f.chat.id}`, { prompt: "busy" })).status,
+			(
+				await f.post(`/api/chats/${f.chat.id}`, {
+					modelId: "stream-fixture",
+					prompt: "busy",
+				})
+			).status,
 			409,
 		);
 		stream.close();

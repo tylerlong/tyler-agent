@@ -14,6 +14,11 @@ import i18n from "./i18n.ts";
 import { ModelConfiguration } from "./model-configuration.tsx";
 import { createSettingState } from "./setting-state.ts";
 import { TurnCalls } from "./turn-calls.tsx";
+import {
+	TurnOptionPicker,
+	type TurnOptions,
+	validTurnOptions,
+} from "./turn-options.tsx";
 import { type ReaderItem, TurnOutput } from "./turn-output.tsx";
 import "./style.css";
 
@@ -220,6 +225,7 @@ function App() {
 			errorCode?: string;
 			errorDetails?: string;
 		}[];
+		turnOptions?: TurnOptions;
 		busy: boolean;
 		hasMore: boolean;
 		historyLoaded?: boolean;
@@ -346,6 +352,34 @@ function App() {
 		},
 		[updateBusy],
 	);
+	const [turnOptions, setTurnOptions] = useState<Record<number, TurnOptions>>(
+		{},
+	);
+	useEffect(() => {
+		if (
+			!modelSettings ||
+			!Object.values(turnOptions).some(
+				(options) =>
+					options.modelId &&
+					!modelSettings.models.some((model) => model.id === options.modelId),
+			)
+		)
+			return;
+		setTurnOptions((current) => {
+			let changed = false;
+			const next = { ...current };
+			for (const [id, options] of Object.entries(current)) {
+				if (
+					options.modelId &&
+					!modelSettings.models.some((model) => model.id === options.modelId)
+				) {
+					next[Number(id)] = { modelId: null, reasoningEffort: null };
+					changed = true;
+				}
+			}
+			return changed ? next : current;
+		});
+	}, [modelSettings, turnOptions]);
 	const [drafts, setDrafts] = useState<Record<number, string>>({});
 	const draftVersions = useRef<Record<number, number>>({});
 	const [chatErrors, setChatErrors] = useState<Record<number, ApiError | null>>(
@@ -381,6 +415,12 @@ function App() {
 			try {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
+				if (latest.turnOptions)
+					setTurnOptions((current) =>
+						current[id]
+							? current
+							: { ...current, [id]: latest.turnOptions as TurnOptions },
+					);
 				const cached = cacheRef.current[id];
 				let cursor = cached?.historyLoaded
 					? (syncedThrough.current[id] ?? 0)
@@ -478,7 +518,11 @@ function App() {
 			chatState?.id !== id ||
 			chatState.busy ||
 			submitting.has(id) ||
-			!(drafts[id] ?? "").trim()
+			!(drafts[id] ?? "").trim() ||
+			!modelSettings?.apiKeyConfigured ||
+			modelSettingsError ||
+			!turnOptions[id] ||
+			!validTurnOptions(turnOptions[id], modelSettings.models)
 		)
 			return;
 		readingPositions.current[id] = { top: 0, bottom: true };
@@ -488,7 +532,7 @@ function App() {
 		setSubmitting((current) => new Set(current).add(id));
 		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
-			await api(`/api/chats/${id}`, "POST", { prompt });
+			await api(`/api/chats/${id}`, "POST", { prompt, ...turnOptions[id] });
 			if ((draftVersions.current[id] ?? 0) === version)
 				setDrafts((current) => ({ ...current, [id]: "" }));
 		} catch (cause) {
@@ -508,6 +552,9 @@ function App() {
 	const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
 	const [error, setError] = useState<ApiError | null>(null);
 	const settingsDialog = useRef<HTMLDialogElement>(null);
+	const setupDialog = useRef<HTMLDialogElement>(null);
+	const [setupOpen, setSetupOpen] = useState(false);
+	const [dialogChange, setDialogChange] = useState(0);
 	const refreshRevision = useRef(0);
 	const refresh = useCallback(async () => {
 		const revision = ++refreshRevision.current;
@@ -898,6 +945,38 @@ function App() {
 	);
 	const chat = project?.chats.find((chat) => chat.id === selected);
 	const readOnly = Boolean(project?.archived || chat?.archived);
+	const options = selected === null ? undefined : turnOptions[selected];
+	const missingSetup = Boolean(
+		chat &&
+			!readOnly &&
+			(modelSettingsError ||
+				(modelSettings &&
+					options &&
+					(!modelSettings.apiKeyConfigured ||
+						!modelSettings.models.some(
+							(model) => model.id === options.modelId,
+						)))),
+	);
+	useEffect(() => {
+		void dialogChange;
+		const setup = setupDialog.current;
+		if (!setup) return;
+		const otherOpen = [settingsDialog, dialog, folderDialog].some(
+			(ref) => ref.current?.open,
+		);
+		if (missingSetup && !otherOpen && !setup.open) {
+			setSetupOpen(true);
+			setup.showModal();
+		}
+		if ((!missingSetup || otherOpen) && setup.open) {
+			setup.close();
+			setSetupOpen(false);
+		}
+	});
+	const changeTurnOptions = (value: TurnOptions) => {
+		if (selected !== null)
+			setTurnOptions((current) => ({ ...current, [selected]: value }));
+	};
 	const modalProject = projects.find((project) =>
 		editing?.kind === "project"
 			? project.id === editing.id
@@ -1246,7 +1325,17 @@ function App() {
 									}}
 									required
 								/>
-								<div className="flex min-h-9 items-center justify-end gap-2 pt-2">
+								<div className="flex min-h-9 flex-wrap items-center justify-end gap-2 pt-2">
+									{options && (
+										<div className="mr-auto flex min-w-0 flex-wrap gap-1">
+											<TurnOptionPicker
+												options={options}
+												models={modelSettings?.models ?? []}
+												change={changeTurnOptions}
+												disabled={readOnly || modelSettingsError}
+											/>
+										</div>
+									)}
 									<button
 										type="submit"
 										aria-label={t("submit")}
@@ -1254,6 +1343,10 @@ function App() {
 										className="h-9 w-9 shrink-0 rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
 										disabled={
 											readOnly ||
+											modelSettingsError ||
+											!modelSettings?.apiKeyConfigured ||
+											!options ||
+											!validTurnOptions(options, modelSettings.models) ||
 											chatState?.id !== chat.id ||
 											chatState.busy ||
 											submitting.has(chat.id)
@@ -1278,6 +1371,7 @@ function App() {
 				)}
 			</div>
 			<dialog
+				onClose={() => setDialogChange((value) => value + 1)}
 				closedby="any"
 				ref={dialog}
 				aria-labelledby="create-title"
@@ -1375,6 +1469,7 @@ function App() {
 				</form>
 			</dialog>
 			<dialog
+				onClose={() => setDialogChange((value) => value + 1)}
 				closedby="any"
 				ref={folderDialog}
 				aria-labelledby="folder-title"
@@ -1475,6 +1570,7 @@ function App() {
 				</footer>
 			</dialog>
 			<dialog
+				onClose={() => setDialogChange((value) => value + 1)}
 				closedby="any"
 				ref={settingsDialog}
 				aria-labelledby="settings-title"
@@ -1523,6 +1619,11 @@ function App() {
 						</button>
 					</div>
 				)}
+				{missingSetup && (
+					<p role="status" className="mt-4 text-amber-700">
+						{t("setupRequired")}
+					</p>
+				)}
 				<ModelConfiguration
 					settings={modelSettings}
 					readFailed={modelSettingsError}
@@ -1537,6 +1638,39 @@ function App() {
 						{t("close")}
 					</button>
 				</div>
+			</dialog>
+			<dialog
+				ref={setupDialog}
+				closedby="none"
+				onCancel={(event) => event.preventDefault()}
+				aria-labelledby="setup-title"
+				className="m-auto max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
+			>
+				{setupOpen && (
+					<>
+						<h2 id="setup-title" className="text-lg font-semibold">
+							{t("completeSetup")}
+						</h2>
+						<p className="mt-2 text-sm text-neutral-600">
+							{t("setupRequired")}
+						</p>
+						{options && (
+							<div className="mt-4 flex flex-wrap gap-2">
+								<TurnOptionPicker
+									options={options}
+									models={modelSettings?.models ?? []}
+									change={changeTurnOptions}
+									disabled={modelSettingsError}
+								/>
+							</div>
+						)}
+						<ModelConfiguration
+							settings={modelSettings}
+							readFailed={modelSettingsError}
+							refresh={refreshModelSettings}
+						/>
+					</>
+				)}
 			</dialog>
 		</main>
 	);

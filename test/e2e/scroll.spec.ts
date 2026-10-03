@@ -28,7 +28,10 @@ test("composer stays visible while reading, paging and returning to a chat prese
 	});
 	for (let i = 1; i <= 25; i++)
 		await page.request.post(`${app.url}/api/chats/${alpha.id}`, {
-			data: { prompt: `Question ${i}.\n${"long line\n".repeat(8)}` },
+			data: {
+				modelId: "test",
+				prompt: `Question ${i}.\n${"long line\n".repeat(8)}`,
+			},
 		});
 	await page.setViewportSize({ width: 900, height: 600 });
 	await page.goto(`${app.url}/?chat=${alpha.id}`);
@@ -68,7 +71,7 @@ test("composer stays visible while reading, paging and returning to a chat prese
 	await page.getByRole("button", { name: "Beta", exact: true }).click();
 	await expect(page.getByRole("log")).toBeEmpty();
 	await page.request.post(`${app.url}/api/chats/${alpha.id}`, {
-		data: { prompt: "New while away\n".repeat(20) },
+		data: { modelId: "test", prompt: "New while away\n".repeat(20) },
 	});
 	await page.getByRole("button", { name: "Alpha", exact: true }).click();
 	await expect(page.getByRole("log")).toContainText("New while away");
@@ -87,7 +90,7 @@ test("composer stays visible while reading, paging and returning to a chat prese
 	await page.getByRole("button", { name: "Beta", exact: true }).click();
 	await expect(page.getByRole("log")).toBeEmpty();
 	await page.request.post(`${app.url}/api/chats/${alpha.id}`, {
-		data: { prompt: "Another while away\n".repeat(20) },
+		data: { modelId: "test", prompt: "Another while away\n".repeat(20) },
 	});
 	await page.getByRole("button", { name: "Alpha", exact: true }).click();
 	await expect(page.getByRole("log")).toContainText("Another while away");
@@ -118,7 +121,10 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	).json();
 	for (let i = 1; i <= 10; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: `Question ${i}.\n${"long line\n".repeat(8)}` },
+			data: {
+				modelId: "test",
+				prompt: `Question ${i}.\n${"long line\n".repeat(8)}`,
+			},
 		});
 	await page.setViewportSize({ width: 900, height: 600 });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
@@ -138,7 +144,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	await expect.poll(async () => (await scrollState(content)).top).toBe(0);
 	const gate = app.holdModel();
 	const pending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "From another window\n".repeat(30) },
+		data: { modelId: "test", prompt: "From another window\n".repeat(30) },
 	});
 	await gate.entered;
 	try {
@@ -230,7 +236,7 @@ test("returning to a previously non-scrollable chat keeps its original position"
 		page.getByRole("heading", { name: "Beta", exact: true }),
 	).toBeVisible();
 	await page.request.post(`${app.url}/api/chats/${alpha.id}`, {
-		data: { prompt: "Long new content\n".repeat(200) },
+		data: { modelId: "test", prompt: "Long new content\n".repeat(200) },
 	});
 	await page.getByRole("button", { name: "Alpha", exact: true }).click();
 	await expect(page.getByRole("log")).toContainText("Long new content");
@@ -258,7 +264,7 @@ test("growth and folding above an answer in the same turn preserve its reading a
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "question" },
+		data: { modelId: "test", prompt: "question" },
 	});
 	stream.push(
 		frame("response.output_item.added", {

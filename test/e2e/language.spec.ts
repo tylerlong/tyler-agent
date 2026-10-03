@@ -169,7 +169,7 @@ test("language changes keep stored content, edit and question drafts, raw failur
 		})
 	).json();
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "original question" },
+		data: { modelId: "test", prompt: "original question" },
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(page.getByRole("log")).toContainText("original question");

@@ -37,7 +37,7 @@ test("long chat and project lists scroll independently with sidebar header and f
 		if (i === 0) first = chat.id;
 	}
 	const answer = await page.request.post(`${app.url}/api/chats/${first}`, {
-		data: { prompt: "Long question. ".repeat(400) },
+		data: { modelId: "test", prompt: "Long question. ".repeat(400) },
 	});
 	expect(answer.ok()).toBe(true);
 	await page.setViewportSize({ width: 900, height: 600 });

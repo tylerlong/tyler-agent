@@ -63,7 +63,7 @@ test("ordered thinking stays live while pending; manual choices survive updates,
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "question" },
+		data: { modelId: "test", prompt: "question" },
 	});
 	stream.push(initial);
 	const log = page.getByRole("log");
@@ -159,7 +159,7 @@ test("failed thinking defaults folded and history loads body only after expansio
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "question" },
+		data: { modelId: "test", prompt: "question" },
 	});
 	stream.push(initial);
 	const thinking = page
@@ -214,7 +214,7 @@ test("thinking reads retry and two pages catch up pending content with independe
 	const stream = app.rawStreamModel();
 	const submitted = page.request
 		.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { prompt: "question" },
+			data: { modelId: "test", prompt: "question" },
 		})
 		.catch(() => undefined);
 	stream.push(

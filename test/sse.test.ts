@@ -112,7 +112,7 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 		const pending = fetch(`${base}/api/chats/${chat.id}`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ prompt: "question" }),
+			body: JSON.stringify({ modelId: "test", prompt: "question" }),
 		});
 		await Promise.all([first.next("turn"), second.next("turn")]);
 		const active = await agree(chat.id);

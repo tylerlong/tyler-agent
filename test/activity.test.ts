@@ -70,7 +70,10 @@ test("accepted questions sort immediately, failures count, rejected questions an
 		time = start + 100;
 		const newer = await project("Newer empty");
 		time = start + 200;
-		pending = post(`/api/chats/${a.id}`, { prompt: "question" });
+		pending = post(`/api/chats/${a.id}`, {
+			modelId: "test",
+			prompt: "question",
+		});
 		await entered;
 		let projects = await list();
 		assert.deepEqual(
@@ -85,15 +88,18 @@ test("accepted questions sort immediately, failures count, rejected questions an
 		assert.equal(projects[0].chats[0].busy, true);
 		time = start + 300;
 		assert.equal(
-			(await post(`/api/chats/${a.id}`, { prompt: "busy" })).status,
+			(await post(`/api/chats/${a.id}`, { modelId: "test", prompt: "busy" }))
+				.status,
 			409,
 		);
 		assert.equal(
-			(await post(`/api/chats/${b.id}`, { prompt: " " })).status,
+			(await post(`/api/chats/${b.id}`, { modelId: "test", prompt: " " }))
+				.status,
 			400,
 		);
 		assert.equal(
-			(await post("/api/chats/999", { prompt: "unknown" })).status,
+			(await post("/api/chats/999", { modelId: "test", prompt: "unknown" }))
+				.status,
 			404,
 		);
 		assert.deepEqual(await list(), projects);
@@ -105,7 +111,12 @@ test("accepted questions sort immediately, failures count, rejected questions an
 		time = start + 400;
 		fail = true;
 		assert.equal(
-			(await post(`/api/chats/${b.id}`, { prompt: "failed question" })).status,
+			(
+				await post(`/api/chats/${b.id}`, {
+					modelId: "test",
+					prompt: "failed question",
+				})
+			).status,
 			502,
 		);
 		projects = await list();

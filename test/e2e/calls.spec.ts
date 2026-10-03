@@ -68,7 +68,7 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	).json();
 	const gate = app.holdModel();
 	const pending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "question" },
+		data: { modelId: "test", prompt: "question" },
 	});
 	await gate.entered;
 	let reads = 0;
@@ -90,7 +90,7 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 		.toBe(
-			'{"model":"[REDACTED]","input":[{"role":"user","content":"question"}],"stream":true}',
+			'{"model":"test","input":[{"role":"user","content":"question"}],"stream":true}',
 		);
 	await response.locator("summary").click();
 	await expect(response).toContainText("Waiting for response");
@@ -114,7 +114,7 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	expect(reads).toBe(cachedReads);
 	const hiddenGate = app.holdModel();
 	const hiddenPending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "Complete while away" },
+		data: { modelId: "test", prompt: "Complete while away" },
 	});
 	await hiddenGate.entered;
 	await expect(response).toHaveCount(2);
@@ -151,7 +151,7 @@ test("failed responses show actual text, retry reading, copy original and remain
 	).json();
 	app.failModel();
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "failure" },
+		data: { modelId: "test", prompt: "failure" },
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	let fail = true;
@@ -206,7 +206,7 @@ test("network failures have no copyable response and absent old records are expl
 	).json();
 	app.failModel("network");
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "failure" },
+		data: { modelId: "test", prompt: "failure" },
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const response = page
@@ -260,7 +260,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 		});
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "Inspect live SSE" },
+		data: { modelId: "test", prompt: "Inspect live SSE" },
 	});
 	stream.push(prefix);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
@@ -323,9 +323,8 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	);
 	await response.locator("summary").click();
 	const unknown =
-		'event: vendor.unknown\ndata: {"private":"te' +
-		'st","payload":{"count":1}}\n\r\n';
-	const split = unknown.indexOf("test") + 2;
+		'event: vendor.unknown\ndata: {"private":"fake-api-credential","payload":{"count":1}}\n\r\n';
+	const split = unknown.indexOf("fake-api-credential") + 5;
 	stream.push(unknown.slice(0, split));
 	stream.push(unknown.slice(split));
 	const malformed = "event: vendor.raw\r\ndata: not-json\r\n\n";
@@ -345,7 +344,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 		prefix +
 		second +
 		hidden +
-		unknown.replace('"test"', '"[REDACTED]"') +
+		unknown.replace('"fake-api-credential"', '"[REDACTED]"') +
 		malformed +
 		tail;
 	await response.getByRole("button", { name: "Copy", exact: true }).click();

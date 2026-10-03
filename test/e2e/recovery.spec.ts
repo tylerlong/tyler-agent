@@ -30,7 +30,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 	).toBeEnabled();
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "question" },
+		data: { modelId: "test", prompt: "question" },
 	});
 	stream.push(
 		frame("response.output_text.delta", {
@@ -125,7 +125,9 @@ test("pending cached thinking and raw records recover on focus, visibility, reco
 	await other.goto(`${app.url}/?chat=${chat.id}`);
 	const stream = app.rawStreamModel();
 	const submitted = page.request
-		.post(`${app.url}/api/chats/${chat.id}`, { data: { prompt: "question" } })
+		.post(`${app.url}/api/chats/${chat.id}`, {
+			data: { modelId: "test", prompt: "question" },
+		})
 		.catch(() => undefined);
 	stream.push(
 		frame("response.output_item.added", {
@@ -266,7 +268,7 @@ test("late thinking and communication successes or errors cannot replace newer c
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "question" },
+		data: { modelId: "test", prompt: "question" },
 	});
 	const append = (text: string) =>
 		stream.push(

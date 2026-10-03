@@ -53,7 +53,10 @@ test("edits preserve identity/history and persist atomically, including missing 
 		const c = await (
 			await request(`/api/projects/${p.id}/chats`, "POST", { name: "Chat" })
 		).json();
-		const pending = request(`/api/chats/${c.id}`, "POST", { prompt: "hi" });
+		const pending = request(`/api/chats/${c.id}`, "POST", {
+			modelId: "test",
+			prompt: "hi",
+		});
 		await started;
 		const before = (await (await request("/api/projects")).json()).projects[0];
 		await rm(child, { recursive: true });

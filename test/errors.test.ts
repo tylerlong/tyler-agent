@@ -82,6 +82,7 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 		] as const) {
 			failure = kind;
 			const response = await post(`/api/chats/${chat.id}`, {
+				modelId: "test-model",
 				prompt: "question",
 			});
 			assert.equal(response.status, 502);
