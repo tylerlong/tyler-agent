@@ -3,7 +3,14 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export function openDatabase(path: string, createDefaultDirectory: boolean) {
-	if (createDefaultDirectory) mkdirSync(dirname(path), { recursive: true });
+	if (path !== ":memory:") {
+		if (createDefaultDirectory) {
+			mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+			chmodSync(dirname(path), 0o700);
+		} else if (statSync(dirname(path)).mode & 0o077) {
+			throw new Error("Custom database directory must be private (mode 0700)");
+		}
+	}
 	if (existsSync(path) && !(statSync(path).mode & 0o222))
 		throw new Error("Database is read-only");
 	const db = new DatabaseSync(path);
@@ -88,7 +95,6 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
                 COMMIT;`);
 		}
 		if (path !== ":memory:") {
-			chmodSync(dirname(path), 0o700);
 			chmodSync(path, 0o600);
 		}
 

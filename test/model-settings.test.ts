@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -13,6 +13,19 @@ const catalogModel = (id: string, name = id, reasoning?: unknown) => ({
 	name,
 	architecture: { output_modalities: ["text"] },
 	...(reasoning ? { reasoning } : {}),
+});
+
+test("custom database startup rejects a shared parent without changing permissions or creating data", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-shared-parent-"));
+	const path = join(directory, "db.sqlite");
+	try {
+		await chmod(directory, 0o755);
+		assert.throws(() => openDatabase(path, false), /directory must be private/);
+		assert.equal((await stat(directory)).mode & 0o777, 0o755);
+		await assert.rejects(stat(path), { code: "ENOENT" });
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
 });
 
 test("database key/model configuration is write-only, durable, anonymous lazy catalog refresh preserves membership and failures", async () => {
