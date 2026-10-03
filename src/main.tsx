@@ -164,16 +164,24 @@ function App() {
 	);
 	const [modelSettingsError, setModelSettingsError] = useState(false);
 	const modelSettingsRead = useRef(0);
-	const refreshModelSettings = useCallback(async () => {
+	const modelSettingsRefresh = useRef<Promise<void> | null>(null);
+	const refreshModelSettings = useCallback(() => {
 		const version = ++modelSettingsRead.current;
-		try {
-			const value = await api("/api/model-settings");
-			if (version !== modelSettingsRead.current) return;
-			setModelSettings(value);
-			setModelSettingsError(false);
-		} catch {
-			if (version === modelSettingsRead.current) setModelSettingsError(true);
-		}
+		const operation = (async () => {
+			try {
+				const value = await api("/api/model-settings");
+				if (version !== modelSettingsRead.current) {
+					await modelSettingsRefresh.current;
+					return;
+				}
+				setModelSettings(value);
+				setModelSettingsError(false);
+			} catch {
+				if (version === modelSettingsRead.current) setModelSettingsError(true);
+			}
+		})();
+		modelSettingsRefresh.current = operation;
+		return operation;
 	}, []);
 	const [sidebarWidth, setSidebarWidth] = useState(320);
 	const [sidebarDragging, setSidebarDragging] = useState(false);
@@ -207,6 +215,7 @@ function App() {
 	const [projects, setProjects] = useState<Project[]>([]);
 	const [selected, setSelected] = useState<number | null>(urlChat);
 	const selectedRef = useRef(selected);
+	const selectionVersion = useRef(0);
 	selectedRef.current = selected;
 	type ChatState = {
 		id: number;
@@ -396,6 +405,8 @@ function App() {
 				bottom: false,
 			};
 		}
+		if (previous !== id) selectionVersion.current++;
+		selectedRef.current = id;
 		setSelected(id);
 	}, []);
 	function selectChat(id: number) {
@@ -976,6 +987,7 @@ function App() {
 		if (missingSetup && !otherOpen) openSettings();
 	});
 	const changeTurnOptions = (value: TurnOptions) => {
+		selectionVersion.current++;
 		if (selected !== null)
 			setTurnOptions((current) => ({ ...current, [selected]: value }));
 	};
@@ -1645,6 +1657,23 @@ function App() {
 					</p>
 				)}
 				<ModelConfiguration
+					beginAddition={() => {
+						const id = selectedRef.current;
+						const version = selectionVersion.current;
+						return (modelId) => {
+							if (
+								id === null ||
+								selectedRef.current !== id ||
+								selectionVersion.current !== version
+							)
+								return;
+							setTurnOptions((current) =>
+								current[id] && !current[id].modelId
+									? { ...current, [id]: { modelId, reasoningEffort: null } }
+									: current,
+							);
+						};
+					}}
 					open={settingsOpen}
 					settings={modelSettings}
 					readFailed={modelSettingsError}

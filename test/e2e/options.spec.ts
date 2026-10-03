@@ -130,7 +130,7 @@ test("default updates preserve initialized choices and removed selection recover
 	).toBeEnabled();
 });
 
-test("empty configuration uses sole mandatory Settings, then explicit composer selection", async ({
+test("empty configuration uses sole mandatory Settings, then initializes the composer with its first model", async ({
 	page,
 	app,
 }) => {
@@ -164,19 +164,21 @@ test("empty configuration uses sole mandatory Settings, then explicit composer s
 	).toHaveValue("");
 	await expect(close).toBeDisabled();
 	await settings
-		.getByRole("checkbox", { name: "Second second", exact: true })
-		.check();
+		.getByRole("button", { name: "Add model", exact: true })
+		.click();
+	await settings
+		.getByRole("option", { name: "Second second", exact: true })
+		.click();
 	await expect(close).toBeEnabled();
 	await expect(
 		settings.getByRole("list", { name: "Enabled models" }),
-	).not.toContainText("Default");
+	).toContainText("Default");
 	await close.click();
 	const model = page.getByRole("combobox", { name: "Model", exact: true });
-	await expect(model).toHaveValue("");
+	await expect(model).toHaveValue("second");
 	await page.getByLabel("Prompt", { exact: true }).fill("First question");
 	const submit = page.getByRole("button", { name: "Submit", exact: true });
-	await expect(submit).toBeDisabled();
-	await model.selectOption("second");
+	await expect(submit).toBeEnabled();
 	await submit.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 });
@@ -333,7 +335,12 @@ test("Settings retains inputs through hide/show and becomes mandatory after ordi
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	const key = settings.getByLabel("OpenRouter API key", { exact: true });
 	await key.fill("unsaved-draft");
-	await settings.getByLabel("Filter models", { exact: true }).fill("Sec");
+	await settings
+		.getByRole("button", { name: "Add model", exact: true })
+		.click();
+	await settings
+		.getByRole("combobox", { name: "Filter models", exact: true })
+		.fill("Sec");
 	await settings.getByRole("button", { name: "Close", exact: true }).click();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(key).toHaveValue("unsaved-draft");

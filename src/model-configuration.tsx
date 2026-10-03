@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ManagedModel, ModelSettings } from "./database.ts";
 
@@ -12,21 +12,25 @@ export function ModelConfiguration({
 	readFailed,
 	refresh,
 	open,
+	beginAddition,
 }: {
 	open: boolean;
 	settings: ModelSettings | null;
 	readFailed: boolean;
 	refresh: () => Promise<void>;
+	beginAddition: () => (modelId: string) => void;
 }) {
 	const { t } = useTranslation();
 	const [key, setKey] = useState("");
 	const [query, setQuery] = useState("");
 	const [catalog, setCatalog] = useState<ManagedModel[] | null>(null);
 	const [pending, setPending] = useState(false);
-	const [membershipChange, setMembershipChange] = useState<{
-		id: string;
-		enabled: boolean;
-	} | null>(null);
+	const [adding, setAdding] = useState(false);
+	const [highlighted, setHighlighted] = useState<string | null>(null);
+	const addButton = useRef<HTMLButtonElement>(null);
+	const searchInput = useRef<HTMLInputElement>(null);
+	const section = useRef<HTMLElement>(null);
+	const saving = useRef(false);
 	const [error, setError] = useState("");
 	const [catalogError, setCatalogError] = useState(false);
 	async function request(path: string, method: string, body?: unknown) {
@@ -48,6 +52,8 @@ export function ModelConfiguration({
 		body?: unknown,
 		clearKey = false,
 	) {
+		if (saving.current) return;
+		saving.current = true;
 		setPending(true);
 		setError("");
 		try {
@@ -57,16 +63,50 @@ export function ModelConfiguration({
 		} catch {
 			setError("configurationSaveFailed");
 		} finally {
+			saving.current = false;
 			setPending(false);
 		}
 	}
-	async function changeMembership(id: string, enabled: boolean) {
-		setMembershipChange({ id, enabled });
-		await (enabled
-			? mutate("/api/models", "POST", { id })
-			: mutate(`/api/models/${encodeURIComponent(id)}`, "DELETE"));
-		setMembershipChange(null);
+	function cancelAddition() {
+		if (saving.current) return;
+		setAdding(false);
+		setQuery("");
+		setHighlighted(null);
+		requestAnimationFrame(() => addButton.current?.focus());
 	}
+	async function addModel(id: string) {
+		if (saving.current || pending) return;
+		const complete = beginAddition();
+		saving.current = true;
+		setPending(true);
+		setError("");
+		try {
+			const result = await request("/api/models", "POST", { id });
+			await refresh();
+			if (result.firstModelAdded) complete(id);
+			saving.current = false;
+			cancelAddition();
+		} catch {
+			setError("configurationSaveFailed");
+		} finally {
+			saving.current = false;
+			setPending(false);
+		}
+	}
+	// biome-ignore lint/correctness/useExhaustiveDependencies: cancellation reads pending from the dispatch guard
+	useEffect(() => {
+		if (!adding || !open) return;
+		searchInput.current?.focus();
+		const dialog = section.current?.closest("dialog");
+		const cancel = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			cancelAddition();
+		};
+		dialog?.addEventListener("keydown", cancel);
+		return () => dialog?.removeEventListener("keydown", cancel);
+	}, [adding, open]);
 	const [catalogLoading, setCatalogLoading] = useState(false);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only modal openings refresh discovery
 	useEffect(() => {
@@ -92,11 +132,14 @@ export function ModelConfiguration({
 		};
 		// Only closed-to-open transitions refresh discovery, not configuration saves.
 	}, [open]);
-	const matches = catalog?.filter((model) =>
-		`${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase()),
+	const matches = catalog?.filter(
+		(model) =>
+			!settings?.models.some((saved) => saved.id === model.id) &&
+			`${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase()),
 	);
 	return (
 		<section
+			ref={section}
 			className="mt-6 border-t border-neutral-200 pt-4"
 			aria-label={t("modelConfiguration")}
 		>
@@ -201,22 +244,127 @@ export function ModelConfiguration({
 									disabled={pending}
 									aria-label={t("disableModel")}
 									title={t("disableModel")}
-									onClick={() => void changeMembership(model.id, false)}
+									onClick={() =>
+										void mutate(
+											`/api/models/${encodeURIComponent(model.id)}`,
+											"DELETE",
+										)
+									}
 								>
 									×
 								</button>
 							</li>
 						))}
 					</ul>
-					<label className="mt-4 block">
-						{t("filterModels")}
-						<input
-							type="search"
-							className={input}
-							value={query}
-							onChange={(event) => setQuery(event.target.value)}
-						/>
-					</label>
+					<div className="mt-4">
+						{!adding ? (
+							<button
+								ref={addButton}
+								type="button"
+								className={button}
+								disabled={pending}
+								onClick={() => setAdding(true)}
+							>
+								{t("addModel")}
+							</button>
+						) : (
+							<>
+								<div className="flex items-center gap-2">
+									<input
+										ref={searchInput}
+										role="combobox"
+										aria-label={t("filterModels")}
+										aria-autocomplete="list"
+										aria-expanded={true}
+										aria-controls="model-candidates"
+										aria-activedescendant={
+											matches?.some((model) => model.id === highlighted)
+												? `candidate-${highlighted}`
+												: undefined
+										}
+										className={input}
+										value={query}
+										disabled={pending}
+										onChange={(event) => {
+											setQuery(event.target.value);
+											setHighlighted(null);
+										}}
+										onKeyDown={(event) => {
+											if (pending) return;
+											if (
+												event.key === "ArrowDown" ||
+												event.key === "ArrowUp"
+											) {
+												event.preventDefault();
+												if (!matches?.length) return;
+												const index = matches.findIndex(
+													(model) => model.id === highlighted,
+												);
+												const next =
+													index < 0
+														? event.key === "ArrowDown"
+															? 0
+															: matches.length - 1
+														: (index +
+																(event.key === "ArrowDown" ? 1 : -1) +
+																matches.length) %
+															matches.length;
+												setHighlighted(matches[next].id);
+												requestAnimationFrame(() =>
+													document
+														.getElementById(`candidate-${matches[next].id}`)
+														?.scrollIntoView({ block: "nearest" }),
+												);
+											} else if (event.key === "Enter") {
+												event.preventDefault();
+												if (matches?.some((model) => model.id === highlighted))
+													void addModel(highlighted as string);
+											}
+										}}
+									/>
+									<button
+										type="button"
+										className={button}
+										disabled={pending}
+										onClick={cancelAddition}
+									>
+										{t("cancel")}
+									</button>
+								</div>
+								{catalog && (
+									<>
+										{matches?.length === 0 && <p>{t("noMatchingModels")}</p>}
+										<div
+											id="model-candidates"
+											role="listbox"
+											aria-label={t("popularModels")}
+											className="mt-3 max-h-64 overflow-y-auto"
+										>
+											{matches?.map((model) => (
+												<li key={model.id} role="presentation">
+													<button
+														id={`candidate-${model.id}`}
+														type="button"
+														role="option"
+														aria-selected={highlighted === model.id}
+														disabled={pending}
+														tabIndex={-1}
+														className={`w-full rounded-md px-3 py-2 text-left hover:bg-neutral-100 focus-visible:outline-2 focus-visible:outline-blue-600 ${highlighted === model.id ? "bg-neutral-100 outline-2 outline-blue-600" : ""}`}
+														onClick={() => void addModel(model.id)}
+													>
+														{model.name}
+														<small className="block text-neutral-600">
+															{model.id}
+														</small>
+													</button>
+												</li>
+											))}
+										</div>
+									</>
+								)}
+							</>
+						)}
+					</div>
 					<p className="mt-2 text-sm text-neutral-600">
 						{t("popularModelsScope")}
 					</p>
@@ -225,45 +373,6 @@ export function ModelConfiguration({
 						<p role="alert" className="mt-2 text-red-700">
 							{t("catalogReadFailed")}
 						</p>
-					)}
-					{catalog && (
-						<>
-							{matches?.length === 0 && <p>{t("noMatchingModels")}</p>}
-							<ul
-								aria-label={t("popularModels")}
-								className="mt-3 max-h-64 space-y-2 overflow-y-auto"
-							>
-								{matches?.map((model) => {
-									const enabled = settings.models.some(
-										(saved) => saved.id === model.id,
-									);
-									return (
-										<li key={model.id}>
-											<label className="flex items-center gap-3">
-												<input
-													type="checkbox"
-													checked={
-														membershipChange?.id === model.id
-															? membershipChange.enabled
-															: enabled
-													}
-													disabled={pending || enabled}
-													onChange={() =>
-														void changeMembership(model.id, !enabled)
-													}
-												/>
-												<span className="min-w-0 break-words">
-													{model.name}
-													<small className="block text-neutral-600">
-														{model.id}
-													</small>
-												</span>
-											</label>
-										</li>
-									);
-								})}
-							</ul>
-						</>
 					)}
 				</>
 			)}

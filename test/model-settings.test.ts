@@ -508,3 +508,67 @@ test("default removal is atomic, uses successful cached rank, and falls back to 
 		await rm(folder, { recursive: true, force: true });
 	}
 });
+
+test("first model addition persists its default atomically and duplicates or later additions preserve selection and order", async () => {
+	const folder = await mkdtemp(join(tmpdir(), "agent-first-add-"));
+	const path = join(folder, "db.sqlite");
+	const start = () =>
+		createServer(fetch, path, async () =>
+			Response.json({
+				data: [catalogModel("one"), catalogModel("two"), catalogModel("three")],
+			}),
+		).listen(0, "127.0.0.1");
+	let server = start();
+	const request = async (route: string, method = "GET", body?: unknown) => {
+		if (!server.listening)
+			await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		return fetch(`http://127.0.0.1:${address.port}${route}`, {
+			method,
+			...(body ? { body: JSON.stringify(body) } : {}),
+		});
+	};
+	const settings = async () => (await request("/api/model-settings")).json();
+	const add = async (id: string) => request("/api/models", "POST", { id });
+	try {
+		const first = await (await add("one")).json();
+		assert.equal(first.defaultModelId, "one");
+		assert.equal(first.firstModelAdded, true);
+		const duplicate = await (await add("one")).json();
+		assert.equal(duplicate.firstModelAdded, false);
+		assert.equal(duplicate.defaultModelId, "one");
+		assert.equal((await (await add("two")).json()).firstModelAdded, false);
+		await request("/api/model-settings", "PUT", { defaultModelId: "two" });
+		assert.equal((await (await add("one")).json()).defaultModelId, "two");
+		await request("/api/model-settings", "PUT", { defaultModelId: null });
+		const later = await (await add("three")).json();
+		assert.equal(later.defaultModelId, null);
+		assert.equal(later.firstModelAdded, false);
+		assert.deepEqual(
+			later.models.map((model: { id: string }) => model.id),
+			["one", "two", "three"],
+		);
+		for (const id of ["one", "two", "three"])
+			await request(`/api/models/${id}`, "DELETE");
+		const db = new DatabaseSync(path);
+		db.exec(
+			"CREATE TRIGGER reject_first_default BEFORE UPDATE OF default_model_id ON settings WHEN NEW.default_model_id='one' BEGIN SELECT RAISE(ABORT,'disk failure'); END",
+		);
+		const before = await settings();
+		assert.equal((await add("one")).status, 500);
+		assert.deepEqual(await settings(), before);
+		db.exec("DROP TRIGGER reject_first_default");
+		db.close();
+		assert.equal((await (await add("two")).json()).firstModelAdded, true);
+		const saved = await settings();
+		assert.equal(saved.defaultModelId, "two");
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		server = start();
+		assert.deepEqual(await settings(), saved);
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(folder, { recursive: true, force: true });
+	}
+});

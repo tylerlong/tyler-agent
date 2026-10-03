@@ -89,7 +89,10 @@ test("failed and ambiguous language saves reconcile to server and existing error
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	const dialog = page.getByRole("dialog");
-	await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
+	await expect(
+		dialog.getByRole("listbox", { name: "Popular models" }).getByRole("option"),
+	).toHaveCount(1);
 	await expect(dialog.getByRole("status")).toHaveCount(0);
 	await page.route("**/api/language", (route) =>
 		route.request().method() === "PUT"

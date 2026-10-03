@@ -490,13 +490,27 @@ export function createServer(
 				if (!model) throw new InputError("invalidModel");
 				const { name, ...metadata } = model;
 				delete (metadata as Partial<ManagedModel>).id;
-				database
-					.prepare(
-						"INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING",
-					)
-					.run(id, name, JSON.stringify(metadata));
+				let firstModelAdded = false;
+				database.exec("BEGIN");
+				try {
+					const wasEmpty = modelSettings(database).models.length === 0;
+					const inserted = database
+						.prepare(
+							"INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING",
+						)
+						.run(id, name, JSON.stringify(metadata));
+					firstModelAdded = wasEmpty && inserted.changes > 0;
+					if (firstModelAdded)
+						database
+							.prepare("UPDATE settings SET default_model_id=? WHERE id=1")
+							.run(id);
+					database.exec("COMMIT");
+				} catch (error) {
+					database.exec("ROLLBACK");
+					throw error;
+				}
 				notifyChange();
-				json(response, 200, modelSettings(database));
+				json(response, 200, { ...modelSettings(database), firstModelAdded });
 			} catch (error) {
 				json(
 					response,

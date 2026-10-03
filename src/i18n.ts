@@ -135,7 +135,7 @@ export const resources = {
 			popularModels: "Popular models",
 			popularModelsScope:
 				"The 100 most popular text models. Filter by name or ID.",
-			noMatchingModels: "No matching models in the top 100.",
+			noMatchingModels: "No matching unenabled models in the top 100.",
 			otherEnabledModels: "Other enabled models",
 
 			catalogMissing:
@@ -144,7 +144,7 @@ export const resources = {
 				"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
 			configurationReadFailed: "Unable to read model settings. Please retry.",
 			configurationSaveFailed: "Unable to save model settings. Please retry.",
-			addModel: "Add model {{name}}",
+			addModel: "Add model",
 			add: "Add",
 
 			language: "Interface language",
@@ -283,7 +283,7 @@ export const resources = {
 			filterModels: "筛选模型",
 			popularModels: "热门模型",
 			popularModelsScope: "最热门的 100 个文本模型。按名称或 ID 筛选。",
-			noMatchingModels: "前 100 个热门模型中没有匹配项。",
+			noMatchingModels: "前 100 个热门模型中没有匹配的未启用模型。",
 			otherEnabledModels: "其他已启用模型",
 
 			catalogMissing: "最新目录中未找到，保留上次能力信息。",
@@ -291,7 +291,7 @@ export const resources = {
 				"加载热门模型失败。请关闭并重新打开设置以重试；若设置无法关闭，请重新加载页面。",
 			configurationReadFailed: "读取模型配置失败，请重试。",
 			configurationSaveFailed: "保存模型配置失败，请重试。",
-			addModel: "添加模型 {{name}}",
+			addModel: "添加模型",
 			add: "添加",
 
 			language: "界面语言",
