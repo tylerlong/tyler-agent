@@ -17,6 +17,7 @@ type RecordState = {
 	open: boolean;
 	calls?: Call[];
 	status?: string;
+	sourceRevision?: number;
 	error: boolean;
 	loading: boolean;
 	revision: number;
@@ -30,15 +31,43 @@ function pretty(body: string) {
 		return body;
 	}
 }
+function responseEvents(body: string) {
+	if (!/^(?:event|data|id|retry):|^:/m.test(body)) return [pretty(body)];
+	return body
+		.split(/\r?\n\r?\n|\r\r/)
+		.filter(Boolean)
+		.map((event) => {
+			const lines = event.split(/\r\n|\n|\r/);
+			const data = lines
+				.filter((line) => line.startsWith("data:"))
+				.map((line) => line.slice(5).replace(/^ /, ""))
+				.join("\n");
+			try {
+				const formatted = JSON.stringify(JSON.parse(data), null, 2);
+				let inserted = false;
+				return lines
+					.flatMap((line) => {
+						if (!line.startsWith("data:")) return [line];
+						if (inserted) return [];
+						inserted = true;
+						return [`data: ${formatted}`];
+					})
+					.join("\n");
+			} catch {
+				return event;
+			}
+		});
+}
 export function TurnCalls({
 	turnId,
 	status,
 	kind,
+	revision = 0,
 }: {
 	turnId: number;
 	status: string;
-	revision?: number;
 	kind: "request" | "response";
+	revision?: number;
 }) {
 	const { t } = useTranslation();
 	const key = `${turnId}-${kind}`;
@@ -51,7 +80,7 @@ export function TurnCalls({
 	const [, render] = useState(0);
 	const [copyError, setCopyError] = useState(false);
 	const load = useCallback(async () => {
-		const revision = ++record.revision;
+		const readRevision = ++record.revision;
 		record.loading = true;
 		record.error = false;
 		render((value) => value + 1);
@@ -59,21 +88,27 @@ export function TurnCalls({
 			const response = await fetch(`/api/turns/${turnId}/calls?kind=${kind}`);
 			if (!response.ok) throw new Error("Unable to read communication");
 			const data = await response.json();
-			if (revision !== record.revision) return;
+			if (readRevision !== record.revision) return;
 			record.calls = data.calls;
 			record.status = status;
+			record.sourceRevision = revision;
 		} catch {
-			if (revision === record.revision) record.error = true;
+			if (readRevision === record.revision) record.error = true;
 		} finally {
-			if (revision === record.revision) {
+			if (readRevision === record.revision) {
 				record.loading = false;
 				render((value) => value + 1);
 			}
 		}
-	}, [record, status, kind, turnId]);
+	}, [record, status, kind, turnId, revision]);
 	useEffect(() => {
-		if ((record.open || record.calls) && record.status !== status) void load();
-	}, [status, record, load]);
+		if (
+			(record.open || record.calls) &&
+			(record.status !== status ||
+				(record.status === "pending" && record.sourceRevision !== revision))
+		)
+			void load();
+	}, [status, revision, record, load]);
 	return (
 		<details
 			open={record.open}
@@ -138,9 +173,19 @@ export function TurnCalls({
 								>
 									{t("copy")}
 								</button>
-								<pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs">
-									{pretty(body)}
-								</pre>
+								{(kind === "response"
+									? responseEvents(body)
+									: [pretty(body)]
+								).map((event, index) => (
+									<pre
+										// SSE frames only append; their position is their identity.
+										// biome-ignore lint/suspicious/noArrayIndexKey: existing frames never reorder.
+										key={`${call.id}-${index}`}
+										className="mb-2 border-l-2 border-neutral-200 pl-2 overflow-x-auto whitespace-pre-wrap break-words text-xs"
+									>
+										{event}
+									</pre>
+								))}
 							</>
 						)}
 					</div>
