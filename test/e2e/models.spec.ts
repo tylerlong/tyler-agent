@@ -1,5 +1,62 @@
 import { expect, test } from "./fixtures.ts";
 
+test("mandatory Settings explains reload recovery after an initial catalog failure", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Setup recovery", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "First chat" },
+		})
+	).json();
+	await page.request.put(`${app.url}/api/model-settings`, {
+		data: { removeApiKey: true },
+	});
+	await page.request.delete(`${app.url}/api/models/test`);
+	await page.route("**/api/model-catalog", (route) =>
+		route.fulfill({ status: 502, json: {} }),
+	);
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+	await expect(settings.getByRole("alert")).toHaveText(
+		"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
+	);
+	const close = settings.getByRole("button", { name: "Close", exact: true });
+	await expect(close).toBeDisabled();
+	await page.keyboard.press("Escape");
+	await expect(settings).toBeVisible();
+	await expect(
+		settings.getByRole("button", { name: /Search|Refresh/ }),
+	).toHaveCount(0);
+	await page.unroute("**/api/model-catalog");
+	await page.reload();
+	await expect(settings.getByRole("checkbox")).toHaveCount(2);
+	await expect(settings.getByRole("alert")).toHaveCount(0);
+	await settings
+		.getByLabel("OpenRouter API key", { exact: true })
+		.fill("setup-secret");
+	await settings
+		.getByRole("button", { name: "Save API key", exact: true })
+		.click();
+	await expect(close).toBeDisabled();
+	await settings
+		.getByRole("checkbox", { name: "Second second", exact: true })
+		.check();
+	await expect(close).toBeEnabled();
+	await close.click();
+	await page
+		.getByRole("combobox", { name: "Model", exact: true })
+		.selectOption("second");
+	await page.getByLabel("Prompt", { exact: true }).fill("Recovered setup");
+	await page.getByRole("button", { name: "Submit", exact: true }).click();
+	await expect(page.getByRole("log")).toContainText("Test answer");
+});
+
 test("settings save write-only credentials and manage cached model choices across restart", async ({
 	page,
 	app,
@@ -90,7 +147,7 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
 		dialog.getByText(
-			"Unable to load popular models. Close and reopen Settings to retry.",
+			"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
 		),
 	).toBeVisible();
 	await expect(
@@ -101,7 +158,7 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
 		dialog.getByText(
-			"Unable to load popular models. Close and reopen Settings to retry.",
+			"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
 		),
 	).toHaveCount(0);
 	await expect(
@@ -170,7 +227,7 @@ test("initial catalog failure differs from an empty filter and existing models r
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(
 		dialog.getByText(
-			"Unable to load popular models. Close and reopen Settings to retry.",
+			"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
 		),
 	).toBeVisible();
 	await expect(

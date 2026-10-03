@@ -137,7 +137,7 @@ export const resources = {
 			catalogMissing:
 				"Not found in latest catalog; last-known capabilities retained.",
 			catalogReadFailed:
-				"Unable to load popular models. Close and reopen Settings to retry.",
+				"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
 			configurationReadFailed: "Unable to read model settings. Please retry.",
 			configurationSaveFailed: "Unable to save model settings. Please retry.",
 			addModel: "Add model {{name}}",
@@ -279,7 +279,8 @@ export const resources = {
 			otherEnabledModels: "其他已启用模型",
 
 			catalogMissing: "最新目录中未找到，保留上次能力信息。",
-			catalogReadFailed: "加载热门模型失败。请关闭并重新打开设置以重试。",
+			catalogReadFailed:
+				"加载热门模型失败。请关闭并重新打开设置以重试；若设置无法关闭，请重新加载页面。",
 			configurationReadFailed: "读取模型配置失败，请重试。",
 			configurationSaveFailed: "保存模型配置失败，请重试。",
 			addModel: "添加模型 {{name}}",
