@@ -445,7 +445,7 @@ test("default removal is atomic, uses successful cached rank, and falls back to 
 	const folder = await mkdtemp(join(tmpdir(), "agent-replacement-"));
 	const path = join(folder, "db.sqlite");
 	let fail = false;
-	let data = [catalogModel("a"), catalogModel("b"), catalogModel("c")];
+	let data = ["a", "b", "c", "d", "e"].map((id) => catalogModel(id));
 	const start = () =>
 		createServer(fetch, path, async () => {
 			if (fail) throw Error("directory failed");
@@ -466,7 +466,7 @@ test("default removal is atomic, uses successful cached rank, and falls back to 
 	const setDefault = async (id: string) =>
 		request("/api/model-settings", "PUT", { defaultModelId: id });
 	try {
-		for (const id of ["a", "b", "c"])
+		for (const id of ["a", "b", "c", "d", "e"])
 			await request("/api/models", "POST", { id });
 		await setDefault("a");
 		data = [catalogModel("c")];
@@ -486,13 +486,20 @@ test("default removal is atomic, uses successful cached rank, and falls back to 
 		assert.equal((await settings()).defaultModelId, "c");
 		assert.deepEqual(
 			(await settings()).models.map((model: { id: string }) => model.id),
-			["b", "c"],
+			["b", "c", "d", "e"],
 		);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		server = start();
 		await request("/api/models/c", "DELETE");
 		assert.equal((await settings()).defaultModelId, "b");
+		fail = false;
+		data = [catalogModel("outside")];
+		assert.equal((await request("/api/model-catalog", "POST")).status, 200);
 		assert.equal((await request("/api/models/b", "DELETE")).status, 200);
+		assert.equal((await settings()).defaultModelId, "d");
+		await request("/api/models/e", "DELETE");
+		assert.equal((await settings()).defaultModelId, "d");
+		await request("/api/models/d", "DELETE");
 		assert.equal((await settings()).defaultModelId, null);
 		assert.deepEqual((await settings()).models, []);
 	} finally {
