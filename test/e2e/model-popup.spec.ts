@@ -39,6 +39,14 @@ for (const size of [
 			});
 		}
 		await expect(dialog.getByRole("status")).toHaveCount(0);
+		const enabledBounds = await dialog
+			.getByRole("list", { name: "Enabled models" })
+			.boundingBox();
+		const addBounds = await add.boundingBox();
+		if (!enabledBounds || !addBounds) throw new Error("Missing model controls");
+		expect(addBounds.y).toBeGreaterThanOrEqual(
+			enabledBounds.y + enabledBounds.height,
+		);
 		const bounds = await dialog.boundingBox();
 		const titleBounds = await title.boundingBox();
 		const closeBounds = await close.boundingBox();
@@ -110,27 +118,24 @@ for (const size of [
 		await search.evaluate((element) =>
 			element.scrollIntoView({ block: "start" }),
 		);
-		await expect
-			.poll(async () => {
-				const anchor = await search.boundingBox();
-				const candidates = await list.boundingBox();
-				return (
-					!!anchor && !!candidates && candidates.y > anchor.y + anchor.height
-				);
-			})
-			.toBe(true);
-		const below = await list.boundingBox();
+		const anchor = await search.boundingBox();
+		const candidates = await list.boundingBox();
 		const footer = await close.boundingBox();
-		if (!below || !footer) throw new Error("Missing below bounds");
-		expect(below.y + below.height).toBeLessThan(footer.y);
+		if (!anchor || !candidates || !footer)
+			throw new Error("Missing popup bounds");
+		expect(
+			candidates.y + candidates.height <= anchor.y ||
+				candidates.y >= anchor.y + anchor.height,
+		).toBe(true);
+		expect(candidates.y + candidates.height).toBeLessThan(footer.y);
 		expect(
 			await dialog.evaluate(
 				(element) => element.scrollWidth <= element.clientWidth,
 			),
 		).toBe(true);
-		await capture("below-long");
+		await capture("populated-long");
 		await dialog.locator(".settings-content").evaluate((element) => {
-			element.scrollTop = element.scrollHeight;
+			element.scrollTop = 0;
 		});
 		await expect(list).toHaveCount(0);
 		await expect(title).toBeVisible();

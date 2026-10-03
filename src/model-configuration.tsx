@@ -321,6 +321,52 @@ export function ModelConfiguration({
 						className="mt-6 border-t border-neutral-200 pt-4"
 					>
 						<h3 className="font-semibold">{t("modelConfiguration")}</h3>
+						<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
+							{settings.models.map((model) => (
+								<li
+									key={model.id}
+									className="flex items-center justify-between gap-3"
+								>
+									<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+										{model.name}
+										<small className="block text-neutral-600">{model.id}</small>
+									</span>
+									{settings.defaultModelId === model.id ? (
+										<span className="shrink-0 text-sm text-neutral-600">
+											{t("default")}
+										</span>
+									) : (
+										<button
+											type="button"
+											className={`${button} shrink-0`}
+											disabled={pending}
+											onClick={() =>
+												void mutate("/api/model-settings", "PUT", {
+													defaultModelId: model.id,
+												})
+											}
+										>
+											{t("setDefault")}
+										</button>
+									)}
+									<button
+										type="button"
+										className={button}
+										disabled={pending}
+										aria-label={t("disableModel")}
+										title={t("disableModel")}
+										onClick={() =>
+											void mutate(
+												`/api/models/${encodeURIComponent(model.id)}`,
+												"DELETE",
+											)
+										}
+									>
+										×
+									</button>
+								</li>
+							))}
+						</ul>
 						<div className="mt-4">
 							{!adding ? (
 								<button
@@ -477,52 +523,6 @@ export function ModelConfiguration({
 								</>
 							)}
 						</div>
-						<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
-							{settings.models.map((model) => (
-								<li
-									key={model.id}
-									className="flex items-center justify-between gap-3"
-								>
-									<span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-										{model.name}
-										<small className="block text-neutral-600">{model.id}</small>
-									</span>
-									{settings.defaultModelId === model.id ? (
-										<span className="shrink-0 text-sm text-neutral-600">
-											{t("default")}
-										</span>
-									) : (
-										<button
-											type="button"
-											className={`${button} shrink-0`}
-											disabled={pending}
-											onClick={() =>
-												void mutate("/api/model-settings", "PUT", {
-													defaultModelId: model.id,
-												})
-											}
-										>
-											{t("setDefault")}
-										</button>
-									)}
-									<button
-										type="button"
-										className={button}
-										disabled={pending}
-										aria-label={t("disableModel")}
-										title={t("disableModel")}
-										onClick={() =>
-											void mutate(
-												`/api/models/${encodeURIComponent(model.id)}`,
-												"DELETE",
-											)
-										}
-									>
-										×
-									</button>
-								</li>
-							))}
-						</ul>
 						{catalogLoading && (
 							<p
 								role="status"
