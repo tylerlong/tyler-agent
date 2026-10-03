@@ -66,6 +66,9 @@ test("offline cached history survives and lifecycle synchronization fills more t
 	await page.route("**/api/chats/*", (route) =>
 		offline ? route.abort() : route.continue(),
 	);
+	await page.route("**/api/turns/*", (route) =>
+		offline ? route.abort() : route.continue(),
+	);
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 	await expect(page.getByRole("status")).toContainText(
 		"Unable to reach the server",
@@ -182,6 +185,9 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	await page.route("**/api/chats/*", (route) =>
 		blocked ? route.abort() : route.continue(),
 	);
+	await page.route("**/api/turns/*", (route) =>
+		blocked ? route.abort() : route.continue(),
+	);
 	for (let i = 1; i <= 24; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
 			data: { prompt: `Missed ${i}.` },
@@ -233,6 +239,9 @@ test("an initially empty chat catches up every turn after more than one unseen p
 	).toBeEnabled();
 	let offline = true;
 	await page.route("**/api/chats/*", (route) =>
+		offline ? route.abort() : route.continue(),
+	);
+	await page.route("**/api/turns/*", (route) =>
 		offline ? route.abort() : route.continue(),
 	);
 	for (let i = 1; i <= 12; i++)

@@ -57,7 +57,6 @@ project 可以有零个或多个文件夹，无需选择目录即可创建。添
 
 ## OpenRouter 通信记录
 
-
 模型提问使用 `.env` 中的 `OPENROUTER_API_KEY` 和 `OPENROUTER_MODEL`。`.env` 已被 Git 忽略，密钥不发送到浏览器。每次通信以脱敏原文保存到 SQLite，可在 Turn 的 Request/Response 查看；prompt 和回答也可能出现在记录中。
 
 ## 检查与测试
@@ -70,6 +69,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
+自动测试使用真实本地 HTTP server、临时 SQLite、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE/Copy、分页和阅读锚点；分页不截断完整成功上下文，失败部分内容不进入模型上下文。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。本地失败文件同样位于 `playwright-report/` 和 `test-results/`，两者已忽略。
 
@@ -118,11 +118,10 @@ OpenRouter 通信始终保存到 SQLite，已移除 terminal 通信日志、Sett
 
 打开 chat 默认只读取最新 10 个 Turn（包含进行中与失败），按旧到新显示。顶部“Load earlier turns”每次读取更早的 10 个；没有更早记录时入口消失。稳定 ID 边界使新增提问不影响旧页，历史摘要不下载通信正文。分页仅影响展示，模型仍使用完整成功问答上下文。
 
-已下载历史、问题草稿以及通信正文和展开状态保留在当前页面中，切换 chat、实时通知、同步错误、语言或归档不会删除它们；整页刷新后重新从最新 10 个初始化。缓存不使用 localStorage 或 cookie。SSE、重连、页面重新可见、窗口获得焦点和切回 chat 都核对服务器最新状态，补齐尚未下载的新轮次（超过 10 个也分批补齐），同时保留已有内容。流式通知仅更新发生变化的 Turn，不逐 token 重读项目列表和已缓存历史。同步或加载更早失败显示可重试错误。
-
+已下载历史、思考、问题草稿以及通信正文和展开状态保留在当前页面中，切换 chat、实时通知、同步错误、语言或归档不会删除它们；整页刷新后重新从最新 10 个初始化。缓存不使用 localStorage 或 cookie。SSE、重连、页面重新可见、窗口获得焦点和切回 chat 都核对服务器最新状态，补齐尚未下载的新轮次（超过 10 个也分批补齐），同时保留已有内容。流式通知仅更新发生变化的 Turn，不逐 token 重读项目列表和已缓存历史，不增加 throttle、debounce 或定时批处理。已下载的 pending 思考和原文即使折叠也追赶当前保存的内容；较旧的异步读取不得覆盖较新的同步结果。同步或加载更早失败显示可重试错误。
 
 ### 固定输入区与阅读位置
 
-右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，底部 Prompt 与 Submit 始终可见；左侧固定头尾及列表滚动保持独立。加载更早记录保持正在阅读的内容位置，即使已展开的通信正文很长。
+右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，底部 Prompt 与 Submit 始终可见；左侧固定头尾及列表滚动保持独立。加载更早记录、文本增量增长及展开/折叠保持正在阅读的内容锚点，即使已展开的思考或通信正文很长。
 
 首次打开 chat 显示最新内容，自己提交后跟随到底部（包括进行中与回答完成）。其他页面产生的新内容或状态变化只在本来位于底部时跟随，阅读旧内容时不跳转。每个 chat 的阅读位置仅保存在当前页面；切走再返回恢复原位置，即使期间新增轮次，也不强制跳到最新。已下载历史、草稿和通信展开状态继续保留；整页刷新后重新加载最新 10 个并显示底部，不使用 localStorage 或 cookie 保存阅读位置。

@@ -523,3 +523,67 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 		await f.close();
 	}
 });
+
+test("reconnecting reads the latest durable pending thinking, answer and raw stream without another model call", async () => {
+	let stream!: ReadableStreamDefaultController<Uint8Array>;
+	let requests = 0;
+	const f = await fixture(async () => {
+		requests++;
+		return new Response(
+			new ReadableStream({
+				start(controller) {
+					stream = controller;
+				},
+			}),
+		);
+	});
+	const first = new AbortController();
+	const reconnect = new AbortController();
+	try {
+		const initial = await f.events(first.signal).then(events);
+		assert.equal(await initial(), ": connected");
+		const submitted = f.post(`/api/chats/${f.chat.id}`, { prompt: "recover" });
+		const turnId = JSON.parse((await initial()).split("data: ")[1]).turnId;
+		while (!stream) await new Promise((resolve) => setImmediate(resolve));
+		first.abort();
+		const raw =
+			frame("response.reasoning_text.delta", {
+				output_index: 0,
+				content_index: 0,
+				item_id: "r",
+				delta: "durable thinking",
+			}) + delta("durable answer", 1);
+		stream.enqueue(new TextEncoder().encode(raw));
+		while ((await f.get(`/api/turns/${turnId}`)).turns[0].output.length < 2)
+			await new Promise((resolve) => setImmediate(resolve));
+		const next = await f.events(reconnect.signal).then(events);
+		assert.equal(await next(), ": connected");
+		const recovered = await f.get(`/api/turns/${turnId}`);
+		assert.equal(recovered.busy, true);
+		assert.equal(recovered.turns[0].status, "pending");
+		assert.equal(
+			recovered.turns[0].output[1].content[0].text,
+			"durable answer",
+		);
+		assert.equal(
+			(await f.get(`/api/turns/${turnId}/reasoning`)).output[0].content[0].text,
+			"durable thinking",
+		);
+		assert.equal(
+			(await f.get(`/api/turns/${turnId}/calls`)).calls[0].responseBody,
+			raw,
+		);
+		assert.equal(
+			(await f.post(`/api/chats/${f.chat.id}`, { prompt: "busy" })).status,
+			409,
+		);
+		stream.close();
+		assert.equal((await submitted).status, 502);
+		assert.equal((await f.get(`/api/turns/${turnId}`)).busy, false);
+		assert.equal(requests, 1);
+	} finally {
+		first.abort();
+		reconnect.abort();
+		await f.close();
+	}
+});

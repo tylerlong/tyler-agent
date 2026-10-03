@@ -201,10 +201,9 @@ test("thinking reads retry and two pages catch up pending content with independe
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${chat.id}`);
-	let failed = false;
+	let failed = true;
 	await page.route("**/api/turns/*/reasoning", async (route) => {
-		if (!failed) {
-			failed = true;
+		if (failed) {
 			await route.fulfill({
 				status: 500,
 				contentType: "application/json",
@@ -229,6 +228,7 @@ test("thinking reads retry and two pages catch up pending content with independe
 		}),
 	);
 	await expect(page.getByRole("log")).toContainText("Unable to read thinking.");
+	failed = false;
 	await page
 		.getByRole("log")
 		.getByRole("button", { name: "Retry", exact: true })

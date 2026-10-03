@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 type Call = {
@@ -63,13 +63,16 @@ export function TurnCalls({
 	status,
 	kind,
 	revision = 0,
+	onLayoutChange,
 }: {
 	turnId: number;
 	status: string;
 	kind: "request" | "response";
 	revision?: number;
+	onLayoutChange: () => void;
 }) {
 	const { t } = useTranslation();
+	useLayoutEffect(onLayoutChange);
 	const key = `${turnId}-${kind}`;
 	let state = records.get(key);
 	if (!state) {
@@ -111,6 +114,7 @@ export function TurnCalls({
 	}, [status, revision, record, load]);
 	return (
 		<details
+			data-reading-anchor={key}
 			open={record.open}
 			className="mt-2 rounded-md bg-neutral-50 px-3 py-2 text-sm"
 			onToggle={(event) => {
@@ -178,6 +182,7 @@ export function TurnCalls({
 									: [pretty(body)]
 								).map((event, index) => (
 									<pre
+										data-reading-anchor={`${key}-${call.id}-${index}`}
 										// SSE frames only append; their position is their identity.
 										// biome-ignore lint/suspicious/noArrayIndexKey: existing frames never reorder.
 										key={`${call.id}-${index}`}

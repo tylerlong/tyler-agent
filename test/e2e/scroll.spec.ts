@@ -1,4 +1,5 @@
 import type { Locator } from "@playwright/test";
+import { frame } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
 async function scrollState(content: Locator) {
@@ -235,4 +236,176 @@ test("returning to a previously non-scrollable chat keeps its original position"
 	await expect
 		.poll(async () => (await scrollState(content)).bottom)
 		.toBeGreaterThan(0);
+});
+
+test("growth and folding above an answer in the same turn preserve its reading anchor", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Stream" },
+		})
+	).json();
+	await page.setViewportSize({ width: 900, height: 600 });
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const stream = app.rawStreamModel();
+	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { prompt: "question" },
+	});
+	stream.push(
+		frame("response.output_item.added", {
+			output_index: 0,
+			item: {
+				id: "r",
+				type: "reasoning",
+				content: [{ type: "reasoning_text", text: "thinking\n".repeat(50) }],
+			},
+		}) +
+			frame("response.output_item.added", {
+				output_index: 1,
+				item: {
+					id: "m",
+					type: "message",
+					content: [{ type: "output_text", text: "answer\n".repeat(100) }],
+				},
+			}),
+	);
+	const log = page.getByRole("log");
+	await expect(log).toContainText("Reasoning: thinking");
+	const content = page.getByRole("region", { name: "Chat", exact: true });
+	const answer = log.locator('[data-output-index="1"]');
+	await answer.evaluate((element) => {
+		const region = element.closest("section");
+		if (region) {
+			region.scrollTop +=
+				element.getBoundingClientRect().top -
+				region.getBoundingClientRect().top +
+				20;
+			region.dispatchEvent(new Event("scroll"));
+		}
+	});
+	await expect
+		.poll(async () => (await scrollState(content)).bottom)
+		.toBeGreaterThan(100);
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+	const before = (await answer.boundingBox())?.y ?? 0;
+	stream.push(
+		frame("response.reasoning_text.delta", {
+			output_index: 0,
+			content_index: 0,
+			item_id: "r",
+			delta: "growing\n".repeat(25),
+		}),
+	);
+	await expect(log).toContainText("growing");
+	await expect
+		.poll(async () => (await answer.boundingBox())?.y)
+		.toBeCloseTo(before, 0);
+	// Toggle without scrolling the control into view; the user is reading the answer below it.
+	await log
+		.getByRole("button", { name: /Thinking/ })
+		.evaluate((element: HTMLButtonElement) => element.click());
+	await expect
+		.poll(async () => (await answer.boundingBox())?.y)
+		.toBeCloseTo(before, 0);
+	await log
+		.getByRole("button", { name: /Thinking/ })
+		.evaluate((element: HTMLButtonElement) => element.click());
+	await expect
+		.poll(async () => (await answer.boundingBox())?.y)
+		.toBeCloseTo(before, 0);
+	stream.push(
+		frame("response.output_text.delta", {
+			output_index: 1,
+			content_index: 1,
+			item_id: "m",
+			delta: "later answer part\n".repeat(100),
+		}),
+	);
+	const laterPart = answer.locator(":scope > div").last();
+	await expect(laterPart).toContainText("later answer part");
+	await laterPart.evaluate((element) => {
+		const region = element.closest("section");
+		if (region) {
+			region.scrollTop +=
+				element.getBoundingClientRect().top -
+				region.getBoundingClientRect().top +
+				20;
+			region.dispatchEvent(new Event("scroll"));
+		}
+	});
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+	const partBefore = (await laterPart.boundingBox())?.y ?? 0;
+	stream.push(
+		frame("response.output_text.delta", {
+			output_index: 1,
+			content_index: 0,
+			item_id: "m",
+			delta: "earlier part grows\n".repeat(25),
+		}),
+	);
+	await expect(answer).toContainText("earlier part grows");
+	await expect
+		.poll(async () => (await laterPart.boundingBox())?.y)
+		.toBeCloseTo(partBefore, 0);
+	stream.push(
+		frame("unknown.event", {
+			lines: Array.from(
+				{ length: 100 },
+				(_, index) => `recorded line ${index}`,
+			),
+		}),
+	);
+	const response = log.locator("details").last();
+	await response.locator("summary").click();
+	const raw = response.locator("pre").filter({ hasText: "recorded line 99" });
+	await expect(raw).toContainText("recorded line 99");
+	await raw.evaluate((element) => {
+		const region = element.closest("section");
+		if (region) {
+			region.scrollTop +=
+				element.getBoundingClientRect().top -
+				region.getBoundingClientRect().top +
+				20;
+			region.dispatchEvent(new Event("scroll"));
+		}
+	});
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+	const rawBefore = (await raw.boundingBox())?.y ?? 0;
+	stream.push(
+		frame("response.reasoning_text.delta", {
+			output_index: 0,
+			content_index: 0,
+			item_id: "r",
+			delta: "more growth\n".repeat(25),
+		}),
+	);
+	await expect(log).toContainText("more growth");
+	await expect
+		.poll(async () => (await raw.boundingBox())?.y)
+		.toBeCloseTo(rawBefore, 0);
+	await log
+		.getByRole("button", { name: /Thinking/ })
+		.evaluate((element: HTMLButtonElement) => element.click());
+	await expect
+		.poll(async () => (await raw.boundingBox())?.y)
+		.toBeCloseTo(rawBefore, 0);
+	await expect(page.getByLabel("Prompt")).toBeInViewport();
+	stream.end();
+	await submitted;
 });

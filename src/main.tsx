@@ -231,7 +231,7 @@ function App() {
 			const anchor =
 				saved.anchor &&
 				content.querySelector<HTMLElement>(
-					`[data-message-id="${saved.anchor.id}"]`,
+					`[data-reading-anchor="${saved.anchor.id}"]`,
 				);
 			content.scrollTop =
 				anchor && saved.anchor
@@ -252,7 +252,9 @@ function App() {
 	});
 	const chatRevisions = useRef<Record<number, number>>({});
 	const syncedThrough = useRef<Record<number, number>>({});
-	const turnRevisions = useRef<Record<number, number>>({});
+	const readSequence = useRef(0);
+	const turnReads = useRef<Record<number, number>>({});
+	const busyReads = useRef<Record<number, number>>({});
 	const [historyErrors, setHistoryErrors] = useState<
 		Record<number, ApiError | null>
 	>({});
@@ -263,12 +265,24 @@ function App() {
 	const [earlierErrors, setEarlierErrors] = useState<
 		Record<number, ApiError | null>
 	>({});
+	const updateBusy = useCallback((id: number, busy: boolean, read: number) => {
+		if ((busyReads.current[id] ?? 0) > read) return;
+		busyReads.current[id] = read;
+		setProjects((current) =>
+			current.map((project) => ({
+				...project,
+				chats: project.chats.map((chat) =>
+					chat.id === id ? { ...chat, busy } : chat,
+				),
+			})),
+		);
+	}, []);
 	const mergeChat = useCallback(
 		(
 			id: number,
 			data: ChatState,
 			older = false,
-			revisions?: Record<number, number>,
+			read: number,
 			targeted = false,
 		) => {
 			const previous = cacheRef.current[id];
@@ -277,11 +291,12 @@ function App() {
 				previous?.messages.map((message) => [message.id, message]),
 			);
 			const changed = (turnId: number) =>
-				revisions !== undefined &&
-				(revisions[turnId] ?? 0) !== (turnRevisions.current[turnId] ?? 0);
+				(turnReads.current[turnId] ?? 0) > read;
 			for (const turn of data.turns)
-				if ((!older || !turns.has(turn.id)) && !changed(turn.id))
+				if ((!older || !turns.has(turn.id)) && !changed(turn.id)) {
 					turns.set(turn.id, turn);
+					turnReads.current[turn.id] = read;
+				}
 			for (const message of data.messages)
 				if (
 					(!older || !messages.has(message.id)) &&
@@ -300,17 +315,18 @@ function App() {
 						(a.role === "user" ? -1 : 1),
 				),
 				busy:
-					previous && (older || previous.turns.some((turn) => changed(turn.id)))
+					previous && (older || (busyReads.current[id] ?? 0) > read)
 						? previous.busy
 						: data.busy,
 				hasMore:
 					older || !previous?.historyLoaded ? data.hasMore : previous.hasMore,
 				historyLoaded: !targeted || previous?.historyLoaded === true,
 			};
+			if (!older) updateBusy(id, data.busy, read);
 			cacheRef.current = { ...cacheRef.current, [id]: next };
 			setChatCache(cacheRef.current);
 		},
-		[],
+		[updateBusy],
 	);
 	const [drafts, setDrafts] = useState<Record<number, string>>({});
 	const draftVersions = useRef<Record<number, number>>({});
@@ -343,7 +359,7 @@ function App() {
 			const revision = (chatRevisions.current[id] ?? 0) + 1;
 			chatRevisions.current[id] = revision;
 			const current = () => chatRevisions.current[id] === revision;
-			const turnVersions = { ...turnRevisions.current };
+			let read = ++readSequence.current;
 			try {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
@@ -357,16 +373,17 @@ function App() {
 				if (pendingId !== undefined)
 					cursor = Math.min(cursor ?? pendingId - 1, pendingId - 1);
 				const target = latest.turns.at(-1)?.id;
-				mergeChat(id, latest, false, turnVersions);
+				mergeChat(id, latest, false, read);
 				// Refresh cached pending records and fill unseen turns in bounded pages.
 				while (
 					cursor !== undefined &&
 					target !== undefined &&
 					cursor < target
 				) {
+					read = ++readSequence.current;
 					const next: ChatState = await api(`/api/chats/${id}?after=${cursor}`);
 					if (!current()) return;
-					mergeChat(id, next, false, turnVersions);
+					mergeChat(id, next, false, read);
 					const last = next.turns.at(-1)?.id;
 					if (last === undefined || last <= cursor) break;
 					cursor = last;
@@ -387,31 +404,23 @@ function App() {
 	);
 	const refreshTurn = useCallback(
 		async (chatId: number, turnId: number) => {
-			const revision = (turnRevisions.current[turnId] ?? 0) + 1;
-			turnRevisions.current[turnId] = revision;
+			const read = ++readSequence.current;
 			try {
 				const data: ChatState = await api(`/api/turns/${turnId}`);
-				if (turnRevisions.current[turnId] !== revision) return;
+				if ((turnReads.current[turnId] ?? 0) > read) return;
 				if (cacheRef.current[chatId] || selectedRef.current === chatId)
-					mergeChat(chatId, data, false, undefined, true);
-				setProjects((current) =>
-					current.map((project) => ({
-						...project,
-						chats: project.chats.map((chat) =>
-							chat.id === chatId ? { ...chat, busy: data.busy } : chat,
-						),
-					})),
-				);
+					mergeChat(chatId, data, false, read, true);
+				else updateBusy(chatId, data.busy, read);
 				setHistoryErrors((errors) => ({ ...errors, [chatId]: null }));
 			} catch (cause) {
-				if (turnRevisions.current[turnId] === revision)
+				if ((turnReads.current[turnId] ?? 0) <= read)
 					setHistoryErrors((errors) => ({
 						...errors,
 						[chatId]: appError(cause),
 					}));
 			}
 		},
-		[mergeChat],
+		[mergeChat, updateBusy],
 	);
 	async function loadEarlier() {
 		const id = selectedRef.current;
@@ -422,8 +431,9 @@ function App() {
 		earlierRequests.current.add(id);
 		setLoadingEarlier(new Set(earlierRequests.current));
 		try {
+			const read = ++readSequence.current;
 			const data: ChatState = await api(`/api/chats/${id}?before=${before}`);
-			mergeChat(id, data, true);
+			mergeChat(id, data, true, read);
 			setEarlierErrors((errors) => ({ ...errors, [id]: null }));
 		} catch (cause) {
 			setEarlierErrors((errors) => ({ ...errors, [id]: appError(cause) }));
@@ -482,9 +492,26 @@ function App() {
 	const refreshRevision = useRef(0);
 	const refresh = useCallback(async () => {
 		const revision = ++refreshRevision.current;
+		const read = ++readSequence.current;
 		try {
 			const data = await api("/api/projects");
-			if (revision === refreshRevision.current) setProjects(data.projects);
+			if (revision === refreshRevision.current)
+				setProjects((current) => {
+					const busy = new Map(
+						current.flatMap((project) =>
+							project.chats.map((chat) => [chat.id, chat.busy] as const),
+						),
+					);
+					return (data.projects as Project[]).map((project) => ({
+						...project,
+						chats: project.chats.map((chat) => {
+							if ((busyReads.current[chat.id] ?? 0) > read)
+								return { ...chat, busy: busy.get(chat.id) ?? chat.busy };
+							busyReads.current[chat.id] = read;
+							return chat;
+						}),
+					}));
+				});
 		} catch (cause) {
 			if (revision === refreshRevision.current) setError(appError(cause));
 		}
@@ -1035,9 +1062,19 @@ function App() {
 						if (selected === null) return;
 						const content = event.currentTarget;
 						const top = content.getBoundingClientRect().top;
-						const anchor = [
-							...content.querySelectorAll<HTMLElement>("[data-message-id]"),
-						].find((element) => element.getBoundingClientRect().bottom > top);
+						const anchors = [
+							...content.querySelectorAll<HTMLElement>("[data-reading-anchor]"),
+						];
+						const anchor =
+							anchors
+								.filter((element) => {
+									const bounds = element.getBoundingClientRect();
+									return bounds.top <= top && bounds.bottom > top;
+								})
+								.at(-1) ??
+							anchors.find(
+								(element) => element.getBoundingClientRect().bottom > top,
+							);
 						const saved = readingPositions.current[selected];
 						const maxTop = content.scrollHeight - content.clientHeight;
 						readingPositions.current[selected] = {
@@ -1046,10 +1083,10 @@ function App() {
 								(saved?.bottom &&
 									content.scrollTop >= Math.min(saved.top, maxTop)) ||
 								maxTop - content.scrollTop < 24,
-							...(anchor?.dataset.messageId
+							...(anchor?.dataset.readingAnchor
 								? {
 										anchor: {
-											id: anchor.dataset.messageId,
+											id: anchor.dataset.readingAnchor,
 											offset: anchor.getBoundingClientRect().top - top,
 										},
 									}
@@ -1114,6 +1151,7 @@ function App() {
 										<div
 											key={message.id}
 											data-message-id={message.id}
+											data-reading-anchor={message.id}
 											className="whitespace-pre-wrap"
 										>
 											<strong>
@@ -1121,6 +1159,7 @@ function App() {
 											</strong>
 											{message.role === "assistant" ? (
 												<TurnOutput
+													onLayoutChange={restoreReadingPosition}
 													turnId={Number(message.id.split("-")[0])}
 													status={message.status ?? "succeeded"}
 													output={message.output ?? []}
@@ -1142,6 +1181,7 @@ function App() {
 													</span>
 												)}
 											<TurnCalls
+												onLayoutChange={restoreReadingPosition}
 												revision={message.revision ?? 0}
 												turnId={Number(message.id.split("-")[0])}
 												kind={message.role === "user" ? "request" : "response"}

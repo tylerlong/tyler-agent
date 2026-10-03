@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export type ReaderItem = {
@@ -19,13 +19,16 @@ export function TurnOutput({
 	status,
 	output,
 	revision,
+	onLayoutChange,
 }: {
 	turnId: number;
 	status: string;
 	output: ReaderItem[];
 	revision: number;
+	onLayoutChange: () => void;
 }) {
 	const { t } = useTranslation();
+	useLayoutEffect(onLayoutChange);
 	const [download, setDownload] = useState(() => downloads.get(turnId));
 	const [choices, setChoices] = useState(() => new Map(folds));
 	const [error, setError] = useState(false);
@@ -67,13 +70,22 @@ export function TurnOutput({
 	return output.map((item) => {
 		if (item.type === "message")
 			return (
-				<div key={item.index} data-output-index={item.index}>
+				<div
+					key={item.index}
+					data-output-index={item.index}
+					data-reading-anchor={`${turnId}-output-${item.index}`}
+				>
 					{item.content
 						.filter(
 							(part) => part.type === "output_text" || part.type === "refusal",
 						)
 						.map((part) => (
-							<div key={`${part.index}-${part.type}`}>{part.text}</div>
+							<div
+								key={`${part.index}-${part.type}`}
+								data-reading-anchor={`${turnId}-output-${item.index}-${part.type}-${part.index}`}
+							>
+								{part.text}
+							</div>
 						))}
 				</div>
 			);
@@ -87,6 +99,7 @@ export function TurnOutput({
 			<div
 				key={item.index}
 				data-output-index={item.index}
+				data-reading-anchor={`${turnId}-output-${item.index}`}
 				className="my-2 rounded border border-neutral-200 p-3"
 			>
 				<button
@@ -104,7 +117,10 @@ export function TurnOutput({
 				{open && (
 					<div className="mt-2 space-y-2 text-neutral-600">
 						{content?.map((part) => (
-							<div key={`${part.index}-${part.type}`}>
+							<div
+								key={`${part.index}-${part.type}`}
+								data-reading-anchor={`${turnId}-output-${item.index}-${part.type}-${part.index}`}
+							>
 								<strong>
 									{t(
 										part.type === "summary_text"
