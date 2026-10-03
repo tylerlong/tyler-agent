@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { listProjects, openDatabase } from "./database.ts";
-import { ModelError, requestModel } from "./openrouter.ts";
+import { answerText, ModelError, requestModel } from "./openrouter.ts";
 
 const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
@@ -710,19 +710,7 @@ export function createServer(
 											result.error,
 											callId,
 										);
-									const partial = output
-										.filter((item) => item.type === "message")
-										.flatMap((item) =>
-											item.content
-												.filter(
-													(part) =>
-														part.type === "output_text" ||
-														part.type === "refusal",
-												)
-												.map((part) => part.text),
-										)
-										.join("\n")
-										.trim();
+									const partial = answerText(output);
 									database
 										.prepare(
 											"UPDATE turns SET assistant_content=?,output_json=? WHERE id=?",

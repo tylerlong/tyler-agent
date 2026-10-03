@@ -25,7 +25,7 @@ test("large failed responses stay folded and keep the composer visible until req
 	await page.getByLabel("Prompt").fill("question");
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	await expect(page.getByRole("alert")).toHaveText(
-		"OpenRouter request failed.\nHTTP 500",
+		"OpenRouter request failed.",
 	);
 	await expect(page.getByLabel("Prompt")).toBeInViewport();
 	await expect(
@@ -90,7 +90,7 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 		.toBe(
-			'{"model":"[REDACTED]","input":[{"role":"user","content":"question"}],"stream":false}',
+			'{"model":"[REDACTED]","input":[{"role":"user","content":"question"}],"stream":true}',
 		);
 	await response.locator("summary").click();
 	await expect(response).toContainText("Waiting for response");

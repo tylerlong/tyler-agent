@@ -6,6 +6,18 @@ export type OutputItem = {
 	type: string;
 	content: OutputPart[];
 };
+export const answerText = (output: OutputItem[]) =>
+	output
+		.filter((item) => item.type === "message")
+		.flatMap((item) =>
+			item.content
+				.filter(
+					(part) => part.type === "output_text" || part.type === "refusal",
+				)
+				.map((part) => part.text),
+		)
+		.join("\n")
+		.trim();
 export class ModelError extends Error {
 	code: string;
 	details?: string;
@@ -128,9 +140,15 @@ export async function requestModel(
 			.sort((a, b) => a.index - b.index)
 			.map((value) => ({
 				...value,
+				id: redact(value.id),
+				type: redact(value.type),
 				content: value.content
 					.sort((a, b) => a.index - b.index)
-					.map((part) => ({ ...part, text: safe(part.text, final) })),
+					.map((part) => ({
+						...part,
+						type: redact(part.type),
+						text: safe(part.text, final),
+					})),
 			}));
 	const persist = (result: CallResult, values: OutputItem[]) => {
 		try {
@@ -220,7 +238,7 @@ export async function requestModel(
 				type === "response.completed" &&
 				response.status !== "failed" &&
 				response.status !== "incomplete";
-			terminalFailure = !completed;
+			terminalFailure ||= !completed;
 		}
 		if (type === "error") terminalFailure = true;
 	};
@@ -280,17 +298,7 @@ export async function requestModel(
 				"modelInvalidResponse",
 				"OpenRouter returned an incomplete response",
 			);
-		const answer = output(true)
-			.filter((item) => item.type === "message")
-			.flatMap((item) =>
-				item.content
-					.filter(
-						(part) => part.type === "output_text" || part.type === "refusal",
-					)
-					.map((part) => part.text),
-			)
-			.join("\n")
-			.trim();
+		const answer = answerText(output(true));
 		if (!answer)
 			throw new ModelError(
 				"modelNoAnswer",

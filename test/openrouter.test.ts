@@ -87,3 +87,44 @@ test("retained OpenRouter transport sends contextual JSON without terminal commu
 		else process.env.OPENROUTER_MODEL = previousModel;
 	}
 });
+
+test("structured output identifiers and types redact credentials before recording", async () => {
+	const previousKey = process.env.OPENROUTER_API_KEY;
+	const previousModel = process.env.OPENROUTER_MODEL;
+	process.env.OPENROUTER_API_KEY = "stream-secret";
+	process.env.OPENROUTER_MODEL = "test-model";
+	try {
+		const records: unknown[] = [];
+		await requestModel(
+			[],
+			"prompt",
+			async () =>
+				completedResponse({
+					output: [
+						{
+							id: "stream-secret",
+							type: "message",
+							content: [{ type: "output_text", text: "answer" }],
+						},
+						{
+							id: "other",
+							type: "stream-secret",
+							content: [{ type: "stream-secret", text: "stream-secret" }],
+						},
+					],
+				}),
+			{
+				request: () => {},
+				result: (call, output) => {
+					records.push({ call, output });
+				},
+			},
+		);
+		assert.doesNotMatch(JSON.stringify(records), /stream-secret/);
+	} finally {
+		if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+		else process.env.OPENROUTER_API_KEY = previousKey;
+		if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+		else process.env.OPENROUTER_MODEL = previousModel;
+	}
+});

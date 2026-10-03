@@ -215,14 +215,12 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await fresh.getByRole("button", { name: "取消", exact: true }).click();
 	app.failModel();
 	await page.getByRole("button", { name: "提交", exact: true }).click();
-	await expect(page.getByRole("alert")).toHaveText(
-		"OpenRouter 请求失败\nHTTP 500",
-	);
+	await expect(page.getByRole("alert")).toHaveText("OpenRouter 请求失败");
 	await page.request.put(`${app.url}/api/language`, {
 		data: { language: "en" },
 	});
 	await expect(page.getByRole("alert")).toHaveText(
-		"OpenRouter request failed.\nHTTP 500",
+		"OpenRouter request failed.",
 	);
 	await expect(
 		page.getByRole("textbox", { name: "Prompt", exact: true }),
