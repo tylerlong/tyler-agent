@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "./i18n.ts";
 import { createSettingState } from "./setting-state.ts";
 import { TurnCalls } from "./turn-calls.tsx";
+import { type ReaderItem, TurnOutput } from "./turn-output.tsx";
 import "./style.css";
 
 type Chat = {
@@ -189,17 +190,14 @@ function App() {
 		turns: {
 			id: number;
 			status: string;
-			output: {
-				id: string;
-				index: number;
-				type: string;
-				content: { index: number; type: string; text: string }[];
-			}[];
+			output: ReaderItem[];
 		}[];
 		messages: {
 			id: string;
 			role: string;
 			content: string;
+			output?: ReaderItem[];
+			revision?: number;
 			status?: string;
 			errorCode?: string;
 			errorDetails?: string;
@@ -289,7 +287,10 @@ function App() {
 					(!older || !messages.has(message.id)) &&
 					!changed(Number(message.id.split("-")[0]))
 				)
-					messages.set(message.id, message);
+					messages.set(message.id, {
+						...message,
+						revision: (messages.get(message.id)?.revision ?? 0) + 1,
+					});
 			const next = {
 				id,
 				turns: [...turns.values()].sort((a, b) => a.id - b.id),
@@ -1118,26 +1119,16 @@ function App() {
 											<strong>
 												{t(message.role === "user" ? "you" : "agent")}:{" "}
 											</strong>
-											{message.role === "assistant"
-												? (chatState.turns
-														.find(
-															(turn) =>
-																turn.id === Number(message.id.split("-")[0]),
-														)
-														?.output.filter((item) => item.type === "message")
-														.map((item) => (
-															<div key={`${item.index}-${item.id}`}>
-																{item.content
-																	.filter(
-																		(part) =>
-																			part.type === "output_text" ||
-																			part.type === "refusal",
-																	)
-																	.map((part) => part.text)
-																	.join("")}
-															</div>
-														)) ?? message.content)
-												: message.content}
+											{message.role === "assistant" ? (
+												<TurnOutput
+													turnId={Number(message.id.split("-")[0])}
+													status={message.status ?? "succeeded"}
+													output={message.output ?? []}
+													revision={message.revision ?? 0}
+												/>
+											) : (
+												message.content
+											)}
 											{message.role === "assistant" &&
 												message.status === "pending" &&
 												t("turnPending")}
@@ -1151,6 +1142,7 @@ function App() {
 													</span>
 												)}
 											<TurnCalls
+												revision={message.revision ?? 0}
 												turnId={Number(message.id.split("-")[0])}
 												kind={message.role === "user" ? "request" : "response"}
 												status={

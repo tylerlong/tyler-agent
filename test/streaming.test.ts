@@ -416,3 +416,110 @@ test("a read error retains previously saved answer and raw SSE without retrying"
 		await f.close();
 	}
 });
+
+test("thinking summaries stay lazy while ordered parent-typed body and summaries persist live and after failure", async () => {
+	let stream!: ReadableStreamDefaultController<Uint8Array>;
+	const f = await fixture(
+		async () =>
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						stream = controller;
+					},
+				}),
+			),
+	);
+	const thinking = (index: number, text: string) =>
+		frame("response.output_item.added", {
+			output_index: index,
+			item: {
+				id: `r${index}`,
+				type: "reasoning",
+				content: [{ type: "output_text", text }],
+				summary: [{ type: "summary_text", text: "brief" }],
+			},
+		});
+	try {
+		const pending = f.post(`/api/chats/${f.chat.id}`, { prompt: "think" });
+		while (!stream) await new Promise((resolve) => setImmediate(resolve));
+		stream.enqueue(
+			new TextEncoder().encode(
+				thinking(0, "body") +
+					delta("answer one", 1) +
+					thinking(2, "later body") +
+					delta("answer two", 3, 0) +
+					delta("second part", 3, 1) +
+					frame("response.output_item.added", {
+						output_index: 4,
+						item: {
+							id: "encrypted",
+							type: "reasoning",
+							content: [{ type: "encrypted", text: "ciphertext" }],
+						},
+					}),
+			),
+		);
+		let history = await f.get(`/api/chats/${f.chat.id}`);
+		while (history.turns[0]?.output.length !== 5) {
+			await new Promise((resolve) => setImmediate(resolve));
+			history = await f.get(`/api/chats/${f.chat.id}`);
+		}
+		const id = history.turns[0].id;
+		const ordered = history.turns[0].output;
+		assert.deepEqual(
+			ordered.map((item: { type: string }) => item.type),
+			["reasoning", "message", "reasoning", "message", "reasoning"],
+		);
+		assert.deepEqual(ordered[0].content, [
+			{ index: 0, type: "output_text" },
+			{ index: 0, type: "summary_text" },
+		]);
+		assert.equal(ordered[1].content[0].text, "answer one");
+		assert.doesNotMatch(JSON.stringify(history), /later body|ciphertext|brief/);
+		assert.doesNotMatch(
+			JSON.stringify(await f.get(`/api/turns/${id}`)),
+			/later body|ciphertext|brief/,
+		);
+		assert.equal(
+			(await f.get(`/api/turns/${id}/reasoning`)).output[0].content[0].text,
+			"body",
+		);
+		stream.enqueue(
+			new TextEncoder().encode(
+				frame("response.output_text.delta", {
+					output_index: 0,
+					content_index: 0,
+					item_id: "r0",
+					delta: " grows!",
+				}) +
+					frame("response.reasoning_summary_text.delta", {
+						output_index: 0,
+						summary_index: 0,
+						item_id: "r0",
+						delta: " grows!",
+					}),
+			),
+		);
+		let details = await f.get(`/api/turns/${id}/reasoning`);
+		while (details.output[0].content[0].text !== "body grows!") {
+			await new Promise((resolve) => setImmediate(resolve));
+			details = await f.get(`/api/turns/${id}/reasoning`);
+		}
+		assert.equal(details.output[0].content[1].text, "brief grows!");
+		assert.equal((await f.get(`/api/turns/${id}`)).turns[0].status, "pending");
+		stream.close();
+		assert.equal((await pending).status, 502);
+		await f.restart();
+		assert.equal((await f.get(`/api/turns/${id}`)).turns[0].status, "failed");
+		assert.equal(
+			(await f.get(`/api/turns/${id}/reasoning`)).output[0].content[0].text,
+			"body grows!",
+		);
+		assert.equal(
+			(await f.get(`/api/turns/${id}/reasoning`)).output.at(-1).content.length,
+			0,
+		);
+	} finally {
+		await f.close();
+	}
+});

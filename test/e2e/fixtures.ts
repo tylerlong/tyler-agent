@@ -12,6 +12,7 @@ export const test = base.extend<{
 		disconnectClients: () => void;
 		restart: () => Promise<void>;
 		holdModel: () => { entered: Promise<void>; release: () => void };
+		rawStreamModel: () => { push: (text: string) => void; end: () => void };
 		streamModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
@@ -48,11 +49,32 @@ export const test = base.extend<{
 			gate = undefined;
 			return held;
 		}
+		let rawStream: ReadableStream<Uint8Array> | undefined;
+		function rawStreamModel() {
+			let controller!: ReadableStreamDefaultController<Uint8Array>;
+			rawStream = new ReadableStream({
+				start(value) {
+					controller = value;
+				},
+			});
+			return {
+				push: (text: string) =>
+					controller.enqueue(new TextEncoder().encode(text)),
+				end: () => controller.close(),
+			};
+		}
 		const originalHome = process.env.HOME;
 		process.env.HOME = folder;
 		const start = () =>
 			createServer(
 				async () => {
+					if (rawStream) {
+						const body = rawStream;
+						rawStream = undefined;
+						return new Response(body, {
+							headers: { "content-type": "text/event-stream" },
+						});
+					}
 					if (fail) {
 						const failure = fail;
 						fail = null;
@@ -128,6 +150,7 @@ export const test = base.extend<{
 				folder,
 				holdModel,
 				streamModel,
+				rawStreamModel,
 				failModel,
 				disconnectClients: () => server.closeAllConnections(),
 				restart: async () => {

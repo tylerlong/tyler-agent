@@ -33,6 +33,10 @@ export const resources = {
 			modelInterrupted: "Service restarted before this turn completed.",
 			you: "You",
 			agent: "Agent",
+			thinking: "Thinking",
+			thinkingBody: "Reasoning",
+			thinkingSummary: "Summary",
+			reasoningReadFailed: "Unable to read thinking. Please retry.",
 			bothArchivedReadOnly:
 				"Project and chat are archived and read-only. Restore both to continue.",
 			projectArchivedReadOnly:
@@ -142,6 +146,11 @@ export const resources = {
 			turnIncomplete: "回答不完整。",
 			modelInterrupted: "服务重启，此轮次已中断。",
 			you: "你",
+			agent: "Agent",
+			thinking: "思考",
+			thinkingBody: "推理正文",
+			thinkingSummary: "摘要",
+			reasoningReadFailed: "读取思考失败，请重试。",
 			bothArchivedReadOnly: "项目和对话已归档，只读。恢复两者后可继续使用。",
 			projectArchivedReadOnly: "项目已归档，对话只读。恢复项目后可继续使用。",
 			chatArchivedReadOnly: "对话已归档，只读。恢复对话后可继续使用。",

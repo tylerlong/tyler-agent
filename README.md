@@ -104,7 +104,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 ## 保存轮次与模型通信
 
-通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK、tools 或自动付费重试。回答按 output item/content part 顺序增量组装，支持文本和 refusal；只有协议 completed 且含可用回答才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
+通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK、tools 或自动付费重试。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考仅在轮次进行中默认展开，成功或失败默认折叠；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。只有协议 completed 且含可用回答才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
 
 Turn 与 Model Call 分别保存；实际 OpenRouter 调用始终录制。通信记录保留 URL、method、请求时间、原始请求/响应正文、实际 HTTP 状态、耗时或调用错误，不保存 headers。凭据在写入数据库和返回浏览器之前脱敏；JSON 和非 JSON 正文保持当时文本（仅凭据脱敏），完整成功上下文随请求保存。原始 Response 保存实际收到的脱敏 SSE 文本（包括未知事件和尾部片段）；保存原始正文和结构化增量后才通知浏览器，两个页面均可在完成前看到回答。凭据跨网络 chunk 也先脱敏。
 

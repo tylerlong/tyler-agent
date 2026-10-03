@@ -10,7 +10,27 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { listProjects, openDatabase } from "./database.ts";
-import { answerText, ModelError, requestModel } from "./openrouter.ts";
+import {
+	answerText,
+	ModelError,
+	type OutputItem,
+	requestModel,
+} from "./openrouter.ts";
+
+const readableParts = (item: OutputItem) =>
+	item.content.filter((part) =>
+		["output_text", "refusal", "reasoning_text", "summary_text"].includes(
+			part.type,
+		),
+	);
+// Reader summaries preserve block order without downloading folded thinking.
+const outputSummary = (output: OutputItem[]) =>
+	output.map((item) => ({
+		...item,
+		content: readableParts(item).map((part) =>
+			item.type === "reasoning" ? { index: part.index, type: part.type } : part,
+		),
+	}));
 
 const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
@@ -160,9 +180,10 @@ export function createServer(
 						: [id]),
 			);
 		const more = rows.length > 10;
-		const page = rows
-			.slice(0, 10)
-			.map((row) => ({ ...row, output: JSON.parse(String(row.output)) }));
+		const page = rows.slice(0, 10).map((row) => ({
+			...row,
+			output: outputSummary(JSON.parse(String(row.output))),
+		}));
 		if (after === null) page.reverse();
 		return {
 			turns: page,
@@ -518,6 +539,26 @@ export function createServer(
 			}
 			return;
 		}
+		const reasoningRoute = path.match(/^\/api\/turns\/(\d+)\/reasoning$/);
+		if (reasoningRoute && request.method === "GET") {
+			const row = database
+				.prepare("SELECT output_json FROM turns WHERE id=?")
+				.get(Number(reasoningRoute[1]));
+			if (!row) {
+				json(response, 404, errorBody("notFound"));
+				return;
+			}
+			const output: OutputItem[] = JSON.parse(String(row.output_json));
+			json(response, 200, {
+				output: output
+					.filter((item) => item.type === "reasoning")
+					.map((item) => ({
+						...item,
+						content: readableParts(item),
+					})),
+			});
+			return;
+		}
 		const turnRoute = path.match(/^\/api\/turns\/(\d+)$/);
 		if (turnRoute && request.method === "GET") {
 			const row = database
@@ -529,7 +570,9 @@ export function createServer(
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
-			const turns = [{ ...row, output: JSON.parse(String(row.output)) }];
+			const turns = [
+				{ ...row, output: outputSummary(JSON.parse(String(row.output))) },
+			];
 			json(response, 200, {
 				turns,
 				messages: turnMessages(turns),

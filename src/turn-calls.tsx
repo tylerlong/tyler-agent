@@ -37,6 +37,7 @@ export function TurnCalls({
 }: {
 	turnId: number;
 	status: string;
+	revision?: number;
 	kind: "request" | "response";
 }) {
 	const { t } = useTranslation();
