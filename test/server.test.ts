@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
 	chmod,
 	mkdir,
@@ -8,11 +9,58 @@ import {
 	rm,
 	writeFile,
 } from "node:fs/promises";
+import { createServer as createPortProbe } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+
+test("CLI uses --port independently of environment and rejects invalid ports before opening the database", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-port-"));
+	const path = join(directory, "db.sqlite");
+	try {
+		for (const port of ["", "0", "65536", "1.5", "abc", "-1", "1e3"]) {
+			const result = spawnSync(
+				process.execPath,
+				["src/server.ts", `--port=${port}`, "--db", path],
+				{ encoding: "utf8", timeout: 5000 },
+			);
+			assert.equal(result.status, 1);
+			assert.match(result.stderr, /--port must be an integer/);
+		}
+		await assert.rejects(readFile(path), { code: "ENOENT" });
+		const probe = createPortProbe().listen(0, "127.0.0.1");
+		await once(probe, "listening");
+		const address = probe.address();
+		assert(address && typeof address !== "string");
+		await new Promise<void>((resolve) => probe.close(() => resolve()));
+		const child = spawn(
+			process.execPath,
+			["src/server.ts", "--port", String(address.port), "--db", path],
+			{ env: { ...process.env, PORT: "must-not-read" }, timeout: 5000 },
+		);
+		const exited = once(child, "exit");
+		try {
+			const [output] = await Promise.race([
+				once(child.stdout, "data"),
+				exited.then(() => {
+					throw new Error("Server exited before listening");
+				}),
+			]);
+			assert.match(String(output), new RegExp(`:${address.port}`));
+			assert.equal(
+				(await fetch(`http://127.0.0.1:${address.port}/api/projects`)).status,
+				200,
+			);
+		} finally {
+			child.kill();
+			await exited;
+		}
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
 
 test("invalid project inputs never create partial records; duplicate names and empty chats are allowed", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-inputs-"));

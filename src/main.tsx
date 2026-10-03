@@ -454,11 +454,23 @@ function App() {
 				);
 				setHistoryErrors((errors) => ({ ...errors, [id]: null }));
 			} catch (cause) {
-				if (current())
-					setHistoryErrors((errors) => ({ ...errors, [id]: appError(cause) }));
+				if (!current()) return;
+				const error = appError(cause);
+				if (
+					error.code === "chatNotFound" &&
+					selectedRef.current === id &&
+					urlChat() === id
+				) {
+					const url = new URL(location.href);
+					url.searchParams.delete("chat");
+					history.replaceState(null, "", url);
+					changeSelectedChat(null);
+					return;
+				}
+				setHistoryErrors((errors) => ({ ...errors, [id]: error }));
 			}
 		},
-		[mergeChat],
+		[mergeChat, changeSelectedChat],
 	);
 	const refreshTurn = useCallback(
 		async (chatId: number, turnId: number) => {

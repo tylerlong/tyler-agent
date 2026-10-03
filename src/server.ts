@@ -1109,10 +1109,18 @@ export function createServer(
 if (import.meta.main) {
 	const { values } = parseArgs({
 		args: process.argv.slice(2),
-		options: { db: { type: "string" } },
+		options: { db: { type: "string" }, port: { type: "string" } },
 	});
 	if (values.db === "") throw new Error("--db requires a database file path");
-	const port = Number(process.env.PORT ?? 3000);
+	const portValue = values.port ?? "3000";
+	const port = Number(portValue);
+	if (
+		!/^\d+$/.test(portValue) ||
+		!Number.isInteger(port) ||
+		port < 1 ||
+		port > 65535
+	)
+		throw new Error("--port must be an integer between 1 and 65535");
 	createServer(fetch, values.db).listen(port, "127.0.0.1", () =>
 		console.log(`Open http://127.0.0.1:${port}`),
 	);

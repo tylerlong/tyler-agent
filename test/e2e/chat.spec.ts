@@ -1,5 +1,23 @@
 import { expect, test } from "./fixtures.ts";
 
+test("chat read failures retain the URL; confirmed missing chats return home", async ({
+	page,
+	app,
+}) => {
+	await page.route("**/api/chats/999", (route) =>
+		route.fulfill({ status: 500, json: { code: "requestFailed" } }),
+	);
+	await page.goto(`${app.url}/?chat=999`);
+	await expect(page.getByRole("alert")).toBeVisible();
+	await expect(page).toHaveURL(`${app.url}/?chat=999`);
+	await page.unroute("**/api/chats/999");
+	await page.reload();
+	await expect(page).toHaveURL(`${app.url}/`);
+	await expect(
+		page.getByRole("region", { name: "Chat", exact: true }),
+	).toBeEmpty();
+});
+
 test("URL navigation isolates history and drafts; refresh discards drafts and stale reads cannot change selection", async ({
 	page,
 	app,

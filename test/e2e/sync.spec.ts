@@ -129,7 +129,8 @@ test("empty and unknown selections keep layout; language and missed updates reco
 	).toHaveValue("en");
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=999`);
-	await expect(other.getByRole("alert")).toHaveText("Chat does not exist.");
+	await expect(other).toHaveURL(`${app.url}/`);
+	await expect(other.getByRole("alert")).toHaveCount(0);
 	await other.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(
 		other.getByRole("region", { name: "Chat", exact: true }),
@@ -162,5 +163,5 @@ test("empty and unknown selections keep layout; language and missed updates reco
 			p.getByRole("region", { name: "对话", exact: true }),
 		).toBeEmpty();
 	}
-	await expect(other).toHaveURL(`${app.url}/?chat=999`);
+	await expect(other).toHaveURL(`${app.url}/`);
 });

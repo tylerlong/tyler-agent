@@ -95,6 +95,14 @@ export function ModelConfiguration({
 							void mutate("/api/model-settings", "PUT", { apiKey: key }, true);
 						}}
 					>
+						<input
+							type="text"
+							name="username"
+							autoComplete="username"
+							value="local-user"
+							readOnly
+							hidden
+						/>
 						<label className="mt-4 block">
 							{t("apiKey")}
 							<input
