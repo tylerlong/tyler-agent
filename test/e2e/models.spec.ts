@@ -456,6 +456,7 @@ test("row removal failures preserve default and composer, successful removal rep
 			data: { name: "Draft" },
 		})
 	).json();
+	await page.request.post(`${app.url}/api/model-catalog`);
 	await page.request.post(`${app.url}/api/models`, { data: { id: "second" } });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const model = page.getByRole("combobox", { name: "Model", exact: true });

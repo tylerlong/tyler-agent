@@ -466,6 +466,7 @@ test("default removal is atomic, uses successful cached rank, and falls back to 
 	const setDefault = async (id: string) =>
 		request("/api/model-settings", "PUT", { defaultModelId: id });
 	try {
+		await request("/api/model-catalog", "POST");
 		for (const id of ["a", "b", "c", "d", "e"])
 			await request("/api/models", "POST", { id });
 		await setDefault("a");
@@ -513,9 +514,11 @@ test("first model addition persists its default atomically and duplicates or lat
 	const folder = await mkdtemp(join(tmpdir(), "agent-first-add-"));
 	const path = join(folder, "db.sqlite");
 	let failCatalog = false;
+	let catalogCalls = 0;
 	let data = [catalogModel("one"), catalogModel("two"), catalogModel("three")];
 	const start = () =>
 		createServer(fetch, path, async () => {
+			catalogCalls++;
 			if (failCatalog) throw Error("directory unavailable");
 			return Response.json({ data });
 		}).listen(0, "127.0.0.1");
@@ -533,6 +536,10 @@ test("first model addition persists its default atomically and duplicates or lat
 	const settings = async () => (await request("/api/model-settings")).json();
 	const add = async (id: string) => request("/api/models", "POST", { id });
 	try {
+		assert.equal((await add("one")).status, 400);
+		assert.equal(catalogCalls, 0);
+		assert.deepEqual((await settings()).models, []);
+		await request("/api/model-catalog", "POST");
 		const first = await (await add("one")).json();
 		assert.equal(first.defaultModelId, "one");
 		assert.equal(first.firstModelAdded, true);
@@ -577,6 +584,16 @@ test("first model addition persists its default atomically and duplicates or lat
 		assert.equal(restartedDuplicate.status, 200);
 		assert.equal((await restartedDuplicate.json()).firstModelAdded, false);
 		assert.deepEqual(await settings(), saved);
+		const beforeRetry = catalogCalls;
+		// A browser may retain candidates after restart, but saving must not fetch discovery.
+		assert.equal((await add("three")).status, 400);
+		assert.equal(catalogCalls, beforeRetry);
+		assert.deepEqual(await settings(), saved);
+		failCatalog = false;
+		assert.equal((await request("/api/model-catalog", "POST")).status, 200);
+		assert.equal(catalogCalls, beforeRetry + 1);
+		assert.equal((await add("three")).status, 200);
+		assert.equal(catalogCalls, beforeRetry + 1);
 	} finally {
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));

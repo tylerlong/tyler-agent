@@ -491,7 +491,7 @@ export function createServer(
 					json(response, 200, { ...existing, firstModelAdded: false });
 					return;
 				}
-				const model = (await loadCatalog()).find((model) => model.id === id);
+				const model = catalog?.find((model) => model.id === id);
 				if (!model) throw new InputError("invalidModel");
 				const { name, ...metadata } = model;
 				delete (metadata as Partial<ManagedModel>).id;

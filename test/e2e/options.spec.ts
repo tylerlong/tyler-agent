@@ -19,6 +19,7 @@ async function chats(request: APIRequestContext, url: string) {
 			data: { name: "Other" },
 		})
 	).json();
+	await request.post(`${url}/api/model-catalog`);
 	await request.post(`${url}/api/models`, { data: { id: "second" } });
 	return { first, second };
 }
