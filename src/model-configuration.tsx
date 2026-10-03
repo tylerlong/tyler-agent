@@ -12,6 +12,7 @@ export function ModelConfiguration({
 	readFailed,
 	refresh,
 }: {
+	open: boolean;
 	settings: ModelSettings | null;
 	readFailed: boolean;
 	refresh: () => Promise<void>;

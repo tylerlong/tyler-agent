@@ -564,8 +564,13 @@ function App() {
 	const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
 	const [error, setError] = useState<ApiError | null>(null);
 	const settingsDialog = useRef<HTMLDialogElement>(null);
-	const setupDialog = useRef<HTMLDialogElement>(null);
-	const [setupOpen, setSetupOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const openSettings = () => {
+		if (!settingsDialog.current?.open) {
+			settingsDialog.current?.showModal();
+			setSettingsOpen(true);
+		}
+	};
 	const [dialogChange, setDialogChange] = useState(0);
 	const refreshRevision = useRef(0);
 	const refresh = useCallback(async () => {
@@ -961,29 +966,14 @@ function App() {
 	const missingSetup = Boolean(
 		chat &&
 			!readOnly &&
-			(modelSettingsError ||
-				(modelSettings &&
-					options &&
-					(!modelSettings.apiKeyConfigured ||
-						!modelSettings.models.some(
-							(model) => model.id === options.modelId,
-						)))),
+			!modelSettingsError &&
+			modelSettings &&
+			(!modelSettings.apiKeyConfigured || modelSettings.models.length === 0),
 	);
 	useEffect(() => {
 		void dialogChange;
-		const setup = setupDialog.current;
-		if (!setup) return;
-		const otherOpen = [settingsDialog, dialog, folderDialog].some(
-			(ref) => ref.current?.open,
-		);
-		if (missingSetup && !otherOpen && !setup.open) {
-			setSetupOpen(true);
-			setup.showModal();
-		}
-		if ((!missingSetup || otherOpen) && setup.open) {
-			setup.close();
-			setSetupOpen(false);
-		}
+		const otherOpen = [dialog, folderDialog].some((ref) => ref.current?.open);
+		if (missingSetup && !otherOpen) openSettings();
 	});
 	const changeTurnOptions = (value: TurnOptions) => {
 		if (selected !== null)
@@ -1103,7 +1093,7 @@ function App() {
 						className={`${iconButton} self-start`}
 						aria-label={t("settings")}
 						title={t("settings")}
-						onClick={() => settingsDialog.current?.showModal()}
+						onClick={openSettings}
 					>
 						<svg
 							aria-hidden="true"
@@ -1370,6 +1360,18 @@ function App() {
 									</button>
 								</div>
 							</div>
+							{modelSettingsError && !readOnly && (
+								<div role="alert" className="mt-4 text-red-700">
+									{t("configurationReadFailed")}{" "}
+									<button
+										type="button"
+										className={button}
+										onClick={() => void refreshModelSettings()}
+									>
+										{t("retry")}
+									</button>
+								</div>
+							)}
 							{chatErrors[chat.id] && (
 								<p
 									role="alert"
@@ -1582,11 +1584,17 @@ function App() {
 				</footer>
 			</dialog>
 			<dialog
-				onClose={() => setDialogChange((value) => value + 1)}
-				closedby="any"
+				onClose={() => {
+					setSettingsOpen(false);
+					setDialogChange((value) => value + 1);
+				}}
+				closedby={missingSetup ? "none" : "any"}
+				onCancel={(event) => {
+					if (missingSetup) event.preventDefault();
+				}}
 				ref={settingsDialog}
 				aria-labelledby="settings-title"
-				className="m-auto w-full max-w-lg rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
+				className="m-auto max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
 			>
 				<h2 id="settings-title" className="text-lg font-semibold">
 					{t("settings")}
@@ -1637,6 +1645,7 @@ function App() {
 					</p>
 				)}
 				<ModelConfiguration
+					open={settingsOpen}
 					settings={modelSettings}
 					readFailed={modelSettingsError}
 					refresh={refreshModelSettings}
@@ -1645,48 +1654,12 @@ function App() {
 					<button
 						type="button"
 						className={button}
+						disabled={missingSetup}
 						onClick={() => settingsDialog.current?.close()}
 					>
 						{t("close")}
 					</button>
 				</div>
-			</dialog>
-			<dialog
-				ref={setupDialog}
-				closedby="none"
-				onCancel={(event) => event.preventDefault()}
-				aria-labelledby="setup-title"
-				className="m-auto max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
-			>
-				{setupOpen && (
-					<>
-						<h2 id="setup-title" className="text-lg font-semibold">
-							{t("completeSetup")}
-						</h2>
-						<p className="mt-2 text-sm text-neutral-600">
-							{t(
-								modelSettings && modelSettings.models.length === 0
-									? "setupAddModel"
-									: "setupRequired",
-							)}
-						</p>
-						{options && (
-							<div className="mt-4 flex flex-wrap gap-2">
-								<TurnOptionPicker
-									options={options}
-									models={modelSettings?.models ?? []}
-									change={changeTurnOptions}
-									disabled={modelSettingsError}
-								/>
-							</div>
-						)}
-						<ModelConfiguration
-							settings={modelSettings}
-							readFailed={modelSettingsError}
-							refresh={refreshModelSettings}
-						/>
-					</>
-				)}
 			</dialog>
 		</main>
 	);
