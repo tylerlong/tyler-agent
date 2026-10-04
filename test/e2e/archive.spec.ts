@@ -247,7 +247,9 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 	]);
 	await app.restart();
 	await page.goto(`${app.url}/?chat=${c.id}`);
-	await expect(page.getByRole("status")).toContainText("Project is archived");
+	await expect(
+		page.getByRole("status").filter({ hasText: "Project is archived" }),
+	).toBeVisible();
 	await page.getByText("Archived", { exact: true }).click();
 	await expect(archived.getByRole("heading")).toHaveText([
 		"local edit (project archived)",
