@@ -142,7 +142,7 @@ test("interface text and existing validation errors change language without rewr
 		data: { language: "zh-CN" },
 	});
 	const chinese = page.getByRole("dialog", { name: "新建项目", exact: true });
-	await expect(chinese.getByRole("alert")).toHaveText("名称不得为空");
+	await expect(chinese.getByRole("alert")).toHaveText("名称不得为空。");
 	await expect(chinese.getByLabel("名称", { exact: true })).toHaveValue(" ");
 	await chinese.getByLabel("名称", { exact: true }).fill("unchanged name");
 	await chinese.getByRole("button", { name: "创建", exact: true }).click();
@@ -178,6 +178,18 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(page.getByRole("log")).toContainText("original question");
+	await page.route("**/api/turns/*/calls?kind=request", async (route) => {
+		const response = await route.fetch();
+		const data = await response.json();
+		await route.fulfill({
+			json: { calls: [data.calls[0], { ...data.calls[0], id: 999 }] },
+		});
+	});
+	await page.getByText("Request", { exact: true }).click();
+	await expect(
+		page.getByText("Model call #999", { exact: true }),
+	).toBeVisible();
+
 	await page
 		.getByRole("textbox", { name: "Prompt", exact: true })
 		.fill("question draft 原样");
@@ -204,10 +216,11 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await expect(
 		page.getByRole("heading", { name: "Saved 对话", exact: true }),
 	).toBeVisible();
-	await expect(page.getByRole("log", { name: "聊天历史" })).toContainText(
+	await expect(page.getByRole("log", { name: "对话历史" })).toContainText(
 		"original question",
 	);
-	await expect(page.getByRole("log")).toContainText("Agent: Test answer");
+	await expect(page.getByRole("log")).toContainText("Agent：Test answer");
+	await expect(page.getByText("模型调用 #999", { exact: true })).toBeVisible();
 	await page.getByRole("button", { name: "项目操作", exact: true }).click();
 	await page.getByRole("button", { name: "编辑项目", exact: true }).click();
 	await expect(zhEdit.getByLabel("名称", { exact: true })).toHaveValue(
@@ -220,7 +233,7 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await fresh.getByRole("button", { name: "取消", exact: true }).click();
 	app.failModel();
 	await page.getByRole("button", { name: /^发送(?: \(.+\))?$/ }).click();
-	await expect(page.getByRole("alert")).toHaveText("OpenRouter 请求失败");
+	await expect(page.getByRole("alert")).toHaveText("OpenRouter 请求失败。");
 	await page.request.put(`${app.url}/api/language`, {
 		data: { language: "en" },
 	});

@@ -84,7 +84,7 @@ for (const size of [
 		await capture("above-long-keyboard");
 		await search.fill("missing");
 		await expect(dialog.getByRole("status")).toHaveText(
-			"No matching models in the popular 100. Enabled models are excluded.",
+			"No matching models among the 100 most popular models. Enabled models are excluded.",
 		);
 		expect(await dialog.boundingBox()).toEqual(bounds);
 		await capture("no-match");

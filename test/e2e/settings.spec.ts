@@ -226,14 +226,14 @@ test("required Settings identifies missing key, models and both", async ({
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(
-		dialog.getByText("An API key is required to use this Chat.", {
+		dialog.getByText("An API key is required to use this chat.", {
 			exact: true,
 		}),
 	).toBeVisible();
 	await page.request.delete(`${app.url}/api/models/test`);
 	await expect(
 		dialog.getByText(
-			"An API key and at least one enabled model are required to use this Chat.",
+			"An API key and at least one enabled model are required to use this chat.",
 			{ exact: true },
 		),
 	).toBeVisible();
@@ -244,7 +244,7 @@ test("required Settings identifies missing key, models and both", async ({
 		.getByRole("button", { name: "Save API key", exact: true })
 		.click();
 	await expect(
-		dialog.getByText("Enable at least one model to use this Chat.", {
+		dialog.getByText("Enable at least one model to use this chat.", {
 			exact: true,
 		}),
 	).toBeVisible();

@@ -127,7 +127,7 @@ export function TurnOutput({
 											? "thinkingSummary"
 											: "thinkingBody",
 									)}
-									:{" "}
+									{t("labelSeparator")}
 								</strong>
 								{part.text}
 							</div>

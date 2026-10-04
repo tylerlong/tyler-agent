@@ -116,7 +116,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	await page.getByLabel("Prompt").fill("original question");
 	await submit.click();
 	await pending.entered;
-	await expect(other.getByRole("log")).toContainText("Waiting for response");
+	await expect(other.getByRole("log")).toContainText("Working");
 	await expect(
 		other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeDisabled();

@@ -159,7 +159,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 		data: { modelId: "test", prompt: "Pending snapshot" },
 	});
 	await gate.entered;
-	await expect(page.getByRole("log")).toContainText("Waiting for response");
+	await expect(page.getByRole("log")).toContainText("Working");
 	let release!: () => void;
 	let arrived!: () => void;
 	const held = new Promise<void>((resolve) => {
@@ -184,7 +184,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	await pending;
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	release();
-	await expect(page.getByRole("log")).not.toContainText("Waiting for response");
+	await expect(page.getByRole("log")).not.toContainText("Working");
 	let blocked = true;
 	await page.route("**/api/chats/*", (route) =>
 		blocked ? route.abort() : route.continue(),
@@ -222,7 +222,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 		missedGate.release();
 		await missedPending;
 	}
-	await expect(page.getByRole("log")).not.toContainText("Waiting for response");
+	await expect(page.getByRole("log")).not.toContainText("Working");
 });
 
 test("an initially empty chat catches up every turn after more than one unseen page", async ({

@@ -262,7 +262,7 @@ test("each opening refreshes once; the combobox filters unenabled ranked models 
 	await filter.fill("absent");
 	await expect(
 		dialog.getByText(
-			"No matching models in the popular 100. Enabled models are excluded.",
+			"No matching models among the 100 most popular models. Enabled models are excluded.",
 		),
 	).toBeVisible();
 	await filter.press("Enter");
@@ -352,7 +352,7 @@ test("initial catalog failure differs from an empty filter and existing models r
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await expect(
 		dialog.getByText(
-			"No matching models in the popular 100. Enabled models are excluded.",
+			"No matching models among the 100 most popular models. Enabled models are excluded.",
 		),
 	).toHaveCount(0);
 	await expect(

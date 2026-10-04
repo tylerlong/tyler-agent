@@ -28,11 +28,11 @@ test("real directory picker selects one folder at a time, preserves position and
 		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeEnabled();
 	await expect(
-		picker.getByRole("list", { name: "Subdirectories" }).getByRole("button"),
+		picker.getByRole("list", { name: "Subfolders" }).getByRole("button"),
 	).toHaveText(["📁Alpha→", "📁Link→", "📁Zulu→"]);
-	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
+	await expect(picker.getByLabel("Current folder")).toHaveText(app.folder);
 	await picker.getByRole("button", { name: "Alpha", exact: true }).click();
-	await expect(picker.getByLabel("Current directory")).toHaveText(
+	await expect(picker.getByLabel("Current folder")).toHaveText(
 		join(app.folder, "Alpha"),
 	);
 	await expect(picker.getByRole("list")).toHaveText("No subfolders");
@@ -49,9 +49,9 @@ test("real directory picker selects one folder at a time, preserves position and
 	await expect(project.getByLabel("Name")).toHaveValue("Work");
 	await add.click();
 	await picker.getByRole("button", { name: "Up one level" }).click();
-	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
+	await expect(picker.getByLabel("Current folder")).toHaveText(app.folder);
 	await picker.getByRole("button", { name: "Zulu", exact: true }).click();
-	await expect(picker.getByLabel("Current directory")).toHaveText(
+	await expect(picker.getByLabel("Current folder")).toHaveText(
 		join(app.folder, "Zulu"),
 	);
 	await picker.getByRole("button", { name: "Select current folder" }).click();
@@ -77,18 +77,18 @@ test("real directory picker selects one folder at a time, preserves position and
 		})
 		.click();
 	await add.click();
-	await expect(picker.getByLabel("Current directory")).toHaveText(
+	await expect(picker.getByLabel("Current folder")).toHaveText(
 		join(app.folder, "Zulu"),
 	);
 	await picker.getByRole("button", { name: "Up one level" }).click();
-	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
+	await expect(picker.getByLabel("Current folder")).toHaveText(app.folder);
 	await picker.getByRole("button", { name: "Select current folder" }).click();
 	await project.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(project).not.toBeVisible();
 	await page.getByRole("button", { name: "New project", exact: true }).click();
 	await expect(project.getByLabel("Name")).toHaveValue("New project");
 	await add.click();
-	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
+	await expect(picker.getByLabel("Current folder")).toHaveText(app.folder);
 });
 
 test("hidden directory loads finish normally and stale navigation cannot replace newer results", async ({
@@ -153,7 +153,7 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeDisabled();
 	await picker.getByRole("button", { name: "Beta", exact: true }).click();
-	await expect(picker.getByLabel("Current directory")).toHaveText(
+	await expect(picker.getByLabel("Current folder")).toHaveText(
 		join(app.folder, "Beta"),
 	);
 	const done = page.waitForResponse(
@@ -163,7 +163,7 @@ test("hidden directory loads finish normally and stale navigation cannot replace
 	);
 	releaseAlpha();
 	await done;
-	await expect(picker.getByLabel("Current directory")).toHaveText(
+	await expect(picker.getByLabel("Current folder")).toHaveText(
 		join(app.folder, "Beta"),
 	);
 	await picker.getByRole("button", { name: "Cancel" }).click();
@@ -204,7 +204,7 @@ test("showing a hidden picker sends no new browse request and preserves a naviga
 	await expect(picker.getByRole("alert")).toContainText(
 		"Target folder does not exist.",
 	);
-	await expect(picker.getByLabel("Current directory")).toHaveText(app.folder);
+	await expect(picker.getByLabel("Current folder")).toHaveText(app.folder);
 	await expect(
 		picker.getByRole("button", { name: "Select current folder" }),
 	).toBeEnabled();
@@ -223,7 +223,7 @@ test("showing a hidden picker sends no new browse request and preserves a naviga
 		`无法打开 ${join(app.folder, "Gone")}。`,
 	);
 	await expect(chinese.getByRole("alert")).toContainText(
-		`仍显示 ${app.folder}`,
+		`当前显示 ${app.folder}`,
 	);
 	await expect(chinese.getByRole("button", { name: "返回上级" })).toBeVisible();
 	await expect(
@@ -235,7 +235,7 @@ test("showing a hidden picker sends no new browse request and preserves a naviga
 	await mkdir(join(app.folder, "Gone"));
 	await picker.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(picker.getByRole("alert")).toHaveCount(0);
-	await expect(picker.getByLabel("Current directory")).toHaveText(
+	await expect(picker.getByLabel("Current folder")).toHaveText(
 		join(app.folder, "Gone"),
 	);
 	await expect(
@@ -266,8 +266,8 @@ test("directory list scrolls with fixed controls and long paths remain selectabl
 		name: "Select folder",
 		exact: true,
 	});
-	const list = picker.getByRole("list", { name: "Subdirectories" });
-	const path = picker.getByLabel("Current directory");
+	const list = picker.getByRole("list", { name: "Subfolders" });
+	const path = picker.getByLabel("Current folder");
 	const select = picker.getByRole("button", { name: "Select current folder" });
 	const cancel = picker.getByRole("button", { name: "Cancel" });
 	await expect(list.getByRole("button")).toHaveCount(80);
@@ -370,7 +370,7 @@ test("root parent is disabled and row navigation and cancellation return focus",
 		name: "Select folder",
 		exact: true,
 	});
-	await expect(picker.getByLabel("Current directory")).toHaveText("/");
+	await expect(picker.getByLabel("Current folder")).toHaveText("/");
 	await expect(
 		picker.getByRole("button", { name: "Up one level" }),
 	).toBeDisabled();
@@ -378,7 +378,7 @@ test("root parent is disabled and row navigation and cancellation return focus",
 	await row.focus();
 	await expect(row).toBeFocused();
 	await row.press("Enter");
-	await expect(picker.getByLabel("Current directory")).not.toHaveText("/");
+	await expect(picker.getByLabel("Current folder")).not.toHaveText("/");
 	await expect(
 		project
 			.getByRole("region", { name: "Selected folders" })

@@ -1432,7 +1432,8 @@ function App() {
 											className="whitespace-pre-wrap"
 										>
 											<strong>
-												{t(message.role === "user" ? "you" : "agent")}:{" "}
+												{t(message.role === "user" ? "you" : "agent")}
+												{t("labelSeparator")}
 											</strong>
 											{message.role === "assistant" ? (
 												<TurnOutput
@@ -1454,7 +1455,7 @@ function App() {
 														{message.content && <>{t("turnIncomplete")} </>}
 														{t(message.errorCode ?? "modelRequestFailed")}
 														{message.errorDetails &&
-															`: ${message.errorDetails}`}
+															`\n${message.errorDetails}`}
 													</span>
 												)}
 											<TurnCalls

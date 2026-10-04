@@ -93,7 +93,7 @@ test("communication is lazy, formatted and copied as original text, retained acr
 			'{"model":"test","input":[{"role":"user","content":"question"}],"stream":true}',
 		);
 	await response.locator("summary").click();
-	await expect(response).toContainText("Waiting for response");
+	await expect(response).toContainText("Working");
 	gate.release();
 	await pending;
 	await expect(response.locator("pre")).toContainText(
@@ -119,14 +119,14 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await hiddenGate.entered;
 	await expect(response).toHaveCount(2);
 	await response.last().locator("summary").click();
-	await expect(response.last()).toContainText("Waiting for response");
+	await expect(response.last()).toContainText("Working");
 	await page.getByRole("button", { name: "Other", exact: true }).click();
 	await expect(page.getByRole("log")).toBeEmpty();
 	hiddenGate.release();
 	await hiddenPending;
 	await page.getByRole("button", { name: "First", exact: true }).click();
 	await expect(response.last().locator("pre")).toContainText("Test answer");
-	await expect(response.last()).not.toContainText("Waiting for response");
+	await expect(response.last()).not.toContainText("Working");
 	await expect(response.first().locator("pre")).toBeVisible();
 	await page.reload();
 	await expect(request.first().locator("pre")).not.toBeVisible();

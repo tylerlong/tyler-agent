@@ -149,9 +149,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	await gate.entered;
 	try {
 		for (const current of [page, other])
-			await expect(current.getByRole("log")).toContainText(
-				"Waiting for response",
-			);
+			await expect(current.getByRole("log")).toContainText("Working");
 		await expect.poll(async () => (await scrollState(content)).top).toBe(0);
 		await expect
 			.poll(async () => (await scrollState(otherContent)).bottom)
@@ -160,7 +158,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 		gate.release();
 		await pending;
 	}
-	await expect(page.getByRole("log")).not.toContainText("Waiting for response");
+	await expect(page.getByRole("log")).not.toContainText("Working");
 	await expect.poll(async () => (await scrollState(content)).top).toBe(0);
 	await expect
 		.poll(async () => (await scrollState(otherContent)).bottom)
@@ -184,7 +182,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 			.locator("summary")
 			.click();
 		await expect(page.getByRole("log").locator("details").last()).toContainText(
-			"Waiting for response",
+			"Working",
 		);
 	} finally {
 		ownGate.release();

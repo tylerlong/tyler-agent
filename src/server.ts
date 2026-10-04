@@ -79,7 +79,7 @@ const errorMessages: Record<string, string> = {
 	languageWriteFailed: "Could not save interface language",
 	modelSettingsFailed: "Could not read or save model settings",
 	modelCatalogFailed: "Could not load model catalog",
-	invalidModel: "Choose a configured model",
+	invalidModel: "Choose an enabled model",
 	invalidReasoning: "Choose a supported reasoning level",
 	invalidApiKey: "Invalid API key",
 	modelConfigMissing: "OpenRouter configuration is missing",

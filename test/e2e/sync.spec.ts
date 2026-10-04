@@ -91,7 +91,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 	await expect(other.getByRole("log")).toContainText("beta question");
 	await expect(submit(other)).toBeEnabled();
 	await expect(page.getByRole("log")).toContainText("alpha question");
-	await expect(page.getByRole("log")).toContainText("Waiting for response");
+	await expect(page.getByRole("log")).toContainText("Working");
 	await expect(submit(page)).toBeDisabled();
 	first.release();
 	await expect(page.getByRole("log")).toContainText("alpha question");

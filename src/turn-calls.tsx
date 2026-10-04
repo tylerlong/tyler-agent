@@ -145,7 +145,7 @@ export function TurnCalls({
 				return (
 					<div key={call.id} className="mt-3 min-w-0">
 						{record.calls && record.calls.length > 1 && (
-							<p>Model Call #{call.id}</p>
+							<p>{t("modelCall", { id: call.id })}</p>
 						)}
 						<p className="break-all font-mono text-xs">
 							{kind === "request"
