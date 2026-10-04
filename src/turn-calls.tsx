@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import {
+	Fragment,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 type Call = {
@@ -16,6 +23,7 @@ type Call = {
 };
 type RecordState = {
 	open: boolean;
+	scrollTop: number;
 	calls?: Call[];
 	status?: string;
 	sourceRevision?: number;
@@ -81,12 +89,72 @@ export function TurnCalls({
 	const key = `${turnId}-${callId}-${kind}`;
 	let state = records.get(key);
 	if (!state) {
-		state = { open: false, error: false, loading: false, revision: 0 };
+		state = {
+			open: false,
+			scrollTop: 0,
+			error: false,
+			loading: false,
+			revision: 0,
+		};
 		records.set(key, state);
 	}
 	const record = state;
 	const [, render] = useState(0);
 	const [copyError, setCopyError] = useState(false);
+	const [copied, setCopied] = useState(false);
+	const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
+	const bodyRef = useRef<HTMLDivElement>(null);
+	useEffect(() => () => clearTimeout(copyTimer.current), []);
+	useLayoutEffect(() => {
+		if (record.open && bodyRef.current)
+			bodyRef.current.scrollTop = record.scrollTop;
+	});
+	const parts = record.calls?.flatMap((call) => {
+		const body = kind === "request" ? call.requestBody : call.responseBody;
+		const metadata =
+			kind === "request"
+				? `${call.requestedAt} · ${call.method} ${call.url}`
+				: [
+						call.httpStatus === null ? "" : `HTTP ${call.httpStatus}`,
+						call.durationMs === null ? "" : `${call.durationMs}ms`,
+					]
+						.filter(Boolean)
+						.join(" · ");
+		return [
+			...(metadata ? [{ text: metadata, body: false }] : []),
+			...(kind === "response" && body == null
+				? [
+						{
+							text: t(
+								call.status === "pending"
+									? "responseNotYetReceived"
+									: "noResponse",
+							),
+							body: false,
+						},
+					]
+				: []),
+			...(kind === "response" && call.error
+				? [
+						{
+							text: call.errorCode ? t(call.errorCode) : call.error,
+							body: false,
+						},
+					]
+				: []),
+			...(typeof body === "string"
+				? (kind === "response" ? responseEvents(body) : [pretty(body)]).map(
+						(text) => ({ text, body: true }),
+					)
+				: []),
+		];
+	});
+	const displayParts =
+		record.calls?.length === 0 ? [{ text: t("noCalls"), body: false }] : parts;
+	const communicationText =
+		displayParts?.map((part) => part.text).join("\n\n") ?? "";
 	const load = useCallback(async () => {
 		const readRevision = ++record.revision;
 		record.loading = true;
@@ -131,9 +199,65 @@ export function TurnCalls({
 			}}
 		>
 			<summary className="cursor-pointer text-neutral-600 hover:text-neutral-950">
-				{t(kind)} {ordinal}
-				{kind === "response" &&
-					` · ${t(status === "pending" ? "turnPending" : status === "failed" ? "callFailed" : "callCompleted")}`}
+				<span className="inline-flex w-[calc(100%-1.25rem)] items-center gap-2">
+					<span>
+						{t(kind)} {ordinal}
+						{kind === "response" &&
+							status === "failed" &&
+							` · ${t("callFailed")}`}
+					</span>
+					{kind === "response" && status === "pending" && (
+						<span
+							role="status"
+							aria-label={t("turnPending")}
+							className="h-4 w-4 rounded-full border-2 border-neutral-300 border-t-neutral-600 motion-safe:animate-spin"
+						/>
+					)}
+					{status !== "pending" && record.calls && (
+						<button
+							type="button"
+							aria-label={t("copy")}
+							title={t("copy")}
+							className="ml-auto rounded p-1 hover:bg-neutral-200"
+							onClick={async (event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								try {
+									await navigator.clipboard.writeText(communicationText);
+									setCopyError(false);
+									setCopied(true);
+									clearTimeout(copyTimer.current);
+									copyTimer.current = setTimeout(() => setCopied(false), 1500);
+								} catch {
+									setCopied(false);
+									setCopyError(true);
+								}
+							}}
+						>
+							{copied ? (
+								<span aria-hidden="true">✓</span>
+							) : (
+								<svg
+									aria-hidden="true"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="1.5"
+								>
+									<rect x="8" y="8" width="12" height="12" rx="2" />
+									<path d="M16 8V4H4v12h4" />
+								</svg>
+							)}
+						</button>
+					)}
+				</span>
+				{copyError && (
+					<span role="alert" className="block whitespace-pre-wrap">
+						{t("copyFailed")}
+					</span>
+				)}
 			</summary>
 			{record.loading && <p role="status">{t("loading")}</p>}
 			{record.error && (
@@ -148,63 +272,30 @@ export function TurnCalls({
 					</button>
 				</div>
 			)}
-			{record.calls?.length === 0 && <p>{t("noCalls")}</p>}
-			{record.calls?.map((call) => {
-				const body = kind === "request" ? call.requestBody : call.responseBody;
-				return (
-					<div key={call.id} className="mt-3 min-w-0">
-						<p className="break-all font-mono text-xs">
-							{kind === "request"
-								? `${call.requestedAt} · ${call.method} ${call.url}`
-								: `${call.httpStatus === null ? "" : `HTTP ${call.httpStatus} · `}${call.durationMs === null ? "" : `${call.durationMs}ms`}`}
-						</p>
-						{kind === "response" &&
-							call.status === "pending" &&
-							body == null && <p>{t("responseNotYetReceived")}</p>}
-						{kind === "response" &&
-							call.status !== "pending" &&
-							body === null && <p>{t("noResponse")}</p>}
-						{kind === "response" && call.error && (
-							<p className="whitespace-pre-wrap break-words">
-								{call.errorCode ? t(call.errorCode) : call.error}
-							</p>
-						)}
-						{typeof body === "string" && (
-							<>
-								<button
-									type="button"
-									className="my-2 rounded px-2 py-1 hover:bg-neutral-200"
-									onClick={async () => {
-										try {
-											await navigator.clipboard.writeText(body);
-											setCopyError(false);
-										} catch {
-											setCopyError(true);
-										}
-									}}
-								>
-									{t("copy")}
-								</button>
-								{(kind === "response"
-									? responseEvents(body)
-									: [pretty(body)]
-								).map((event, index) => (
-									<pre
-										data-reading-anchor={`${key}-${call.id}-${index}`}
-										// SSE frames only append; their position is their identity.
-										// biome-ignore lint/suspicious/noArrayIndexKey: existing frames never reorder.
-										key={`${call.id}-${index}`}
-										className="mb-2 border-l-2 border-neutral-200 pl-2 overflow-x-auto whitespace-pre-wrap break-words text-xs"
-									>
-										{event}
-									</pre>
-								))}
-							</>
-						)}
-					</div>
-				);
-			})}
-			{copyError && <p role="alert">{t("copyFailed")}</p>}
+			<div
+				ref={bodyRef}
+				className="communication-body"
+				onScroll={(event) => {
+					if (record.open) record.scrollTop = event.currentTarget.scrollTop;
+				}}
+			>
+				<div className="communication-text mt-3 font-mono text-xs whitespace-pre-wrap">
+					{displayParts?.map((part, index) => (
+						// Content parts append in display order.
+						// biome-ignore lint/suspicious/noArrayIndexKey: parts retain their display order.
+						<Fragment key={index}>
+							{index > 0 && "\n\n"}
+							{part.body ? (
+								<pre className="border-l-2 border-neutral-200 pl-2 whitespace-pre-wrap">
+									{part.text}
+								</pre>
+							) : (
+								<p>{part.text}</p>
+							)}
+						</Fragment>
+					))}
+				</div>
+			</div>
 		</details>
 	);
 }

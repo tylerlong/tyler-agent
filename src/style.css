@@ -100,3 +100,11 @@
 	box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
 	overflow-wrap: anywhere;
 }
+
+.communication-body {
+	max-height: min(400px, 50vh);
+	overflow-y: auto;
+	overflow-wrap: anywhere;
+	overscroll-behavior: contain;
+	overflow-anchor: none;
+}
