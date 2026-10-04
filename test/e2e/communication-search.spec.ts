@@ -23,7 +23,7 @@ test("local literal search highlights complete displayed text, navigates only th
 	app.failModel(
 		"http",
 		JSON.stringify({
-			first: "Needle .* [x]",
+			first: "İNeedle .* [x]",
 			padding: Array.from({ length: 160 }, (_, index) => `line ${index}`),
 			last: "needle .* [x]",
 		}),
@@ -56,11 +56,16 @@ test("local literal search highlights complete displayed text, navigates only th
 	await input.fill("HTTP 500");
 	await expect(counter).toHaveText("1 / 1");
 	await expect(response.locator("mark")).toHaveText("HTTP 500");
-	await input.fill('"first": "NEEDLE .* [x]"');
+	await input.fill("İ");
+	await expect(response.locator("mark")).toHaveText("İ");
+	await input.fill('"first": "İNEEDLE .* [x]"');
 	await expect(counter).toHaveText("1 / 1");
 	await input.fill("needle .* [x]");
 	await expect(counter).toHaveText("1 / 2");
-	await expect(response.locator("mark")).toHaveCount(2);
+	await expect(response.locator("mark")).toHaveText([
+		"Needle .* [x]",
+		"needle .* [x]",
+	]);
 	const body = response.locator(".communication-body");
 	const outer = page.getByRole("region", { name: "Chat", exact: true });
 	const outerTop = await outer.evaluate((el) => el.scrollTop);
@@ -157,7 +162,7 @@ test("running search follows saved text without scrolling, stale reads or folded
 		data: { modelId: "test", prompt: "Read" },
 	});
 	const frame = (n: number) =>
-		`event: vendor.custom\ndata: ${JSON.stringify({ needle: n, padding: Array.from({ length: 60 }, (_, index) => `line ${index}`) })}\n\n`;
+		`event: vendor.custom\ndata: ${JSON.stringify({ needle: `123-${n}`, padding: Array.from({ length: 60 }, (_, index) => `line ${index}`) })}\n\n`;
 	stream.push(frame(1));
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const response = page.locator("details").filter({
@@ -167,14 +172,17 @@ test("running search follows saved text without scrolling, stale reads or folded
 	await response.getByRole("button", { name: "Search communication" }).click();
 	const input = response.getByRole("searchbox");
 	const counter = response.getByRole("status", { name: "Search matches" });
-	await input.fill("needle");
+	await input.fill("123");
 	await expect(counter).toHaveText("1 / 1");
 	await expect(
 		response.getByRole("button", { name: "Copy", exact: true }),
 	).toHaveCount(0);
 	const body = response.locator(".communication-body");
-	await body.evaluate((el) => {
+	await body.evaluate(async (el) => {
 		el.scrollTop = 200;
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => resolve()),
+		);
 	});
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(200);
 	let release!: () => void;
@@ -187,7 +195,12 @@ test("running search follows saved text without scrolling, stale reads or folded
 	});
 	let first = true;
 	await page.route("**/calls?kind=response&callId=*", async (route) => {
-		if (!first) return route.continue();
+		if (!first) {
+			const response = await route.fetch();
+			const data = await response.json();
+			if (data.calls[0].status !== "pending") data.calls[0].durationMs = 123;
+			return route.fulfill({ json: data });
+		}
 		first = false;
 		const old = await route.fetch();
 		intercepted();
@@ -201,6 +214,9 @@ test("running search follows saved text without scrolling, stale reads or folded
 	expect(await body.evaluate((el) => el.scrollTop)).toBe(200);
 	release();
 	await expect(counter).toHaveText("1 / 3");
+	await input.press("Enter");
+	await expect(counter).toHaveText("2 / 3");
+	const selectedTop = await body.evaluate((el) => el.scrollTop);
 	await response.locator("summary").click();
 	stream.push(frame(4));
 	stream.end();
@@ -209,9 +225,12 @@ test("running search follows saved text without scrolling, stale reads or folded
 		response.getByRole("button", { name: "Copy", exact: true }),
 	).toBeVisible();
 	await response.locator("summary").click();
-	await expect(counter).toHaveText("1 / 4");
-	await expect(input).toHaveValue("needle");
-	expect(await body.evaluate((el) => el.scrollTop)).toBe(200);
+	await expect(counter).toHaveText("3 / 5");
+	await expect(
+		response.locator('[data-search-match="2"].bg-orange-300'),
+	).toHaveText("123");
+	await expect(input).toHaveValue("123");
+	expect(await body.evaluate((el) => el.scrollTop)).toBe(selectedTop);
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))

@@ -26,7 +26,7 @@ type RecordState = {
 	scrollTop: number;
 	searchOpen: boolean;
 	query: string;
-	match: number;
+	match?: string;
 	calls?: Call[];
 	status?: string;
 	sourceRevision?: number;
@@ -97,7 +97,6 @@ export function TurnCalls({
 			scrollTop: 0,
 			searchOpen: false,
 			query: "",
-			match: 0,
 			error: false,
 			loading: false,
 			revision: 0,
@@ -130,10 +129,13 @@ export function TurnCalls({
 						.filter(Boolean)
 						.join(" · ");
 		return [
-			...(metadata ? [{ text: metadata, body: false }] : []),
+			...(metadata
+				? [{ text: metadata, body: false, id: `${call.id}-metadata` }]
+				: []),
 			...(kind === "response" && body == null
 				? [
 						{
+							id: `${call.id}-no-body`,
 							text: t(
 								call.status === "pending"
 									? "responseNotYetReceived"
@@ -146,6 +148,7 @@ export function TurnCalls({
 			...(kind === "response" && call.error
 				? [
 						{
+							id: `${call.id}-error`,
 							text: call.errorCode ? t(call.errorCode) : call.error,
 							body: false,
 						},
@@ -153,32 +156,67 @@ export function TurnCalls({
 				: []),
 			...(typeof body === "string"
 				? (kind === "response" ? responseEvents(body) : [pretty(body)]).map(
-						(text) => ({ text, body: true }),
+						(text, index) => ({
+							text,
+							body: true,
+							id: `${call.id}-body-${index}`,
+						}),
 					)
 				: []),
 		];
 	});
 	const displayParts =
-		record.calls?.length === 0 ? [{ text: t("noCalls"), body: false }] : parts;
+		record.calls?.length === 0
+			? [{ text: t("noCalls"), body: false, id: "no-calls" }]
+			: parts;
 	const communicationText =
 		displayParts?.map((part) => part.text).join("\n\n") ?? "";
-	const matches: number[] = [];
+	const matches: { start: number; end: number; anchor: string }[] = [];
 	const query = record.query.toLowerCase();
 	if (record.searchOpen && query) {
+		// Lowercasing can expand a character (İ); keep original text offsets.
+		const offsets: number[] = [];
+		const ends: number[] = [];
 		const text = communicationText.toLowerCase();
+		let offset = 0;
+		for (const character of communicationText) {
+			const folded = character.toLowerCase();
+			for (let index = 0; index < folded.length; index++) {
+				offsets.push(offset);
+				ends.push(offset + character.length);
+			}
+			offset += character.length;
+		}
 		let start = text.indexOf(query);
 		while (start !== -1) {
-			matches.push(start);
+			const originalStart = offsets[start];
+			const end = ends[start + query.length - 1];
+			let partStart = 0;
+			const part = displayParts?.find((part) => {
+				if (originalStart < partStart + part.text.length) return true;
+				partStart += part.text.length + 2;
+				return false;
+			});
+			matches.push({
+				start: originalStart,
+				end,
+				anchor: `${part?.id}:${originalStart - partStart}`,
+			});
 			start = text.indexOf(query, start + query.length);
 		}
 	}
-	const currentMatch = Math.min(record.match, Math.max(0, matches.length - 1));
+	const retainedMatch = matches.findIndex(
+		(match) => match.anchor === record.match,
+	);
+	const currentMatch = Math.max(0, retainedMatch);
+	if (matches.length) record.match = matches[currentMatch].anchor;
 	function navigate(direction: number) {
 		const body = bodyRef.current;
 		if (!body || !matches.length) return;
-		record.match = (currentMatch + direction + matches.length) % matches.length;
+		const next = (currentMatch + direction + matches.length) % matches.length;
+		record.match = matches[next].anchor;
 		const target = body.querySelector<HTMLElement>(
-			`[data-search-match="${record.match}"]`,
+			`[data-search-match="${next}"]`,
 		);
 		if (target) {
 			const bounds = body.getBoundingClientRect();
@@ -198,9 +236,9 @@ export function TurnCalls({
 	function highlighted(text: string, offset: number) {
 		const fragments = [];
 		let cursor = 0;
-		for (const [index, start] of matches.entries()) {
-			const from = Math.max(0, start - offset);
-			const to = Math.min(text.length, start + query.length - offset);
+		for (const [index, match] of matches.entries()) {
+			const from = Math.max(0, match.start - offset);
+			const to = Math.min(text.length, match.end - offset);
 			if (to <= from) continue;
 			fragments.push(text.slice(cursor, from));
 			fragments.push(
@@ -369,7 +407,7 @@ export function TurnCalls({
 						value={record.query}
 						onChange={(event) => {
 							record.query = event.currentTarget.value;
-							record.match = 0;
+							record.match = undefined;
 							render((value) => value + 1);
 						}}
 						onKeyDown={(event) => {
