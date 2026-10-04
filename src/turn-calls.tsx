@@ -24,6 +24,9 @@ type Call = {
 type RecordState = {
 	open: boolean;
 	scrollTop: number;
+	searchOpen: boolean;
+	query: string;
+	match: number;
 	calls?: Call[];
 	status?: string;
 	sourceRevision?: number;
@@ -92,6 +95,9 @@ export function TurnCalls({
 		state = {
 			open: false,
 			scrollTop: 0,
+			searchOpen: false,
+			query: "",
+			match: 0,
 			error: false,
 			loading: false,
 			revision: 0,
@@ -105,6 +111,7 @@ export function TurnCalls({
 	const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
 	);
+	const searchRef = useRef<HTMLInputElement>(null);
 	const bodyRef = useRef<HTMLDivElement>(null);
 	useEffect(() => () => clearTimeout(copyTimer.current), []);
 	useLayoutEffect(() => {
@@ -155,6 +162,62 @@ export function TurnCalls({
 		record.calls?.length === 0 ? [{ text: t("noCalls"), body: false }] : parts;
 	const communicationText =
 		displayParts?.map((part) => part.text).join("\n\n") ?? "";
+	const matches: number[] = [];
+	const query = record.query.toLowerCase();
+	if (record.searchOpen && query) {
+		const text = communicationText.toLowerCase();
+		let start = text.indexOf(query);
+		while (start !== -1) {
+			matches.push(start);
+			start = text.indexOf(query, start + query.length);
+		}
+	}
+	const currentMatch = Math.min(record.match, Math.max(0, matches.length - 1));
+	function navigate(direction: number) {
+		const body = bodyRef.current;
+		if (!body || !matches.length) return;
+		record.match = (currentMatch + direction + matches.length) % matches.length;
+		const target = body.querySelector<HTMLElement>(
+			`[data-search-match="${record.match}"]`,
+		);
+		if (target) {
+			const bounds = body.getBoundingClientRect();
+			const matchBounds = target.getBoundingClientRect();
+			if (matchBounds.top < bounds.top)
+				body.scrollTop += matchBounds.top - bounds.top;
+			else if (matchBounds.bottom > bounds.bottom)
+				body.scrollTop += matchBounds.bottom - bounds.bottom;
+			record.scrollTop = body.scrollTop;
+		}
+		render((value) => value + 1);
+	}
+	function closeSearch() {
+		record.searchOpen = false;
+		render((value) => value + 1);
+	}
+	function highlighted(text: string, offset: number) {
+		const fragments = [];
+		let cursor = 0;
+		for (const [index, start] of matches.entries()) {
+			const from = Math.max(0, start - offset);
+			const to = Math.min(text.length, start + query.length - offset);
+			if (to <= from) continue;
+			fragments.push(text.slice(cursor, from));
+			fragments.push(
+				<mark
+					key={index}
+					data-search-match={index}
+					className={index === currentMatch ? "bg-orange-300" : "bg-yellow-200"}
+				>
+					{text.slice(from, to)}
+				</mark>,
+			);
+			cursor = to;
+		}
+		fragments.push(text.slice(cursor));
+		return fragments;
+	}
+	let partOffset = 0;
 	const load = useCallback(async () => {
 		const readRevision = ++record.revision;
 		record.loading = true;
@@ -213,12 +276,40 @@ export function TurnCalls({
 							className="h-4 w-4 rounded-full border-2 border-neutral-300 border-t-neutral-600 motion-safe:animate-spin"
 						/>
 					)}
+					{record.open && record.calls && (
+						<button
+							type="button"
+							aria-label={t("searchCommunication")}
+							title={t("searchCommunication")}
+							className="ml-auto rounded p-1 hover:bg-neutral-200"
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								record.searchOpen = true;
+								render((value) => value + 1);
+								requestAnimationFrame(() => searchRef.current?.focus());
+							}}
+						>
+							<svg
+								aria-hidden="true"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="1.5"
+							>
+								<circle cx="10" cy="10" r="6" />
+								<path d="m15 15 5 5" />
+							</svg>
+						</button>
+					)}
 					{status !== "pending" && record.calls && (
 						<button
 							type="button"
 							aria-label={t("copy")}
 							title={t("copy")}
-							className="ml-auto rounded p-1 hover:bg-neutral-200"
+							className={`${record.open && record.calls ? "" : "ml-auto"} rounded p-1 hover:bg-neutral-200`}
 							onClick={async (event) => {
 								event.preventDefault();
 								event.stopPropagation();
@@ -259,6 +350,73 @@ export function TurnCalls({
 					</span>
 				)}
 			</summary>
+			{record.searchOpen && record.calls && (
+				<search
+					aria-label={t("searchCommunication")}
+					className="mt-2 flex flex-wrap items-center gap-2"
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							closeSearch();
+						}
+					}}
+				>
+					<input
+						ref={searchRef}
+						type="search"
+						aria-label={t("searchCommunication")}
+						className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-2 py-1"
+						value={record.query}
+						onChange={(event) => {
+							record.query = event.currentTarget.value;
+							record.match = 0;
+							render((value) => value + 1);
+						}}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								navigate(event.shiftKey ? -1 : 1);
+							}
+						}}
+					/>
+					<span
+						role="status"
+						aria-live="polite"
+						aria-label={t("searchMatches")}
+					>
+						{matches.length ? currentMatch + 1 : 0} / {matches.length}
+					</span>
+					<button
+						type="button"
+						aria-label={t("previousMatch")}
+						title={t("previousMatch")}
+						disabled={!matches.length}
+						onClick={() => navigate(-1)}
+						className="rounded p-1 hover:bg-neutral-200 disabled:opacity-40"
+					>
+						↑
+					</button>
+					<button
+						type="button"
+						aria-label={t("nextMatch")}
+						title={t("nextMatch")}
+						disabled={!matches.length}
+						onClick={() => navigate(1)}
+						className="rounded p-1 hover:bg-neutral-200 disabled:opacity-40"
+					>
+						↓
+					</button>
+					<button
+						type="button"
+						aria-label={t("closeSearch")}
+						title={t("closeSearch")}
+						onClick={closeSearch}
+						className="rounded p-1 hover:bg-neutral-200"
+					>
+						×
+					</button>
+				</search>
+			)}
 			{record.loading && <p role="status">{t("loading")}</p>}
 			{record.error && (
 				<div role="alert">
@@ -280,20 +438,26 @@ export function TurnCalls({
 				}}
 			>
 				<div className="communication-text mt-3 font-mono text-xs whitespace-pre-wrap">
-					{displayParts?.map((part, index) => (
-						// Content parts append in display order.
-						// biome-ignore lint/suspicious/noArrayIndexKey: parts retain their display order.
-						<Fragment key={index}>
-							{index > 0 && "\n\n"}
-							{part.body ? (
-								<pre className="border-l-2 border-neutral-200 pl-2 whitespace-pre-wrap">
-									{part.text}
-								</pre>
-							) : (
-								<p>{part.text}</p>
-							)}
-						</Fragment>
-					))}
+					{displayParts?.map((part, index) => {
+						const separator =
+							index > 0 ? highlighted("\n\n", partOffset - 2) : "";
+						const text = highlighted(part.text, partOffset);
+						partOffset += part.text.length + 2;
+						return (
+							// Content parts append in display order.
+							// biome-ignore lint/suspicious/noArrayIndexKey: parts retain their display order.
+							<Fragment key={index}>
+								{separator}
+								{part.body ? (
+									<pre className="border-l-2 border-neutral-200 pl-2 whitespace-pre-wrap">
+										{text}
+									</pre>
+								) : (
+									<p>{text}</p>
+								)}
+							</Fragment>
+						);
+					})}
 				</div>
 			</div>
 		</details>
