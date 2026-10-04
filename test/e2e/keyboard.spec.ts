@@ -129,6 +129,35 @@ for (const [platform, primary, wrong] of [
 			data: { behavior: "newline" },
 		});
 		await expect(send).toBeVisible();
+		// A mouse/candidate commit must not suppress a later deliberate Enter.
+		await page.request.put(`${app.url}/api/enter-behavior`, {
+			data: { behavior: "send" },
+		});
+		await expect(
+			page.getByRole("button", { name: "Submit (Enter)", exact: true }),
+		).toBeVisible();
+		await prompt.evaluate((input: HTMLTextAreaElement) => {
+			input.dispatchEvent(
+				new CompositionEvent("compositionstart", { bubbles: true }),
+			);
+			input.dispatchEvent(
+				new CompositionEvent("compositionend", { bubbles: true }),
+			);
+		});
+		await page.waitForTimeout(150);
+		const mouseCommit = app.holdModel();
+		await prompt.press("Enter");
+		await mouseCommit.entered;
+		mouseCommit.release();
+		await prompt.fill("explicit shortcut");
+		await expect(
+			page.getByRole("button", { name: "Submit (Enter)", exact: true }),
+		).toBeEnabled();
+		await page.request.put(`${app.url}/api/enter-behavior`, {
+			data: { behavior: "newline" },
+		});
+		await expect(send).toBeVisible();
+		posts = 0;
 		const held = app.holdModel();
 		await prompt.press(`${primary}+Enter`);
 		await held.entered;

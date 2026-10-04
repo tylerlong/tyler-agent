@@ -200,7 +200,7 @@ function App() {
 						enterBehavior === "send" ? "Enter" : mac ? "⌘ Enter" : "Ctrl Enter",
 				});
 	const composing = useRef(false);
-	const compositionEnded = useRef(false);
+	const compositionEndedAt = useRef(-Infinity);
 	const [modelSettings, setModelSettings] = useState<ModelSettings | null>(
 		null,
 	);
@@ -1494,25 +1494,27 @@ function App() {
 									rows={2}
 									onCompositionStart={() => {
 										composing.current = true;
-										compositionEnded.current = false;
+										compositionEndedAt.current = -Infinity;
 									}}
 									onCompositionEnd={() => {
+										// Some IMEs finish composition before the confirmation keydown.
 										composing.current = false;
-										compositionEnded.current = true;
+										compositionEndedAt.current = performance.now();
 									}}
 									onKeyUp={(event) => {
-										if (event.key === "Enter") compositionEnded.current = false;
+										if (event.key === "Enter")
+											compositionEndedAt.current = -Infinity;
 									}}
 									onKeyDown={(event) => {
 										if (event.key !== "Enter") {
-											compositionEnded.current = false;
+											compositionEndedAt.current = -Infinity;
 											return;
 										}
 										if (
 											composing.current ||
 											event.nativeEvent.isComposing ||
 											event.nativeEvent.keyCode === 229 ||
-											compositionEnded.current
+											performance.now() - compositionEndedAt.current < 100
 										)
 											return;
 										const primary = mac ? event.metaKey : event.ctrlKey;

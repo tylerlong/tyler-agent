@@ -79,7 +79,7 @@ One composer trigger summarizes Model and **Reasoning: Default** or the selected
 
 Settings 是唯一的总标题，语言、Enter 键行为、OpenRouter API 密钥、模型为并列分区。设置标题和底部 Close 始终可见，仅中间内容滚动；长模型名称和 ID 换行，行操作保留可用。可写对话缺少配置时，在标题附近明确提示缺少密钥、模型或两者。
 
-Settings has peer Language, OpenRouter API key and Models sections, with a fixed title and Close footer and scrolling content. Configured status is separate from the write-only replacement field. Blank saves send no request; meaningful saves show Saving, then Saved and clear the field. Failures retain confirmed settings and the draft. Removal is immediate, secondary, and retains the draft; credential and model errors appear in their respective sections. Required Settings identifies the missing key, models, or both beside its title.
+Settings has peer Language, Enter key behavior, OpenRouter API key and Models sections, with a fixed title and Close footer and scrolling content. Configured status is separate from the write-only replacement field. Blank saves send no request; meaningful saves show Saving, then Saved and clear the field. Failures retain confirmed settings and the draft. Removal is immediate, secondary, and retains the draft; credential and model errors appear in their respective sections. Required Settings identifies the missing key, models, or both beside its title.
 
 Settings 是唯一的配置界面，管理 OpenRouter API key、启用的文本模型和可选全局默认模型。SQLite 是用户配置的唯一来源。首次向空列表添加模型会在同一事务中指定它为全局默认；向非空列表添加不改变默认，包括已有列表没有默认的情况。首次添加成功时，仅为发起操作且仍处于当前页面的 chat 填入空的模型选择（包括已有历史的 chat）；期间切换聊天或改选模型后不再自动填入，不影响其他窗口。重复添加不改变默认或顺序。默认模型必须属于启用列表。设置中统一显示所有已启用模型，按添加顺序排列，每行显示名称和较小的模型 ID；非默认行提供 Set default，默认行显示不可点击的 Default，不提供清空默认操作。每行的 × 图标（Disable model）立即移除模型，无需确认。移除默认模型时，按最近成功目录排名自动选择剩余模型；排名内优先，无排名或缓存时选择最早添加的剩余模型。移除最后一个模型则清空默认。失败保留原配置和聊天选择，保存过程中避免重复操作。
 
@@ -135,6 +135,14 @@ pnpm exec playwright show-trace test-results/<失败用例目录>/trace.zip
 归档允许在回答或保存进行中执行，已接纳的操作继续完成、保存及同步，不取消请求。当前选中 chat 不自动切换或清空，主区域保留历史、提示只读原因，已开始的回答继续更新。现有编辑及提问草稿保留；恢复后重新判断可用操作。编辑、归档及恢复经 SSE 同步所有页面，选择、未提交草稿及 Archived 折叠只属于本页；刷新后 Archived 重新折叠，重启保留所有已提交的归档状态和历史。
 
 侧栏的 New project 默认透明无描边，标题行、+ / ⋯ 图标按钮及菜单项有浅灰圆角 hover 反馈（禁用菜单项置灰）。⋯ 使用原生 Popover：点击外部关闭，打开其他菜单关闭旧菜单，选择动作立即关闭后执行。菜单与 ⋯ 下方右对齐，靠近底部时向上避让，不被侧栏裁切。+ 提供“New chat”悬停提示。
+
+## Sending shortcuts
+
+Enter sends by default; Shift+Enter inserts a newline. Cmd+Enter on macOS or Ctrl+Enter on Windows/Linux sends in either mode, based on the browser platform rather than the server OS. Settings → Enter key behavior can make plain Enter insert a newline, saved immediately without an extra Save action. The Send tooltip and accessible name show the active shortcut.
+
+The semantic send/newline preference is stored in SQLite and synchronized across pages, refresh, restart and SSE reconnect. Known v8/v9 databases upgrade non-destructively to v10 with Send as the default, preserving history, credentials and other settings. While the preference is unknown or cannot be read, plain Enter does not send; the draft and explicit Send button remain usable, with an error and Retry in Settings. Failed or ambiguous saves reread the server, and stale reads cannot overwrite newer confirmed settings.
+
+Shortcuts apply only to the prompt textarea. IME composition/confirmation and held-key repeats never submit; other fields and option popups retain their local Enter behavior. Shortcuts reuse the same empty/configuration/read-only/busy guards as Send, remaining disabled throughout the entire Turn. Editing during work affects the next local draft only, and failures never trigger automatic retries.
 
 ## 发送快捷键
 
