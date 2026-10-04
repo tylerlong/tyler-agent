@@ -21,21 +21,9 @@ type Call = {
 	error: string | null;
 	errorCode?: string;
 };
-type SearchMatch = {
-	start: number;
-	end: number;
-	anchor: string;
-	partId: string;
-	ordinal: number;
-	before: string;
-	after: string;
-};
 type RecordState = {
 	open: boolean;
 	scrollTop: number;
-	searchOpen: boolean;
-	query: string;
-	match?: SearchMatch;
 	calls?: Call[];
 	status?: string;
 	sourceRevision?: number;
@@ -79,21 +67,6 @@ function responseEvents(body: string) {
 			}
 		});
 }
-function foldCase(text: string) {
-	return Array.from(text, (character) =>
-		character.toLowerCase().replaceAll("ς", "σ"),
-	).join("");
-}
-function commonPrefix(left: string, right: string) {
-	let length = 0;
-	while (
-		length < left.length &&
-		length < right.length &&
-		left[length] === right[length]
-	)
-		length++;
-	return length;
-}
 export function TurnCalls({
 	turnId,
 	callId,
@@ -119,8 +92,6 @@ export function TurnCalls({
 		state = {
 			open: false,
 			scrollTop: 0,
-			searchOpen: false,
-			query: "",
 			error: false,
 			loading: false,
 			revision: 0,
@@ -134,7 +105,6 @@ export function TurnCalls({
 	const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined,
 	);
-	const searchRef = useRef<HTMLInputElement>(null);
 	const bodyRef = useRef<HTMLDivElement>(null);
 	useEffect(() => () => clearTimeout(copyTimer.current), []);
 	useLayoutEffect(() => {
@@ -153,13 +123,10 @@ export function TurnCalls({
 						.filter(Boolean)
 						.join(" · ");
 		return [
-			...(metadata
-				? [{ text: metadata, body: false, id: `${call.id}-metadata` }]
-				: []),
+			...(metadata ? [{ text: metadata, body: false }] : []),
 			...(kind === "response" && body == null
 				? [
 						{
-							id: `${call.id}-no-body`,
 							text: t(
 								call.status === "pending"
 									? "responseNotYetReceived"
@@ -172,7 +139,6 @@ export function TurnCalls({
 			...(kind === "response" && call.error
 				? [
 						{
-							id: `${call.id}-error`,
 							text: call.errorCode ? t(call.errorCode) : call.error,
 							body: false,
 						},
@@ -180,148 +146,18 @@ export function TurnCalls({
 				: []),
 			...(typeof body === "string"
 				? (kind === "response" ? responseEvents(body) : [pretty(body)]).map(
-						(text, index) => ({
+						(text) => ({
 							text,
 							body: true,
-							id: `${call.id}-body-${index}`,
 						}),
 					)
 				: []),
 		];
 	});
 	const displayParts =
-		record.calls?.length === 0
-			? [{ text: t("noCalls"), body: false, id: "no-calls" }]
-			: parts;
+		record.calls?.length === 0 ? [{ text: t("noCalls"), body: false }] : parts;
 	const communicationText =
 		displayParts?.map((part) => part.text).join("\n\n") ?? "";
-	const matches: SearchMatch[] = [];
-	const query = foldCase(record.query);
-	if (record.searchOpen && query) {
-		// Lowercasing can expand a character (İ); keep original text offsets.
-		const offsets: number[] = [];
-		const ends: number[] = [];
-		const text = foldCase(communicationText);
-		let offset = 0;
-		for (const character of communicationText) {
-			const folded = foldCase(character);
-			for (let index = 0; index < folded.length; index++) {
-				offsets.push(offset);
-				ends.push(offset + character.length);
-			}
-			offset += character.length;
-		}
-		const occurrences = new Map<string, number>();
-		let start = text.indexOf(query);
-		while (start !== -1) {
-			const originalStart = offsets[start];
-			const end = ends[start + query.length - 1];
-			start = text.indexOf(query, start + query.length);
-			// Expanded characters can map disjoint folded matches to overlapping text.
-			if (originalStart < (matches.at(-1)?.end ?? 0)) continue;
-			let partStart = 0;
-			const part = displayParts?.find((part) => {
-				if (originalStart < partStart + part.text.length) return true;
-				partStart += part.text.length + 2;
-				return false;
-			});
-			const partId = part?.id ?? "";
-			const ordinal = occurrences.get(partId) ?? 0;
-			occurrences.set(partId, ordinal + 1);
-			const before =
-				part?.text.slice(0, originalStart - partStart).replace(/\s/g, "") ?? "";
-			const boundary = `${partId}:${before.length}`;
-			const occurrence = occurrences.get(boundary) ?? 0;
-			occurrences.set(boundary, occurrence + 1);
-			matches.push({
-				start: originalStart,
-				end,
-				anchor: `${boundary}:${occurrence}`,
-				partId,
-				ordinal,
-				// Nearby surviving text identifies a match through JSON reformatting.
-				before: before.slice(-32).split("").reverse().join(""),
-				after:
-					part?.text
-						.slice(end - partStart)
-						.replace(/\s/g, "")
-						.slice(0, 32) ?? "",
-			});
-		}
-	}
-	const previous = record.match;
-	const retained =
-		previous &&
-		matches
-			.map((match, index) => ({
-				match,
-				index,
-				score:
-					commonPrefix(match.before, previous.before) +
-					commonPrefix(match.after, previous.after),
-			}))
-			.filter(({ match }) => match.partId === previous.partId)
-			.sort(
-				(left, right) =>
-					right.score - left.score ||
-					Number(right.match.anchor === previous.anchor) -
-						Number(left.match.anchor === previous.anchor) ||
-					Math.abs(left.match.ordinal - previous.ordinal) -
-						Math.abs(right.match.ordinal - previous.ordinal),
-			)[0];
-	const currentMatch = retained?.index ?? 0;
-	if (matches.length) record.match = matches[currentMatch];
-	function navigate(direction: number) {
-		const body = bodyRef.current;
-		if (!body || !matches.length) return;
-		const next = (currentMatch + direction + matches.length) % matches.length;
-		record.match = matches[next];
-		const target = body.querySelector<HTMLElement>(
-			`[data-search-match="${next}"]`,
-		);
-		if (target) {
-			const bounds = body.getBoundingClientRect();
-			const outerBounds = body.closest("section")?.getBoundingClientRect();
-			const top = Math.max(bounds.top, outerBounds?.top ?? bounds.top);
-			const bottom = Math.min(
-				bounds.bottom,
-				outerBounds?.bottom ?? bounds.bottom,
-			);
-			const matchBounds = target.getBoundingClientRect();
-			if (matchBounds.top < top) body.scrollTop += matchBounds.top - top;
-			else if (matchBounds.bottom > bottom)
-				body.scrollTop += matchBounds.bottom - bottom;
-			record.scrollTop = body.scrollTop;
-		}
-		render((value) => value + 1);
-	}
-	function closeSearch() {
-		record.searchOpen = false;
-		render((value) => value + 1);
-	}
-	function highlighted(text: string, offset: number) {
-		const fragments = [];
-		let cursor = 0;
-		for (const [index, match] of matches.entries()) {
-			const from = Math.max(0, match.start - offset);
-			const to = Math.min(text.length, match.end - offset);
-			if (to <= from) continue;
-			fragments.push(text.slice(cursor, from));
-			fragments.push(
-				<mark
-					key={index}
-					data-search-match={index}
-					className={index === currentMatch ? "bg-orange-300" : "bg-yellow-200"}
-				>
-					{text.slice(from, to)}
-				</mark>,
-			);
-			cursor = to;
-		}
-		fragments.push(text.slice(cursor));
-		return fragments;
-	}
-	let partOffset = 0;
 	const load = useCallback(async () => {
 		const readRevision = ++record.revision;
 		record.loading = true;
@@ -380,40 +216,12 @@ export function TurnCalls({
 							className="h-4 w-4 rounded-full border-2 border-neutral-300 border-t-neutral-600 motion-safe:animate-spin"
 						/>
 					)}
-					{record.open && record.calls && (
-						<button
-							type="button"
-							aria-label={t("searchCommunication")}
-							title={t("searchCommunication")}
-							className="ml-auto rounded p-1 hover:bg-neutral-200"
-							onClick={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								record.searchOpen = true;
-								render((value) => value + 1);
-								requestAnimationFrame(() => searchRef.current?.focus());
-							}}
-						>
-							<svg
-								aria-hidden="true"
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="1.5"
-							>
-								<circle cx="10" cy="10" r="6" />
-								<path d="m15 15 5 5" />
-							</svg>
-						</button>
-					)}
 					{status !== "pending" && record.calls && (
 						<button
 							type="button"
 							aria-label={t("copy")}
 							title={t("copy")}
-							className={`${record.open && record.calls ? "" : "ml-auto"} rounded p-1 hover:bg-neutral-200`}
+							className="ml-auto rounded p-1 hover:bg-neutral-200"
 							onClick={async (event) => {
 								event.preventDefault();
 								event.stopPropagation();
@@ -454,73 +262,6 @@ export function TurnCalls({
 					</span>
 				)}
 			</summary>
-			{record.searchOpen && record.calls && (
-				<search
-					aria-label={t("searchCommunication")}
-					className="mt-2 flex flex-wrap items-center gap-2"
-					onKeyDown={(event) => {
-						if (event.key === "Escape") {
-							event.preventDefault();
-							closeSearch();
-						}
-					}}
-				>
-					<input
-						ref={searchRef}
-						type="search"
-						aria-label={t("searchCommunication")}
-						className="min-w-0 flex-1 rounded border border-neutral-300 bg-white px-2 py-1"
-						value={record.query}
-						onChange={(event) => {
-							record.query = event.currentTarget.value;
-							record.match = undefined;
-							render((value) => value + 1);
-						}}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") {
-								event.preventDefault();
-								navigate(event.shiftKey ? -1 : 1);
-							}
-						}}
-					/>
-					<span
-						role="status"
-						aria-live="polite"
-						aria-label={t("searchMatches")}
-					>
-						{matches.length ? currentMatch + 1 : 0} / {matches.length}
-					</span>
-					<button
-						type="button"
-						aria-label={t("previousMatch")}
-						title={t("previousMatch")}
-						disabled={!matches.length}
-						onClick={() => navigate(-1)}
-						className="rounded p-1 hover:bg-neutral-200 disabled:opacity-40"
-					>
-						↑
-					</button>
-					<button
-						type="button"
-						aria-label={t("nextMatch")}
-						title={t("nextMatch")}
-						disabled={!matches.length}
-						onClick={() => navigate(1)}
-						className="rounded p-1 hover:bg-neutral-200 disabled:opacity-40"
-					>
-						↓
-					</button>
-					<button
-						type="button"
-						aria-label={t("closeSearch")}
-						title={t("closeSearch")}
-						onClick={closeSearch}
-						className="rounded p-1 hover:bg-neutral-200"
-					>
-						×
-					</button>
-				</search>
-			)}
 			{record.loading && <p role="status">{t("loading")}</p>}
 			{record.error && (
 				<div role="alert">
@@ -542,26 +283,20 @@ export function TurnCalls({
 				}}
 			>
 				<div className="communication-text mt-3 font-mono text-xs whitespace-pre-wrap">
-					{displayParts?.map((part, index) => {
-						const separator =
-							index > 0 ? highlighted("\n\n", partOffset - 2) : "";
-						const text = highlighted(part.text, partOffset);
-						partOffset += part.text.length + 2;
-						return (
-							// Content parts append in display order.
-							// biome-ignore lint/suspicious/noArrayIndexKey: parts retain their display order.
-							<Fragment key={index}>
-								{separator}
-								{part.body ? (
-									<pre className="border-l-2 border-neutral-200 pl-2 whitespace-pre-wrap">
-										{text}
-									</pre>
-								) : (
-									<p>{text}</p>
-								)}
-							</Fragment>
-						);
-					})}
+					{displayParts?.map((part, index) => (
+						// Content parts append in display order.
+						// biome-ignore lint/suspicious/noArrayIndexKey: parts retain their display order.
+						<Fragment key={index}>
+							{index > 0 ? "\n\n" : ""}
+							{part.body ? (
+								<pre className="border-l-2 border-neutral-200 pl-2 whitespace-pre-wrap">
+									{part.text}
+								</pre>
+							) : (
+								<p>{part.text}</p>
+							)}
+						</Fragment>
+					))}
 				</div>
 			</div>
 		</details>
