@@ -267,3 +267,63 @@ test("running search follows saved text without scrolling, stale reads or folded
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 		.toBe(await response.locator(".communication-text").textContent());
 });
+
+test("completing an incomplete SSE JSON frame retains its selected occurrence and reading position", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Trailing frame" },
+		})
+	).json();
+	const stream = app.rawStreamModel();
+	const pending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { modelId: "test", prompt: "Inspect trailing frame" },
+	});
+	stream.push(
+		`event: vendor.first\ndata: ${JSON.stringify({ needle: "first", padding: Array.from({ length: 100 }, (_, index) => `line ${index}`) })}\n\nevent: vendor.trailing\ndata: {"needle":"second"`,
+	);
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const response = page
+		.locator("details")
+		.filter({ has: page.locator("summary", { hasText: /^Response 1/ }) });
+	await response.locator("summary").click();
+	await response.getByRole("button", { name: "Search communication" }).click();
+	const input = response.getByRole("searchbox");
+	const counter = response.getByRole("status", { name: "Search matches" });
+	await input.fill("needle");
+	await expect(counter).toHaveText("1 / 2");
+	await expect(response.locator("pre").last()).toContainText(
+		'data: {"needle":"second"',
+	);
+	await input.press("Enter");
+	await expect(counter).toHaveText("2 / 2");
+	await expect(
+		response.locator("pre").last().locator("mark.bg-orange-300"),
+	).toHaveText("needle");
+	const body = response.locator(".communication-body");
+	const top = await body.evaluate((element) => element.scrollTop);
+	expect(top).toBeGreaterThan(0);
+	stream.push(',"completed":true}\n\n');
+	await expect(response.locator("pre").last()).toContainText(
+		'  "completed": true',
+	);
+	await expect(counter).toHaveText("2 / 2");
+	await expect(
+		response.locator("pre").last().locator("mark.bg-orange-300"),
+	).toHaveText("needle");
+	expect(await body.evaluate((element) => element.scrollTop)).toBe(top);
+	stream.end();
+	await pending;
+	await expect(
+		response.getByRole("button", { name: "Copy", exact: true }),
+	).toBeVisible();
+	await expect(counter).toHaveText("2 / 2");
+	expect(await body.evaluate((element) => element.scrollTop)).toBe(top);
+});

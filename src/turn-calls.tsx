@@ -192,6 +192,7 @@ export function TurnCalls({
 			}
 			offset += character.length;
 		}
+		const occurrences = new Map<string | undefined, number>();
 		let start = text.indexOf(query);
 		while (start !== -1) {
 			const originalStart = offsets[start];
@@ -205,10 +206,13 @@ export function TurnCalls({
 				partStart += part.text.length + 2;
 				return false;
 			});
+			// Formatting an incomplete frame must not change its selected occurrence.
+			const occurrence = occurrences.get(part?.id) ?? 0;
+			occurrences.set(part?.id, occurrence + 1);
 			matches.push({
 				start: originalStart,
 				end,
-				anchor: `${part?.id}:${originalStart - partStart}`,
+				anchor: `${part?.id}:${occurrence}`,
 			});
 		}
 	}
