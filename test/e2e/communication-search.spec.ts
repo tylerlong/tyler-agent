@@ -287,7 +287,7 @@ test("completing an incomplete SSE JSON frame retains its selected occurrence an
 		data: { modelId: "test", prompt: "Inspect trailing frame" },
 	});
 	stream.push(
-		`event: vendor.first\ndata: ${JSON.stringify({ needle: "first", padding: Array.from({ length: 100 }, (_, index) => `line ${index}`) })}\n\nevent: vendor.trailing\ndata: {"needle":"second"`,
+		`event: vendor.first\ndata: ${JSON.stringify({ needle: "first", padding: Array.from({ length: 100 }, (_, index) => `line ${index}`) })}\n\nevent: vendor.trailing\ndata: {"prefix":"\\u0061","needle":"second"`,
 	);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const response = page
@@ -300,7 +300,7 @@ test("completing an incomplete SSE JSON frame retains its selected occurrence an
 	await input.fill("needle");
 	await expect(counter).toHaveText("1 / 2");
 	await expect(response.locator("pre").last()).toContainText(
-		'data: {"needle":"second"',
+		'data: {"prefix":"\\u0061","needle":"second"',
 	);
 	await input.press("Enter");
 	await expect(counter).toHaveText("2 / 2");
@@ -319,9 +319,11 @@ test("completing an incomplete SSE JSON frame retains its selected occurrence an
 		response.locator("pre").last().locator("mark.bg-orange-300"),
 	).toHaveText("needle");
 	expect(await body.evaluate((element) => element.scrollTop)).toBe(top);
-	stream.push('event: vendor.spaces\ndata: {"value":"first second"');
+	stream.push(
+		'event: vendor.spaces\ndata: {"prefix":"\\u0061","value":"first second"',
+	);
 	await expect(response.locator("pre").last()).toContainText(
-		'data: {"value":"first second"',
+		'data: {"prefix":"\\u0061","value":"first second"',
 	);
 	await input.fill(" ");
 	await input.press("Shift+Enter");
@@ -342,11 +344,30 @@ test("completing an incomplete SSE JSON frame retains its selected occurrence an
 	);
 	await expect.poll(context).toEqual(["first", "second"]);
 	expect(await body.evaluate((element) => element.scrollTop)).toBe(spaceTop);
+	stream.push('event: vendor.letters\ndata: {"prefix":"\\u0061","value":"cat"');
+	await expect(response.locator("pre").last()).toContainText('"value":"cat"');
+	await input.fill("a");
+	await input.press("Shift+Enter");
+	const selectedLetter = response
+		.locator("pre")
+		.last()
+		.locator("mark.bg-orange-300");
+	const letterContext = () =>
+		selectedLetter.evaluate((element) => [
+			element.previousSibling?.textContent?.slice(-1),
+			element.nextSibling?.textContent?.slice(0, 1),
+		]);
+	await expect.poll(letterContext).toEqual(["c", "t"]);
+	const letterTop = await body.evaluate((element) => element.scrollTop);
+	stream.push("}\n\n");
+	await expect(response.locator("pre").last()).toContainText('  "prefix": "a"');
+	await expect.poll(letterContext).toEqual(["c", "t"]);
+	expect(await body.evaluate((element) => element.scrollTop)).toBe(letterTop);
 	stream.end();
 	await pending;
 	await expect(
 		response.getByRole("button", { name: "Copy", exact: true }),
 	).toBeVisible();
-	await expect.poll(context).toEqual(["first", "second"]);
-	expect(await body.evaluate((element) => element.scrollTop)).toBe(spaceTop);
+	await expect.poll(letterContext).toEqual(["c", "t"]);
+	expect(await body.evaluate((element) => element.scrollTop)).toBe(letterTop);
 });

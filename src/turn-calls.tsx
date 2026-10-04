@@ -21,12 +21,21 @@ type Call = {
 	error: string | null;
 	errorCode?: string;
 };
+type SearchMatch = {
+	start: number;
+	end: number;
+	anchor: string;
+	partId: string;
+	ordinal: number;
+	before: string;
+	after: string;
+};
 type RecordState = {
 	open: boolean;
 	scrollTop: number;
 	searchOpen: boolean;
 	query: string;
-	match?: string;
+	match?: SearchMatch;
 	calls?: Call[];
 	status?: string;
 	sourceRevision?: number;
@@ -74,6 +83,16 @@ function foldCase(text: string) {
 	return Array.from(text, (character) =>
 		character.toLowerCase().replaceAll("ς", "σ"),
 	).join("");
+}
+function commonPrefix(left: string, right: string) {
+	let length = 0;
+	while (
+		length < left.length &&
+		length < right.length &&
+		left[length] === right[length]
+	)
+		length++;
+	return length;
 }
 export function TurnCalls({
 	turnId,
@@ -176,7 +195,7 @@ export function TurnCalls({
 			: parts;
 	const communicationText =
 		displayParts?.map((part) => part.text).join("\n\n") ?? "";
-	const matches: { start: number; end: number; anchor: string }[] = [];
+	const matches: SearchMatch[] = [];
 	const query = foldCase(record.query);
 	if (record.searchOpen && query) {
 		// Lowercasing can expand a character (İ); keep original text offsets.
@@ -206,30 +225,57 @@ export function TurnCalls({
 				partStart += part.text.length + 2;
 				return false;
 			});
-			// Added formatting whitespace must not change an existing match identity.
-			const position = part?.text
-				.slice(0, originalStart - partStart)
-				.replace(/\s/g, "").length;
-			const boundary = `${part?.id}:${position}`;
+			const partId = part?.id ?? "";
+			const ordinal = occurrences.get(partId) ?? 0;
+			occurrences.set(partId, ordinal + 1);
+			const before =
+				part?.text.slice(0, originalStart - partStart).replace(/\s/g, "") ?? "";
+			const boundary = `${partId}:${before.length}`;
 			const occurrence = occurrences.get(boundary) ?? 0;
 			occurrences.set(boundary, occurrence + 1);
 			matches.push({
 				start: originalStart,
 				end,
 				anchor: `${boundary}:${occurrence}`,
+				partId,
+				ordinal,
+				// Nearby surviving text identifies a match through JSON reformatting.
+				before: before.slice(-32).split("").reverse().join(""),
+				after:
+					part?.text
+						.slice(end - partStart)
+						.replace(/\s/g, "")
+						.slice(0, 32) ?? "",
 			});
 		}
 	}
-	const retainedMatch = matches.findIndex(
-		(match) => match.anchor === record.match,
-	);
-	const currentMatch = Math.max(0, retainedMatch);
-	if (matches.length) record.match = matches[currentMatch].anchor;
+	const previous = record.match;
+	const retained =
+		previous &&
+		matches
+			.map((match, index) => ({
+				match,
+				index,
+				score:
+					commonPrefix(match.before, previous.before) +
+					commonPrefix(match.after, previous.after),
+			}))
+			.filter(({ match }) => match.partId === previous.partId)
+			.sort(
+				(left, right) =>
+					right.score - left.score ||
+					Number(right.match.anchor === previous.anchor) -
+						Number(left.match.anchor === previous.anchor) ||
+					Math.abs(left.match.ordinal - previous.ordinal) -
+						Math.abs(right.match.ordinal - previous.ordinal),
+			)[0];
+	const currentMatch = retained?.index ?? 0;
+	if (matches.length) record.match = matches[currentMatch];
 	function navigate(direction: number) {
 		const body = bodyRef.current;
 		if (!body || !matches.length) return;
 		const next = (currentMatch + direction + matches.length) % matches.length;
-		record.match = matches[next].anchor;
+		record.match = matches[next];
 		const target = body.querySelector<HTMLElement>(
 			`[data-search-match="${next}"]`,
 		);
