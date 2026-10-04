@@ -35,6 +35,9 @@ test("Enter sends once by default and the persisted newline preference keeps bot
 	await page
 		.getByRole("combobox", { name: "Enter key behavior" })
 		.selectOption("newline");
+	await expect(
+		page.getByRole("combobox", { name: "Enter key behavior" }),
+	).toHaveValue("newline");
 	await page.getByRole("button", { name: "Close", exact: true }).click();
 	await prompt.press("Enter");
 	await expect(prompt).toHaveValue("next\n");
