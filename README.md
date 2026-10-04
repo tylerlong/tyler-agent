@@ -59,11 +59,11 @@ Sidebar work status: a noninteractive 16px CSS ring appears after the chat actio
 
 支持的浏览器内容视口为宽 ≥1280 且高 ≥720 CSS 像素（包含边界），不是屏幕物理分辨率。任一尺寸不足会显示扩大窗口提示，阻止被遮挡的页面及弹窗交互；扩大后自动恢复选中的对话、草稿、提问选项、弹窗和阅读位置，已接受请求及同步继续。窗口尺寸不保存为偏好，也不修改面板宽度。此版本使用固定左右桌面布局，不提供移动端布局。
 
-输入区用一个控件显示模型与“思考：默认”或所选强度。点击打开同一弹层中的模型和思考区域；选择立即应用，弹层保持打开。默认不指定强度，区别于显式 none 和全局默认模型。模型列表独立滚动，弹层根据可用空间显示在控件上方或下方，不扩大输入区；长名称在控件中截断，在弹层中完整显示。Escape 或再次点击控件关闭并返回焦点；点击外部关闭并保留目标焦点。进行中仍可编辑下次草稿，只读对话不可修改。
+输入区用一个控件显示模型与“默认”或所选强度，摘要不显示“思考”标签。点击打开同一弹层中的模型和思考区域；选择立即应用，弹层保持打开。默认不指定强度，区别于显式 none 和全局默认模型。模型列表独立滚动，弹层根据可用空间显示在控件上方或下方，不扩大输入区；长名称在控件中截断，在弹层中完整显示。Escape 或再次点击控件关闭并返回焦点；点击外部关闭并保留目标焦点。进行中仍可编辑下次草稿，只读对话不可修改。
 
 The desktop workspace supports browser content viewports at least 1280×720 CSS pixels, including that exact boundary. If either dimension is smaller, an enlarge-window notice blocks obscured interactions. Enlarging restores the selected Chat, drafts, local Turn Options, dialogs and reading position; accepted work and synchronization continue. Resizing never saves a viewport or sidebar preference. The sidebar stays beside Chat, with its existing 320px default and 240–600px drag range.
 
-One composer trigger summarizes Model and **Reasoning: Default** or the selected effort. Its popup has labeled Model and Reasoning groups; selections apply immediately and keep it open. Default omits explicit effort and differs from none and the global Default Model. The model list scrolls independently; the popup fits above or below without enlarging the composer. Long trigger labels truncate while popup names remain readable. Escape or clicking the trigger closes and returns focus; outside clicks keep target focus. Running Chats allow next-draft edits; read-only Chats do not.
+One composer trigger summarizes Model and **Default** or the selected effort, without a Reasoning label. Its popup has labeled Model and Reasoning groups; selections apply immediately and keep it open. Default omits explicit effort and differs from none and the global Default Model. The model list scrolls independently; the popup fits above or below without enlarging the composer. Long trigger labels truncate while popup names remain readable. Escape or clicking the trigger closes and returns focus; outside clicks keep target focus. Running Chats allow next-draft edits; read-only Chats do not.
 
 ## 左侧面板宽度
 

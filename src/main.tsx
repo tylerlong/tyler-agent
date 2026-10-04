@@ -1556,7 +1556,7 @@ function App() {
 										type="submit"
 										aria-label={submitName}
 										title={submitName}
-										className="h-9 w-9 shrink-0 rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+										className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
 										disabled={
 											!(drafts[chat.id] ?? "").trim() ||
 											readOnly ||
@@ -1569,9 +1569,18 @@ function App() {
 											submitting.has(chat.id)
 										}
 									>
-										<span aria-hidden="true" className="text-2xl leading-none">
-											↑
-										</span>
+										<svg
+											aria-hidden="true"
+											className="h-4 w-4"
+											viewBox="0 0 16 16"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="1.75"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+										>
+											<path d="M8 12V4m-3.5 3.5L8 4l3.5 3.5" />
+										</svg>
 									</button>
 								</div>
 							</div>

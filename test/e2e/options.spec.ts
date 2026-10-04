@@ -58,7 +58,7 @@ test("model and effort choices stay local while busy and restore submitted histo
 	await hold.entered;
 	try {
 		await selectModel(page, "second");
-		await expect(turnPicker(page)).not.toContainText("Reasoning:");
+		await expect(turnPicker(page)).not.toContainText(" · ");
 		await page.getByLabel("Prompt", { exact: true }).fill("Next draft");
 		await expect(
 			page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
@@ -457,7 +457,7 @@ test("restored unsupported effort silently resets to Default and model capabilit
 	await selectModel(page, "gateway");
 	await expectEffort(page, "low");
 	await selectModel(page, "second");
-	await expect(turnPicker(page)).not.toContainText("Reasoning:");
+	await expect(turnPicker(page)).not.toContainText(" · ");
 	await page.getByLabel("Prompt", { exact: true }).fill("Next draft");
 	await expect(send).toBeEnabled();
 });

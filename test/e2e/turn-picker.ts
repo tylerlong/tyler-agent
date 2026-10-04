@@ -15,9 +15,7 @@ export async function expectModel(page: Page, id: string) {
 	await expect(turnPicker(page)).toContainText(names[id] ?? id);
 }
 export async function expectEffort(page: Page, effort: string) {
-	await expect(turnPicker(page)).toContainText(
-		`Reasoning: ${effort || "Default"}`,
-	);
+	await expect(turnPicker(page)).toContainText(` · ${effort || "Default"}`);
 }
 export async function openTurnPicker(page: Page) {
 	const popup = page.getByRole("dialog", { name: "Model", exact: true });

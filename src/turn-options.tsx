@@ -56,7 +56,7 @@ export function TurnOptionPicker({
 	const model = models.find((model) => model.id === options.modelId);
 	const efforts = reasoningEfforts(model);
 	const summary = model
-		? `${model.name}${efforts.length ? ` · ${t("reasoningLabel")}: ${options.reasoningEffort ?? t("reasoningDefault")}` : ""}`
+		? `${model.name}${efforts.length ? ` · ${options.reasoningEffort ?? t("reasoningDefault")}` : ""}`
 		: t("chooseModel");
 	function close(returnFocus: boolean) {
 		setOpen(false);
@@ -164,9 +164,18 @@ export function TurnOptionPicker({
 				onClick={() => (open ? close(true) : setOpen(true))}
 			>
 				<span className="truncate">{summary}</span>
-				<span aria-hidden="true" className="shrink-0">
-					⌄
-				</span>
+				<svg
+					aria-hidden="true"
+					className="h-4 w-4 shrink-0"
+					viewBox="0 0 16 16"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="1.5"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				>
+					<path d="m4 6 4 4 4-4" />
+				</svg>
 			</button>
 			{open &&
 				createPortal(

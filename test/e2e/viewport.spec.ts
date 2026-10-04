@@ -25,7 +25,7 @@ test("desktop boundary preserves drafts, modal addition and focus without prefer
 	const notice = page.getByRole("dialog", { name: "Enlarge your window" });
 	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
 	await expect(notice).toBeHidden();
-	await expect(turnPicker(page)).toContainText("Reasoning: Default");
+	await expect(turnPicker(page)).toContainText(" · Default");
 	await expectEffort(page, "");
 	await selectEffort(page, "high");
 	await prompt.fill("Future draft");
