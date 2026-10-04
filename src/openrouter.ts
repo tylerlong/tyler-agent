@@ -381,6 +381,7 @@ async function requestOnce(
 				);
 			if (call.type !== "function_call") continue;
 			if (
+				(call.status !== undefined && call.status !== "completed") ||
 				typeof call.call_id !== "string" ||
 				!call.call_id.trim() ||
 				callIds.has(call.call_id) ||

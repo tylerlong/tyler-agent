@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createTestServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
@@ -30,16 +31,17 @@ const completed = (output: unknown[]) =>
 	completedBody({ status: "completed", output });
 async function fixture(fake: typeof fetch, roots: string[]) {
 	const directory = await mkdtemp(join(tmpdir(), "tool-db-"));
-	const server = createTestServer(
+	const databasePath = join(directory, "db.sqlite");
+	let server = createTestServer(
 		fake,
-		join(directory, "db.sqlite"),
+		databasePath,
 		"tool-secret",
 		"tool-model",
 	).listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => server.once("listening", resolve));
 	const address = server.address();
 	assert(address && typeof address !== "string");
-	const base = `http://127.0.0.1:${address.port}`;
+	let base = `http://127.0.0.1:${address.port}`;
 	const send = (route: string, body: unknown, method = "POST") =>
 		fetch(base + route, { method, body: JSON.stringify(body) });
 	const get = (route: string) => fetch(base + route).then((r) => r.json());
@@ -50,6 +52,21 @@ async function fixture(fake: typeof fetch, roots: string[]) {
 		await send(`/api/projects/${project.id}/chats`, { name: "C" })
 	).json();
 	return {
+		databasePath,
+		restart: async () => {
+			server.closeAllConnections();
+			await new Promise<void>((r) => server.close(() => r()));
+			server = createTestServer(
+				fake,
+				databasePath,
+				"tool-secret",
+				"tool-model",
+			).listen(0, "127.0.0.1");
+			await new Promise<void>((r) => server.once("listening", r));
+			const address = server.address();
+			assert(address && typeof address !== "string");
+			base = `http://127.0.0.1:${address.port}`;
+		},
 		get,
 		send,
 		project,
@@ -534,3 +551,53 @@ test("a completed final response must itself contain a usable answer", async () 
 		await f.close();
 	}
 });
+
+test("a continuation persistence failure preserves prior calls and restart interrupts without resuming", async () => {
+	let requests = 0;
+	const f = await fixture(async () => {
+		requests++;
+		return requests === 1
+			? new Response(completed([message("saved first"), tool("/tmp")]))
+			: new Response(completed([message("must not request")]));
+	}, []);
+	const db = new DatabaseSync(f.databasePath);
+	try {
+		db.exec(
+			"CREATE TRIGGER reject_continuation BEFORE INSERT ON model_calls WHEN EXISTS(SELECT 1 FROM model_calls) BEGIN SELECT RAISE(ABORT,'rejected'); END",
+		);
+		db.exec(
+			"CREATE TRIGGER reject_failure BEFORE UPDATE OF status ON turns WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'rejected'); END",
+		);
+		assert.equal((await f.ask()).status, 500);
+		assert.equal(requests, 1);
+		let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+		assert.equal(turn.status, "pending");
+		assert.equal(turn.answer, "saved first");
+		assert.equal((await f.get(`/api/turns/${turn.id}/calls`)).calls.length, 1);
+		db.exec("DROP TRIGGER reject_continuation; DROP TRIGGER reject_failure");
+		await f.restart();
+		turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+		assert.equal(turn.status, "failed");
+		assert.equal(turn.errorCode, "modelInterrupted");
+		assert.equal(turn.answer, "saved first");
+		assert.equal(requests, 1);
+	} finally {
+		db.close();
+		await f.close();
+	}
+});
+
+for (const status of ["in_progress", "incomplete"])
+	test(`an explicitly ${status} Tool Call cannot execute inside a completed response`, async () => {
+		let requests = 0;
+		const f = await fixture(async () => {
+			requests++;
+			return new Response(completed([{ ...tool("/tmp"), status }]));
+		}, []);
+		try {
+			assert.equal((await f.ask()).status, 502);
+			assert.equal(requests, 1);
+		} finally {
+			await f.close();
+		}
+	});
