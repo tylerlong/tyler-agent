@@ -106,7 +106,7 @@ test("ordered thinking stays live while pending; manual choices survive updates,
 			delta: " away",
 		}),
 	);
-	await page.getByRole("button", { name: /Thinking \(running\)/ }).click();
+	await page.getByRole("button", { name: "Thinking", exact: true }).click();
 	await expect(log).toContainText("parent body growing away");
 	const final = structuredClone(output);
 	final[0] = {

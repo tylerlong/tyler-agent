@@ -47,7 +47,15 @@ test("two pages share activity, busy and history while keeping selections, folds
 			nav(p)
 				.getByRole("button", { name: /^Alpha/ })
 				.first(),
-		).toHaveText("Alpha (running)");
+		).toHaveText("Alpha");
+		await expect(
+			nav(p)
+				.getByRole("listitem")
+				.filter({
+					has: p.getByRole("button", { name: "Alpha", exact: true }),
+				})
+				.getByRole("status", { name: "Working", exact: true }),
+		).toBeVisible();
 	}
 	await expect(
 		nav(page).getByRole("button", { name: "Gamma", exact: true }),
@@ -61,7 +69,12 @@ test("two pages share activity, busy and history while keeping selections, folds
 	await second.entered;
 	for (const p of [page, other]) {
 		await expect(
-			nav(p).getByRole("button", { name: "Beta (running)", exact: true }),
+			nav(p)
+				.getByRole("listitem")
+				.filter({
+					has: p.getByRole("button", { name: "Beta", exact: true }),
+				})
+				.getByRole("status", { name: "Working", exact: true }),
 		).toBeVisible();
 		await expect(
 			nav(p)
@@ -70,7 +83,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 				.first()
 				.getByRole("button")
 				.first(),
-		).toHaveText("Beta (running)");
+		).toHaveText("Beta");
 	}
 	await page.getByLabel("Prompt").fill("later alpha draft");
 	await other.getByLabel("Prompt").fill("next beta draft");

@@ -70,9 +70,9 @@ test("offline cached history survives and lifecycle synchronization fills more t
 		offline ? route.abort() : route.continue(),
 	);
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-	await expect(page.getByRole("status")).toContainText(
-		"Unable to reach the server",
-	);
+	await expect(
+		page.getByRole("region", { name: "Chat", exact: true }).getByRole("status"),
+	).toContainText("Unable to reach the server");
 	await expect(log).toContainText("First question");
 	for (let i = 1; i <= 23; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
@@ -85,7 +85,9 @@ test("offline cached history survives and lifecycle synchronization fills more t
 	await expect(log).toContainText("Unseen 23.");
 	for (let i = 1; i <= 23; i++) await expect(log).toContainText(`Unseen ${i}.`);
 	await expect(log).toContainText("First question");
-	await expect(page.getByRole("status")).toHaveCount(0);
+	await expect(
+		page.getByRole("region", { name: "Chat", exact: true }).getByRole("status"),
+	).toHaveCount(0);
 	app.disconnectClients();
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
@@ -122,9 +124,9 @@ test("older-page errors preserve history and retry the same page", async ({
 		times: 1,
 	});
 	await page.getByRole("button", { name: "Load earlier turns" }).click();
-	await expect(page.getByRole("status")).toContainText(
-		"Unable to reach the server",
-	);
+	await expect(
+		page.getByRole("region", { name: "Chat", exact: true }).getByRole("status"),
+	).toContainText("Unable to reach the server");
 	await expect(page.getByRole("log")).toContainText("Question 11.");
 	await page.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(page.getByRole("log")).toContainText("Question 1.");
@@ -207,9 +209,11 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 			return forwardReads === 2 ? route.abort() : route.continue();
 		});
 		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-		await expect(page.getByRole("status")).toContainText(
-			"Unable to reach the server",
-		);
+		await expect(
+			page
+				.getByRole("region", { name: "Chat", exact: true })
+				.getByRole("status"),
+		).toContainText("Unable to reach the server");
 		await page.getByRole("button", { name: "Retry", exact: true }).click();
 		await expect(page.getByRole("log")).toContainText("Missed 25.");
 		for (let i = 1; i <= 25; i++)
@@ -255,5 +259,7 @@ test("an initially empty chat catches up every turn after more than one unseen p
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 	await expect(page.getByRole("log")).toContainText("Initially unseen 1.");
 	await expect(page.getByRole("log")).toContainText("Initially unseen 12.");
-	await expect(page.getByRole("status")).toHaveCount(0);
+	await expect(
+		page.getByRole("region", { name: "Chat", exact: true }).getByRole("status"),
+	).toHaveCount(0);
 });

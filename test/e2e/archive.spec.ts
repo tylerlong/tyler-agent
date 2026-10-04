@@ -42,7 +42,11 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await work
 			.getByRole("button", { name: "Archive chat", exact: true })
 			.click();
-		await expect(other.getByRole("status")).toHaveText(
+		await expect(
+			other
+				.getByRole("region", { name: "Chat", exact: true })
+				.getByRole("status"),
+		).toHaveText(
 			"Chat is archived and read-only. Restore the chat to continue.",
 		);
 		await expect(
@@ -70,7 +74,11 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(
 			archive.getByText(" (project archived)", { exact: true }),
 		).toBeVisible();
-		await expect(other.getByRole("status")).toHaveText(
+		await expect(
+			other
+				.getByRole("region", { name: "Chat", exact: true })
+				.getByRole("status"),
+		).toHaveText(
 			"Project and chat are archived and read-only. Restore both to continue.",
 		);
 		await expect(
@@ -86,7 +94,11 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await group
 			.getByRole("button", { name: "Restore chat", exact: true })
 			.click();
-		await expect(other.getByRole("status")).toHaveText(
+		await expect(
+			other
+				.getByRole("region", { name: "Chat", exact: true })
+				.getByRole("status"),
+		).toHaveText(
 			"Project is archived; chat is read-only. Restore the project to continue.",
 		);
 		hold.release();

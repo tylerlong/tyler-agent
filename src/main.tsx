@@ -966,11 +966,10 @@ function App() {
 							<button
 								type="button"
 								aria-current={selected === chat.id ? "page" : undefined}
-								className={`w-full rounded-lg px-3 py-1.5 text-left break-words ${selected === chat.id ? "bg-neutral-200/60" : "hover:bg-neutral-100"}`}
+								className={`min-w-0 flex-1 rounded-lg px-3 py-1.5 text-left break-words ${selected === chat.id ? "bg-neutral-200/60" : "hover:bg-neutral-100"}`}
 								onClick={() => selectChat(chat.id)}
 							>
 								{chat.name}
-								{chat.busy && <span>{t("busyLabel")}</span>}
 							</button>
 							<ActionMenu
 								id={`${archivedArea ? "archived" : "normal"}-chat-${chat.id}`}
@@ -997,6 +996,15 @@ function App() {
 									{t(chat.archived ? "restoreChat" : "archiveChat")}
 								</button>
 							</ActionMenu>
+							<span className="ml-1 flex w-4 shrink-0 items-center">
+								{chat.busy && (
+									<span
+										role="status"
+										aria-label={t("working")}
+										className="pointer-events-none h-4 w-4 rounded-full border-2 border-neutral-300 border-t-neutral-600 motion-safe:animate-spin"
+									/>
+								)}
+							</span>
 						</li>
 					))}
 				</ul>

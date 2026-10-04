@@ -231,7 +231,7 @@ test("pending cached thinking and raw records recover on focus, visibility, reco
 	block = true;
 	await advance(" return");
 	block = false;
-	await page.getByRole("button", { name: /Recovery \(running\)/ }).click();
+	await page.getByRole("button", { name: "Recovery", exact: true }).click();
 	await expect(page.getByRole("log")).toContainText(
 		"saved focus reconnect! return",
 	);

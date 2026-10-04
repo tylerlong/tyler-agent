@@ -121,7 +121,10 @@ test("pending submission stays in original chat and does not clear later drafts 
 		other.getByRole("button", { name: "Submit", exact: true }),
 	).toBeDisabled();
 	await expect(
-		page.getByRole("button", { name: "Alpha (running)", exact: true }),
+		page
+			.getByRole("listitem")
+			.filter({ has: page.getByRole("button", { name: "Alpha", exact: true }) })
+			.getByRole("status", { name: "Working", exact: true }),
 	).toBeVisible();
 	await page.getByLabel("Prompt").fill("later alpha draft");
 	await page.getByRole("button", { name: "Beta", exact: true }).click();
