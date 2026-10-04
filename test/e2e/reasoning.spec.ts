@@ -126,7 +126,7 @@ test("ordered thinking stays live while pending; manual choices survive updates,
 	await expect(log).toContainText("parent body growing away");
 	const reads: string[] = [];
 	page.on("request", (request) => {
-		if (request.url().endsWith("/reasoning")) reads.push(request.url());
+		if (request.url().includes("/reasoning?")) reads.push(request.url());
 	});
 	await page.reload();
 	await expect(thinking.first()).toHaveAttribute("aria-expanded", "false");
@@ -173,7 +173,7 @@ test("failed thinking defaults folded and history loads body only after expansio
 	await app.restart();
 	const reads: string[] = [];
 	page.on("request", (request) => {
-		if (request.url().endsWith("/reasoning")) reads.push(request.url());
+		if (request.url().includes("/reasoning?")) reads.push(request.url());
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(thinking.first()).toHaveAttribute("aria-expanded", "false");
@@ -202,7 +202,7 @@ test("thinking reads retry and two pages catch up pending content with independe
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${chat.id}`);
 	let failed = true;
-	await page.route("**/api/turns/*/reasoning", async (route) => {
+	await page.route("**/api/turns/*/reasoning?callOrdinal=*", async (route) => {
 		if (failed) {
 			await route.fulfill({
 				status: 500,
@@ -253,7 +253,7 @@ test("thinking reads retry and two pages catch up pending content with independe
 	await expect(other.getByRole("log")).toContainText("body only live");
 	await firstFold.click();
 	await expect(page.getByRole("log")).toContainText("body only live");
-	await page.unroute("**/api/turns/*/reasoning");
+	await page.unroute("**/api/turns/*/reasoning?callOrdinal=*");
 	app.disconnectClients();
 	stream.push(
 		frame("response.reasoning_text.delta", {

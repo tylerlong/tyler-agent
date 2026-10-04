@@ -266,6 +266,7 @@ function App() {
 		turns: {
 			id: number;
 			status: string;
+			calls: { id: number; ordinal: number; status: string }[];
 			output: ReaderItem[];
 		}[];
 		messages: {
@@ -1456,7 +1457,7 @@ function App() {
 								className="mt-6 space-y-4"
 							>
 								{chatState?.id === chat.id &&
-									chatState.messages.map((message, index) => (
+									chatState.messages.map((message) => (
 										<div
 											key={message.id}
 											data-message-id={message.id}
@@ -1467,17 +1468,46 @@ function App() {
 												{t(message.role === "user" ? "you" : "agent")}
 												{t("labelSeparator")}
 											</strong>
-											{message.role === "assistant" ? (
-												<TurnOutput
-													onLayoutChange={restoreReadingPosition}
-													turnId={Number(message.id.split("-")[0])}
-													status={message.status ?? "succeeded"}
-													output={message.output ?? []}
-													revision={message.revision ?? 0}
-												/>
-											) : (
-												message.content
-											)}
+											{message.role === "assistant"
+												? chatState.turns
+														.find(
+															(turn) =>
+																turn.id === Number(message.id.split("-")[0]),
+														)
+														?.calls.map((call) => (
+															<div key={call.id} data-model-call-id={call.id}>
+																<TurnCalls
+																	onLayoutChange={restoreReadingPosition}
+																	turnId={Number(message.id.split("-")[0])}
+																	callId={call.id}
+																	ordinal={call.ordinal}
+																	kind="request"
+																	status={call.status}
+																	revision={message.revision ?? 0}
+																/>
+																<TurnOutput
+																	onLayoutChange={restoreReadingPosition}
+																	turnId={Number(message.id.split("-")[0])}
+																	callId={call.id}
+																	ordinal={call.ordinal}
+																	status={call.status}
+																	output={(message.output ?? []).filter(
+																		(item) => item.callOrdinal === call.ordinal,
+																	)}
+																	revision={message.revision ?? 0}
+																/>
+																<TurnCalls
+																	onLayoutChange={restoreReadingPosition}
+																	turnId={Number(message.id.split("-")[0])}
+																	callId={call.id}
+																	ordinal={call.ordinal}
+																	kind="response"
+																	status={call.status}
+																	revision={message.revision ?? 0}
+																/>
+															</div>
+														))
+												: message.content}
 											{message.role === "assistant" &&
 												message.status === "pending" &&
 												t("turnPending")}
@@ -1490,17 +1520,6 @@ function App() {
 															`\n${message.errorDetails}`}
 													</span>
 												)}
-											<TurnCalls
-												onLayoutChange={restoreReadingPosition}
-												revision={message.revision ?? 0}
-												turnId={Number(message.id.split("-")[0])}
-												kind={message.role === "user" ? "request" : "response"}
-												status={
-													(message.role === "user"
-														? chatState.messages[index + 1]?.status
-														: message.status) ?? "succeeded"
-												}
-											/>
 										</div>
 									))}
 							</div>

@@ -662,3 +662,162 @@ for (const status of ["in_progress", "incomplete"])
 			await f.close();
 		}
 	});
+
+test("Model Call ownership and selected saved bodies survive continuation, failure and restart", async () => {
+	const reasoning = {
+		id: "same-item-id",
+		type: "reasoning",
+		summary: [{ type: "summary_text", text: "first thinking" }],
+	};
+	const call = tool("/tmp");
+	let requests = 0;
+	let second!: ReadableStreamDefaultController<Uint8Array>;
+	const f = await fixture(async (_url, options) => {
+		requests++;
+		if (requests === 1) return new Response(completed([reasoning, call]));
+		if (requests === 3) return new Response(completed([message("followup")]));
+		const input = JSON.parse(String(options?.body)).input;
+		assert.deepEqual(input.slice(-3, -1), [reasoning, call]);
+		return new Response(
+			new ReadableStream({
+				start(controller) {
+					second = controller;
+				},
+			}),
+		);
+	}, []);
+	try {
+		const pending = f.ask();
+		pending.catch(() => {});
+		while (!second) await new Promise((resolve) => setImmediate(resolve));
+		second.enqueue(
+			new TextEncoder().encode(
+				frame("response.reasoning_summary_text.delta", {
+					output_index: 0,
+					item_id: "same-item-id",
+					delta: "second thinking",
+				}) +
+					frame("response.output_text.delta", {
+						output_index: 1,
+						item_id: "same-item-id",
+						delta: "partial answer",
+					}),
+			),
+		);
+		let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+		while (turn.output.length < 4) {
+			await new Promise((resolve) => setImmediate(resolve));
+			turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+		}
+		assert.deepEqual(
+			turn.output.map((item: { callOrdinal: number }) => item.callOrdinal),
+			[1, 1, 2, 2],
+		);
+		assert.deepEqual(
+			turn.calls.map((call: { ordinal: number; status: string }) => [
+				call.ordinal,
+				call.status,
+			]),
+			[
+				[1, "succeeded"],
+				[2, "pending"],
+			],
+		);
+		const metadata = (await f.get(`/api/turns/${turn.id}/calls?kind=metadata`))
+			.calls;
+		assert.deepEqual(
+			metadata.map((call: { id: number }) => call.id),
+			turn.calls.map((call: { id: number }) => call.id),
+		);
+		assert(
+			metadata.every(
+				(call: object) => !("requestBody" in call) && !("responseBody" in call),
+			),
+		);
+		for (const savedCall of turn.calls) {
+			const request = (
+				await f.get(
+					`/api/turns/${turn.id}/calls?kind=request&callId=${savedCall.id}`,
+				)
+			).calls;
+			assert.equal(request.length, 1);
+			assert.equal(request[0].id, savedCall.id);
+			assert.equal(request[0].responseBody, null);
+			assert.equal(JSON.parse(request[0].requestBody).model, "tool-model");
+		}
+		const details = (await f.get(`/api/turns/${turn.id}/reasoning`)).output;
+		assert.deepEqual(
+			details.map((item: { callOrdinal: number }) => item.callOrdinal),
+			[1, 2],
+		);
+		assert.deepEqual(
+			details.map(
+				(item: { content: { text: string }[] }) => item.content[0].text,
+			),
+			["first thinking", "second thinking"],
+		);
+		const onlySecond = (
+			await f.get(`/api/turns/${turn.id}/reasoning?callOrdinal=2`)
+		).output;
+		assert.deepEqual(onlySecond, [details[1]]);
+		for (const suffix of ["callId=0", "callId=bogus", "kind=bogus"])
+			assert.equal(
+				(await f.get(`/api/turns/${turn.id}/calls?${suffix}`)).code,
+				"invalidInput",
+			);
+		assert.equal(
+			(await f.get(`/api/turns/${turn.id}/reasoning?callOrdinal=0`)).code,
+			"invalidInput",
+		);
+		assert.equal(
+			(await f.get(`/api/turns/${turn.id}/calls?callId=999999`)).code,
+			"notFound",
+		);
+		second.close();
+		const submitted = await pending;
+		assert([202, 502].includes(submitted.status));
+		do {
+			turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+		} while (turn.status === "pending");
+		assert.equal(turn.status, "failed");
+		assert.deepEqual(
+			turn.calls.map((call: { status: string }) => call.status),
+			["succeeded", "failed"],
+		);
+		const response = (
+			await f.get(
+				`/api/turns/${turn.id}/calls?kind=response&callId=${turn.calls[1].id}`,
+			)
+		).calls;
+		assert.equal(response.length, 1);
+		assert.match(response[0].responseBody, /second thinking/);
+		assert.doesNotMatch(response[0].responseBody, /first thinking/);
+		assert.equal(response[0].requestBody, null);
+		await f.restart();
+		const saved = (await f.get(`/api/turns/${turn.id}`)).turns[0];
+		assert.deepEqual(saved.calls, turn.calls);
+		assert.deepEqual(saved.output, turn.output);
+		assert.deepEqual(
+			(await f.get(`/api/turns/${turn.id}/reasoning`)).output,
+			details,
+		);
+		assert.equal(requests, 2);
+		assert([200, 202].includes((await f.ask()).status));
+		let later = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+		while (later.status === "pending")
+			later = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+		assert.equal(later.calls[0].ordinal, 1);
+		assert(later.calls[0].id > turn.calls[1].id);
+		assert.equal(
+			(
+				await f.get(
+					`/api/turns/${later.id}/calls?kind=request&callId=${turn.calls[0].id}`,
+				)
+			).code,
+			"notFound",
+		);
+		assert.equal(requests, 3);
+	} finally {
+		await f.close();
+	}
+});

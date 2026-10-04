@@ -3,25 +3,30 @@ import { useTranslation } from "react-i18next";
 
 export type ReaderItem = {
 	id: string;
+	callOrdinal: number;
 	index: number;
 	type: string;
 	content: { index: number; type: string; text?: string }[];
 };
 // Page-local downloads and explicit choices survive switching chats until refresh.
 const downloads = new Map<
-	number,
+	string,
 	{ output: ReaderItem[]; status: string; stamp: string }
 >();
 const folds = new Map<string, boolean>();
 
 export function TurnOutput({
 	turnId,
+	callId,
+	ordinal,
 	status,
 	output,
 	revision,
 	onLayoutChange,
 }: {
 	turnId: number;
+	callId: number;
+	ordinal: number;
 	status: string;
 	output: ReaderItem[];
 	revision: number;
@@ -29,7 +34,8 @@ export function TurnOutput({
 }) {
 	const { t } = useTranslation();
 	useLayoutEffect(onLayoutChange);
-	const [download, setDownload] = useState(() => downloads.get(turnId));
+	const cacheKey = `${turnId}-${callId}`;
+	const [download, setDownload] = useState(() => downloads.get(cacheKey));
 	const [choices, setChoices] = useState(() => new Map(folds));
 	const [error, setError] = useState(false);
 	const [retry, setRetry] = useState(0);
@@ -37,26 +43,27 @@ export function TurnOutput({
 		(item) => item.type === "reasoning" && item.content.length > 0,
 	);
 	const expanded = reasoning.some(
-		(item) => choices.get(`${turnId}-${item.index}`) ?? status === "pending",
+		(item) =>
+			choices.get(`${turnId}-${callId}-${item.index}`) ?? status === "pending",
 	);
 	useEffect(() => {
-		const cached = downloads.get(turnId);
+		const cached = downloads.get(cacheKey);
 		if (!reasoning.length || (!expanded && !cached)) return;
 		const stamp = `${revision}-${retry}`;
 		if (
 			cached &&
-			(cached.status !== "pending" ||
-				(cached.stamp === stamp && cached.status === status))
+			cached.status === status &&
+			(cached.status !== "pending" || cached.stamp === stamp)
 		)
 			return;
 		let current = true;
-		void fetch(`/api/turns/${turnId}/reasoning`)
+		void fetch(`/api/turns/${turnId}/reasoning?callOrdinal=${ordinal}`)
 			.then(async (response) => {
 				if (!response.ok) throw new Error("Read failed");
 				const data = await response.json();
 				if (!current) return;
 				const next = { output: data.output as ReaderItem[], status, stamp };
-				downloads.set(turnId, next);
+				downloads.set(cacheKey, next);
 				setDownload(next);
 				setError(false);
 			})
@@ -66,9 +73,26 @@ export function TurnOutput({
 		return () => {
 			current = false;
 		};
-	}, [turnId, status, revision, expanded, reasoning.length, retry]);
+	}, [
+		turnId,
+		cacheKey,
+		ordinal,
+		status,
+		revision,
+		expanded,
+		reasoning.length,
+		retry,
+	]);
 	return output.map((item) => {
-		if (item.type === "message")
+		if (item.type === "message") {
+			if (
+				!item.content.some(
+					(part) =>
+						(part.type === "output_text" || part.type === "refusal") &&
+						part.text,
+				)
+			)
+				return null;
 			return (
 				<div
 					key={item.index}
@@ -89,8 +113,9 @@ export function TurnOutput({
 						))}
 				</div>
 			);
+		}
 		if (item.type !== "reasoning" || !item.content.length) return null;
-		const key = `${turnId}-${item.index}`;
+		const key = `${turnId}-${callId}-${item.index}`;
 		const open = choices.get(key) ?? status === "pending";
 		const content = download?.output.find(
 			(value) => value.index === item.index,

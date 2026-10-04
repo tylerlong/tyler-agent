@@ -185,6 +185,15 @@ export function createServer(
 				busy: busy.has(Number(chat.id)),
 			})),
 		}));
+	const callMetadata = (turnId: number) =>
+		database
+			.prepare("SELECT id,status FROM model_calls WHERE turn_id=? ORDER BY id")
+			.all(turnId)
+			.map((call, index) => ({
+				id: Number(call.id),
+				status: String(call.status),
+				ordinal: index + 1,
+			}));
 	const turnPage = (
 		id: number,
 		before: number | null,
@@ -206,6 +215,7 @@ export function createServer(
 			...row,
 			...persistenceError(row.id),
 			output: outputSummary(JSON.parse(String(row.output))),
+			calls: callMetadata(Number(row.id)),
 		}));
 		if (after === null) page.reverse();
 		return {
@@ -860,10 +870,19 @@ export function createServer(
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
+			const ordinal = url.searchParams.get("callOrdinal");
+			if (ordinal !== null && !/^[1-9]\d*$/.test(ordinal)) {
+				json(response, 400, errorBody("invalidInput"));
+				return;
+			}
 			const output: OutputItem[] = JSON.parse(String(row.output_json));
 			json(response, 200, {
 				output: output
-					.filter((item) => item.type === "reasoning")
+					.filter(
+						(item) =>
+							item.type === "reasoning" &&
+							(ordinal === null || item.callOrdinal === Number(ordinal)),
+					)
 					.map((item) => ({
 						...item,
 						content: readableParts(item),
@@ -887,6 +906,7 @@ export function createServer(
 					...row,
 					...persistenceError(row.id),
 					output: outputSummary(JSON.parse(String(row.output))),
+					calls: callMetadata(Number(row.id)),
 				},
 			];
 			json(response, 200, {
@@ -905,16 +925,37 @@ export function createServer(
 				return;
 			}
 			const kind = url.searchParams.get("kind");
-			if (kind !== null && kind !== "request" && kind !== "response") {
+			const callId = url.searchParams.get("callId");
+			if (
+				(kind !== null &&
+					!["request", "response", "metadata"].includes(kind)) ||
+				(callId !== null && !/^[1-9]\d*$/.test(callId))
+			) {
 				json(response, 400, errorBody("invalidInput"));
 				return;
 			}
+			if (
+				callId !== null &&
+				!database
+					.prepare("SELECT id FROM model_calls WHERE turn_id=? AND id=?")
+					.get(turnId, Number(callId))
+			) {
+				json(response, 404, errorBody("notFound"));
+				return;
+			}
 			json(response, 200, {
-				calls: database
-					.prepare(
-						`SELECT id,turn_id AS turnId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE turn_id=? ORDER BY id`,
-					)
-					.all(turnId),
+				calls:
+					kind === "metadata"
+						? callMetadata(turnId).filter(
+								(call) => callId === null || call.id === Number(callId),
+							)
+						: database
+								.prepare(
+									`SELECT id,turn_id AS turnId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE turn_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
+								)
+								.all(
+									...(callId === null ? [turnId] : [turnId, Number(callId)]),
+								),
 			});
 			return;
 		}

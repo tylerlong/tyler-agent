@@ -34,7 +34,7 @@ test("large failed responses stay folded and keep the composer visible until req
 	await expect(page.getByRole("log")).not.toContainText("private diagnostic");
 	expect(reads).toBe(0);
 	const response = page.locator("details").filter({
-		has: page.locator("summary", { hasText: /^Response$/ }),
+		has: page.locator("summary", { hasText: /^Response \d+/ }),
 	});
 	await expect(response.locator("pre")).toHaveCount(0);
 	await response.locator("summary").click();
@@ -76,12 +76,12 @@ test("communication is lazy, formatted and copied as original text, retained acr
 		if (request.url().includes("/calls")) reads++;
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	const request = page
-		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^(Request|请求)$/ }) });
-	const response = page
-		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^(Response|响应)$/ }) });
+	const request = page.locator("details").filter({
+		has: page.locator("summary", { hasText: /^(Request|请求) \d+$/ }),
+	});
+	const response = page.locator("details").filter({
+		has: page.locator("summary", { hasText: /^(Response|响应) \d+/ }),
+	});
 	await expect(request).toHaveCount(1);
 	expect(reads).toBe(0);
 	await request.locator("summary").click();
@@ -168,14 +168,14 @@ test("failed responses show actual text, retry reading, copy original and remain
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	let fail = true;
-	await page.route("**/calls?kind=response", (route) =>
+	await page.route("**/calls?kind=response&callId=*", (route) =>
 		fail
 			? route.fulfill({ status: 503, json: { error: "offline" } })
 			: route.continue(),
 	);
-	const response = page
-		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^(Response|响应)$/ }) });
+	const response = page.locator("details").filter({
+		has: page.locator("summary", { hasText: /^(Response|响应) \d+/ }),
+	});
 	await response.locator("summary").click();
 	await expect(response.getByRole("alert")).toContainText(
 		"Unable to read communication",
@@ -203,7 +203,7 @@ test("failed responses show actual text, retry reading, copy original and remain
 	await expect(response.locator("pre")).toHaveText("upstream failure");
 });
 
-test("network failures have no copyable response and absent old records are explicit", async ({
+test("network failures have no copyable response and unavailable saved records are explicit", async ({
 	page,
 	app,
 }) => {
@@ -222,19 +222,19 @@ test("network failures have no copyable response and absent old records are expl
 		data: { modelId: "test", prompt: "failure" },
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	const response = page
-		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^(Response|响应)$/ }) });
+	const response = page.locator("details").filter({
+		has: page.locator("summary", { hasText: /^(Response|响应) \d+/ }),
+	});
 	await response.locator("summary").click();
 	await expect(response).toContainText("No response body was received");
 	await expect(response).toContainText("network disconnected");
 	await expect(response.getByRole("button", { name: "Copy" })).toHaveCount(0);
-	await page.route("**/calls?kind=request", (route) =>
+	await page.route("**/calls?kind=request&callId=*", (route) =>
 		route.fulfill({ json: { calls: [] } }),
 	);
-	const request = page
-		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^(Request|请求)$/ }) });
+	const request = page.locator("details").filter({
+		has: page.locator("summary", { hasText: /^(Request|请求) \d+$/ }),
+	});
 	await request.locator("summary").click();
 	await expect(request).toContainText("No communication record is available");
 });
@@ -284,7 +284,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	});
 	const response = page
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Response$/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^Response \d+/ }) });
 	await expect(response.locator("pre")).toHaveCount(0);
 	expect(reads).toBe(0);
 	await response.locator("summary").click();
@@ -293,7 +293,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 		'  "delta": "early"',
 	);
 	let failReads = true;
-	await page.route("**/calls?kind=response", (route) =>
+	await page.route("**/calls?kind=response&callId=*", (route) =>
 		failReads ? route.fulfill({ status: 503 }) : route.continue(),
 	);
 	const second = frame("response.output_text.delta", {
@@ -394,4 +394,156 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 		page.getByRole("button", { name: "复制", exact: true }),
 	).toBeVisible();
 	await expect(page.getByRole("log")).not.toContainText('"private": "test"');
+});
+
+test("older downloads cannot overwrite newer per-call response and thinking content", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Stale reads" },
+		})
+	).json();
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const intercepted = new Set<string>();
+	await page.route(
+		/\/api\/turns\/\d+\/(?:calls\?kind=response&callId=\d+|reasoning\?callOrdinal=1)$/,
+		async (route) => {
+			const kind = route.request().url().includes("/reasoning?")
+				? "reasoning"
+				: "response";
+			if (intercepted.has(kind)) return route.continue();
+			intercepted.add(kind);
+			const old = await route.fetch();
+			await held;
+			await route.fulfill({ response: old });
+		},
+	);
+	const frame = (type: string, value: object) =>
+		`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`;
+	const stream = app.rawStreamModel();
+	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { modelId: "test", prompt: "Keep the newest content" },
+	});
+	stream.push(
+		frame("response.output_item.added", {
+			output_index: 0,
+			item: {
+				id: "reason",
+				type: "reasoning",
+				content: [{ type: "reasoning_text", text: "old" }],
+			},
+		}),
+	);
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const response = page
+		.locator("details")
+		.filter({ has: page.locator("summary", { hasText: /^Response 1/ }) });
+	await response.locator("summary").click();
+	await expect.poll(() => intercepted.size).toBe(2);
+	stream.push(
+		frame("response.reasoning_text.delta", {
+			output_index: 0,
+			item_id: "reason",
+			content_index: 0,
+			delta: " newest",
+		}),
+	);
+	await expect(page.getByRole("log")).toContainText("old newest");
+	await expect(response.locator("pre").last()).toContainText("newest");
+	release();
+	await expect(page.getByRole("log")).toContainText("old newest");
+	stream.push(
+		frame("response.completed", {
+			response: {
+				status: "completed",
+				output: [
+					{
+						id: "reason",
+						type: "reasoning",
+						content: [{ type: "reasoning_text", text: "old newest final" }],
+					},
+					{
+						id: "answer",
+						type: "message",
+						content: [{ type: "output_text", text: "done" }],
+					},
+				],
+			},
+		}),
+	);
+	stream.end();
+	await submitted;
+	await expect(response.locator("pre").last()).toContainText(
+		"old newest final",
+	);
+	await page
+		.getByRole("log")
+		.getByRole("button", { name: /Thinking/ })
+		.click();
+	await expect(page.getByRole("log")).toContainText("old newest final");
+	await expect(response.locator("summary")).toHaveText(
+		"Response 1 · Completed",
+	);
+});
+
+test("failure before a model call shows its question and turn error without communications", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "No call" },
+		})
+	).json();
+	// Browser seam: a saved failure without any call metadata or readable output.
+	await page.route(`**/api/chats/${chat.id}`, (route) =>
+		route.fulfill({
+			json: {
+				id: chat.id,
+				busy: false,
+				hasMore: false,
+				turns: [{ id: 1, status: "failed", output: [], calls: [] }],
+				messages: [
+					{ id: "1-user", role: "user", content: "the accepted question" },
+					{
+						id: "1-assistant",
+						role: "assistant",
+						content: "",
+						status: "failed",
+						output: [],
+						errorCode: "modelRequestFailed",
+						errorDetails: "Execution failed before creating a model call",
+					},
+				],
+			},
+		}),
+	);
+	let reads = 0;
+	page.on("request", (request) => {
+		if (/\/calls|\/reasoning/.test(request.url())) reads++;
+	});
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const log = page.getByRole("log");
+	await expect(log).toContainText("the accepted question");
+	await expect(log).toContainText(
+		"Execution failed before creating a model call",
+	);
+	await expect(log.locator("details")).toHaveCount(0);
+	await expect(log.locator("[data-output-index]")).toHaveCount(0);
+	expect(reads).toBe(0);
 });

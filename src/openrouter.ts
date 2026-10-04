@@ -3,6 +3,7 @@ import { countFilesTool, executeTool } from "./count-files.ts";
 type Message = { role: "user" | "assistant"; content: string };
 export type OutputPart = { index: number; type: string; text: string };
 export type OutputItem = {
+	callOrdinal?: number;
 	id: string;
 	index: number;
 	type: string;
@@ -85,6 +86,7 @@ export async function requestModel(
 					current = output.map((item) => ({
 						...item,
 						index: offset + item.index,
+						callOrdinal: round + 1,
 					}));
 					record?.result(result, [...previous, ...current]);
 				},

@@ -60,12 +60,16 @@ function responseEvents(body: string) {
 }
 export function TurnCalls({
 	turnId,
+	callId,
+	ordinal,
 	status,
 	kind,
 	revision = 0,
 	onLayoutChange,
 }: {
 	turnId: number;
+	callId: number;
+	ordinal: number;
 	status: string;
 	kind: "request" | "response";
 	revision?: number;
@@ -73,7 +77,7 @@ export function TurnCalls({
 }) {
 	const { t } = useTranslation();
 	useLayoutEffect(onLayoutChange);
-	const key = `${turnId}-${kind}`;
+	const key = `${turnId}-${callId}-${kind}`;
 	let state = records.get(key);
 	if (!state) {
 		state = { open: false, error: false, loading: false, revision: 0 };
@@ -88,7 +92,9 @@ export function TurnCalls({
 		record.error = false;
 		render((value) => value + 1);
 		try {
-			const response = await fetch(`/api/turns/${turnId}/calls?kind=${kind}`);
+			const response = await fetch(
+				`/api/turns/${turnId}/calls?kind=${kind}&callId=${callId}`,
+			);
 			if (!response.ok) throw new Error("Unable to read communication");
 			const data = await response.json();
 			if (readRevision !== record.revision) return;
@@ -103,7 +109,7 @@ export function TurnCalls({
 				render((value) => value + 1);
 			}
 		}
-	}, [record, status, kind, turnId, revision]);
+	}, [record, status, kind, turnId, callId, revision]);
 	useEffect(() => {
 		if (
 			(record.open || record.calls) &&
@@ -124,7 +130,9 @@ export function TurnCalls({
 			}}
 		>
 			<summary className="cursor-pointer text-neutral-600 hover:text-neutral-950">
-				{t(kind)}
+				{t(kind)} {ordinal}
+				{kind === "response" &&
+					` · ${t(status === "pending" ? "turnPending" : status === "failed" ? "callFailed" : "callCompleted")}`}
 			</summary>
 			{record.loading && <p role="status">{t("loading")}</p>}
 			{record.error && (
@@ -144,17 +152,14 @@ export function TurnCalls({
 				const body = kind === "request" ? call.requestBody : call.responseBody;
 				return (
 					<div key={call.id} className="mt-3 min-w-0">
-						{record.calls && record.calls.length > 1 && (
-							<p>{t("modelCall", { id: call.id })}</p>
-						)}
 						<p className="break-all font-mono text-xs">
 							{kind === "request"
 								? `${call.requestedAt} · ${call.method} ${call.url}`
 								: `${call.httpStatus === null ? "" : `HTTP ${call.httpStatus} · `}${call.durationMs === null ? "" : `${call.durationMs}ms`}`}
 						</p>
-						{kind === "response" && call.status === "pending" && (
-							<p>{t("turnPending")}</p>
-						)}
+						{kind === "response" &&
+							call.status === "pending" &&
+							body == null && <p>{t("responseNotYetReceived")}</p>}
 						{kind === "response" &&
 							call.status !== "pending" &&
 							body === null && <p>{t("noResponse")}</p>}

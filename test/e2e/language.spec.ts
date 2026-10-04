@@ -178,17 +178,10 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(page.getByRole("log")).toContainText("original question");
-	await page.route("**/api/turns/*/calls?kind=request", async (route) => {
-		const response = await route.fetch();
-		const data = await response.json();
-		await route.fulfill({
-			json: { calls: [data.calls[0], { ...data.calls[0], id: 999 }] },
-		});
-	});
-	await page.getByText("Request", { exact: true }).click();
+	await page.getByText("Request 1", { exact: true }).click();
 	await expect(
-		page.getByText("Model call #999", { exact: true }),
-	).toBeVisible();
+		page.locator("summary").filter({ hasText: /^Response 1/ }),
+	).toHaveText("Response 1 · Completed");
 
 	await page
 		.getByRole("textbox", { name: "Prompt", exact: true })
@@ -219,8 +212,9 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await expect(page.getByRole("log", { name: "对话历史" })).toContainText(
 		"original question",
 	);
-	await expect(page.getByRole("log")).toContainText("Agent：Test answer");
-	await expect(page.getByText("模型调用 #999", { exact: true })).toBeVisible();
+	await expect(page.getByRole("log")).toContainText("Agent：");
+	await expect(page.getByRole("log")).toContainText("Test answer");
+	await expect(page.getByText("请求 1", { exact: true })).toBeVisible();
 	await page.getByRole("button", { name: "项目操作", exact: true }).click();
 	await page.getByRole("button", { name: "编辑项目", exact: true }).click();
 	await expect(zhEdit.getByLabel("名称", { exact: true })).toHaveValue(
