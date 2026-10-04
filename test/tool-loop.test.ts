@@ -775,7 +775,7 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 		);
 		second.close();
 		const submitted = await pending;
-		assert([202, 502].includes(submitted.status));
+		assert.equal(submitted.status, 202);
 		do {
 			turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
 		} while (turn.status === "pending");
@@ -802,7 +802,7 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			details,
 		);
 		assert.equal(requests, 2);
-		assert([200, 202].includes((await f.ask()).status));
+		assert.equal((await f.ask()).status, 202);
 		let later = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
 		while (later.status === "pending")
 			later = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
