@@ -117,6 +117,7 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 					stream = controller;
 				},
 			}),
+			{ headers: { "content-type": "text/event-stream" } },
 		);
 	});
 	const abort = new AbortController();
@@ -248,7 +249,9 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 	const inputs: unknown[] = [];
 	const f = await fixture(async (_url, options) => {
 		inputs.push(JSON.parse(String(options?.body)).input);
-		return new Response(raw);
+		return new Response(raw, {
+			headers: { "content-type": "text/event-stream" },
+		});
 	});
 	try {
 		for (const terminal of [
@@ -327,6 +330,7 @@ for (const failedWrite of ["progress", "terminal"])
 						stream = controller;
 					},
 				}),
+				{ headers: { "content-type": "text/event-stream" } },
 			);
 		});
 		const db = new DatabaseSync(f.path);
@@ -460,7 +464,13 @@ for (const httpStatus of [200, 503])
 						stream = controller;
 					},
 				}),
-				{ status: httpStatus },
+				{
+					status: httpStatus,
+					headers: {
+						"content-type":
+							httpStatus === 200 ? "text/event-stream" : "text/plain",
+					},
+				},
 			);
 		});
 		try {
@@ -522,6 +532,7 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 						stream = controller;
 					},
 				}),
+				{ headers: { "content-type": "text/event-stream" } },
 			),
 	);
 	const thinking = (index: number, text: string) =>
@@ -635,6 +646,7 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 					stream = controller;
 				},
 			}),
+			{ headers: { "content-type": "text/event-stream" } },
 		);
 	});
 	const first = new AbortController();
@@ -703,7 +715,10 @@ test("a Turn finalization write failure keeps a successfully saved Model Call su
 		status: "completed",
 		output: [item("m0", "saved")],
 	});
-	const f = await fixture(async () => new Response(raw));
+	const f = await fixture(
+		async () =>
+			new Response(raw, { headers: { "content-type": "text/event-stream" } }),
+	);
 	const db = new DatabaseSync(f.path);
 	try {
 		db.exec(
@@ -727,6 +742,188 @@ test("a Turn finalization write failure keeps a successfully saved Model Call su
 		assert.equal(call.responseBody, raw);
 	} finally {
 		db.close();
+		await f.close();
+	}
+});
+
+test("Model Call saves SSE events without comments and survives restart", async () => {
+	const body =
+		":\n\n: keepalive\r\n\r\n" +
+		'event: vendor.unknown\r\n: inside\r\ndata: {"text":"你好: world"}\r\n\r\n' +
+		": another\n\n" +
+		completedBody({ output: [item("m", "answer")] }) +
+		": trailing";
+	const expected =
+		'event: vendor.unknown\r\ndata: {"text":"你好: world"}\r\n\r\n' +
+		completedBody({ output: [item("m", "answer")] });
+	const f = await fixture(
+		async () =>
+			new Response(body, {
+				headers: { "content-type": "Text/Event-Stream; charset=utf-8" },
+			}),
+	);
+	try {
+		const accepted = await (
+			await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "question",
+			})
+		).json();
+		assert.equal((await f.wait(accepted.turnId)).status, "succeeded");
+		const calls = await f.get(`/api/turns/${accepted.turnId}/calls`);
+		assert.equal(calls.calls[0].responseBody, expected);
+		await f.restart();
+		assert.equal(
+			(await f.get(`/api/turns/${accepted.turnId}/calls`)).calls[0]
+				.responseBody,
+			expected,
+		);
+	} finally {
+		await f.close();
+	}
+});
+
+for (const scenario of [
+	{
+		name: "mixed CR/LF boundaries around removed comments",
+		status: 200,
+		type: "text/event-stream",
+		body: "data: one\r: comment\n\ndata: two\n\n",
+		expected: "data: one\r\n\ndata: two\n\n",
+	},
+	{
+		name: "CR frames, unknown fields and unfinished data",
+		status: 200,
+		type: "text/event-stream",
+		body: ': ping\r\revent: vendor.raw\r: inside\rid: 7\rretry: 10\rdata: 你好: not-json\r\r: again\r\r : not a comment\rdata: {"unfinished":',
+		expected:
+			'event: vendor.raw\rid: 7\rretry: 10\rdata: 你好: not-json\r\r : not a comment\rdata: {"unfinished":',
+	},
+	{
+		name: "failed SSE with a partial credential and trailing comment",
+		status: 503,
+		type: "text/event-stream",
+		body: ": ping\n\ndata: stream-secret\n\n: tail",
+		expected: "data: [REDACTED]\n\n",
+	},
+	{
+		name: "only SSE comments",
+		status: 200,
+		type: "text/event-stream",
+		body: ":\r\n\r\n: keepalive\n\n: unfinished",
+		expected: null,
+	},
+	{
+		name: "empty SSE",
+		status: 503,
+		type: "text/event-stream",
+		body: "",
+		expected: null,
+	},
+	{
+		name: "ordinary colon-prefixed text",
+		status: 503,
+		type: "text/plain",
+		body: ": diagnostic\n\nstream-secret",
+		expected: ": diagnostic\n\n[REDACTED]",
+	},
+	{
+		name: "ordinary JSON",
+		status: 503,
+		type: "application/json",
+		body: '{"error":": stream-secret"}',
+		expected: '{"error":": [REDACTED]"}',
+	},
+]) {
+	test(`Model Call preserves ${scenario.name} across byte-sized chunks`, async () => {
+		const bytes = new TextEncoder().encode(scenario.body);
+		let position = 0;
+		const f = await fixture(
+			async () =>
+				new Response(
+					new ReadableStream({
+						pull(controller) {
+							if (position < bytes.length)
+								controller.enqueue(bytes.slice(position, ++position));
+							else controller.close();
+						},
+					}),
+					{
+						status: scenario.status,
+						headers: { "content-type": scenario.type },
+					},
+				),
+		);
+		try {
+			const accepted = await (
+				await f.post(`/api/chats/${f.chat.id}`, {
+					modelId: "stream-fixture",
+					prompt: "question",
+				})
+			).json();
+			assert.equal((await f.wait(accepted.turnId)).status, "failed");
+			const call = (await f.get(`/api/turns/${accepted.turnId}/calls`))
+				.calls[0];
+			assert.equal(call.responseBody, scenario.expected);
+			assert.equal(call.httpStatus, scenario.status);
+			assert.equal(call.status, "failed");
+			assert.equal(typeof call.durationMs, "number");
+			assert(call.error);
+		} finally {
+			await f.close();
+		}
+	});
+}
+
+test("pending SSE records exclude comments and protect split credentials before an interrupted read", async () => {
+	let stream!: ReadableStreamDefaultController<Uint8Array>;
+	const f = await fixture(
+		async () =>
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						stream = controller;
+					},
+				}),
+				{ headers: { "content-type": "text/event-stream" } },
+			),
+	);
+	try {
+		const accepted = await (
+			await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "question",
+			})
+		).json();
+		async function expectBody(body: string | null) {
+			for (let attempt = 0; attempt < 100; attempt++) {
+				const call = (await f.get(`/api/turns/${accepted.turnId}/calls`))
+					.calls[0];
+				assert.equal(call.status, "pending");
+				if (call.responseBody === body) return;
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
+			assert.fail(`Response never became ${body}`);
+		}
+		stream.enqueue(new TextEncoder().encode(": keepalive\r"));
+		await expectBody(null);
+		stream.enqueue(new TextEncoder().encode("\n\r\ndata: stream-"));
+		await expectBody("data: ");
+		stream.enqueue(new TextEncoder().encode("secret\n: trailing"));
+		await expectBody("data: [REDACTED]\n");
+		stream.error(new Error("interrupted stream-secret"));
+		assert.equal((await f.wait(accepted.turnId)).status, "failed");
+		const call = (await f.get(`/api/turns/${accepted.turnId}/calls`)).calls[0];
+		assert.equal(call.responseBody, "data: [REDACTED]\n");
+		assert.equal(call.httpStatus, 200);
+		assert(!call.error.includes("stream-secret"));
+		await f.restart();
+		assert.equal(
+			(await f.get(`/api/turns/${accepted.turnId}/calls`)).calls[0]
+				.responseBody,
+			"data: [REDACTED]\n",
+		);
+	} finally {
 		await f.close();
 	}
 });

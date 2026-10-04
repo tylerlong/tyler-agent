@@ -36,6 +36,24 @@ export type CallRequest = {
 	requestedAt: string;
 	requestBody: string;
 };
+// Keep original non-comment lines and event boundaries, including partial tails.
+function withoutSseComments(text: string) {
+	let result = "";
+	let block = "";
+	for (const match of text.matchAll(/([^\r\n]*)(\r\n|\r|\n|$)/g)) {
+		const [, line, ending] = match;
+		if (line.startsWith(":")) continue;
+		if (line) block += line + ending;
+		else if (block && ending) {
+			// Removing a comment must not fuse a CR with the blank line's LF.
+			result +=
+				block + (block.endsWith("\r") && ending === "\n" ? "\n\n" : ending);
+			block = "";
+		}
+	}
+	return result + block;
+}
+
 export type CallResult = {
 	status: "pending" | "succeeded" | "failed";
 	httpStatus: number | null;
@@ -234,17 +252,25 @@ async function requestOnce(
 		status: CallResult["status"],
 		error: string | null = null,
 		final = false,
-	) =>
+	) => {
+		const isSse =
+			upstream?.headers
+				.get("content-type")
+				?.split(";", 1)[0]
+				.trim()
+				.toLowerCase() === "text/event-stream";
+		const response = safe(isSse ? withoutSseComments(raw) : raw, final);
 		persist(
 			{
 				status,
 				httpStatus: upstream?.status ?? null,
-				responseBody: raw ? safe(raw, final) : null,
+				responseBody: response || null,
 				durationMs: Math.round(performance.now() - started),
 				error: error ? redact(error) : null,
 			},
 			output(final),
 		);
+	};
 	const event = (frame: string) => {
 		const payload = frame
 			.split(/\r?\n/)

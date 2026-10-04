@@ -299,7 +299,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
 		data: { modelId: "test", prompt: "Inspect live SSE" },
 	});
-	stream.push(prefix);
+	stream.push(`:\n\n: keepalive\r\n\r\n${prefix}`);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(page.getByRole("log")).toContainText("early");
 	let reads = 0;
@@ -366,7 +366,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	stream.push(unknown.slice(split));
 	const malformed = "event: vendor.raw\r\ndata: not-json\r\n\n";
 	const tail = 'data: {"unfinished":';
-	stream.push(malformed + tail);
+	stream.push(`: inside stream\n\n${malformed}: before tail\n${tail}`);
 	stream.end();
 	await submitted;
 	await expect(page.getByRole("log")).toContainText("Incomplete answer.");
@@ -568,4 +568,49 @@ test("failure before a model call shows its question and turn error without comm
 	await expect(log.locator("details")).toHaveCount(0);
 	await expect(log.locator("[data-output-index]")).toHaveCount(0);
 	expect(reads).toBe(0);
+});
+
+test("comment-only Response has no content blocks and copies received HTTP diagnostics after download", async ({
+	page,
+	context,
+	app,
+}) => {
+	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Comments" },
+		})
+	).json();
+	const stream = app.rawStreamModel();
+	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { modelId: "test", prompt: "question" },
+	});
+	stream.push(":\n\n: keepalive\r\n\r\n: trailing");
+	stream.end();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await expect(page.getByRole("log")).toContainText(
+		"OpenRouter returned an invalid response.",
+	);
+	const response = page.locator("details").filter({
+		has: page.locator("summary", { hasText: /^Response 1/ }),
+	});
+	await expect(
+		response.getByRole("button", { name: "Copy", exact: true }),
+	).toHaveCount(0);
+	await response.locator("summary").click();
+	await expect(response).toContainText("HTTP 200");
+	await expect(response.locator("pre")).toHaveCount(0);
+	await expect(response).not.toContainText("keepalive");
+	await response.getByRole("button", { name: "Copy", exact: true }).click();
+	await expect
+		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+		.toBe(await displayedText(response));
+	expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+		"HTTP 200",
+	);
 });
