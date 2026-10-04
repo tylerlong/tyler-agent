@@ -21,7 +21,7 @@ test("compact composer grows and shrinks with drafts, bounds scrolling and guard
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
-	const send = page.getByRole("button", { name: "Submit", exact: true });
+	const send = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
 	await expect(prompt).toHaveAttribute("placeholder", "Prompt");
 	await expect(page.getByText("Prompt", { exact: true })).toHaveCount(0);
 	await expect(send).toBeVisible();
@@ -141,7 +141,7 @@ test("Send stays disabled from pending submission through execution and preserve
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
-	const send = page.getByRole("button", { name: "Submit", exact: true });
+	const send = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
 	let posts = 0;
 	let releaseRequest!: () => void;
 	const requestGate = new Promise<void>((resolve) => {

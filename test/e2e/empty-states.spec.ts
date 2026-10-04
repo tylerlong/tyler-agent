@@ -147,7 +147,7 @@ test("history loading and failure are distinct from empty history and invalid ID
 	await page
 		.getByRole("textbox", { name: "Prompt", exact: true })
 		.fill("A first question");
-	await page.getByRole("button", { name: "Submit", exact: true }).click();
+	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
 	await expect(home.getByText("Test answer", { exact: true })).toBeVisible();
 	await expect(page.getByText(/Ask your first question/)).toHaveCount(0);
 	await page.goto(`${app.url}/?chat=999999`);

@@ -136,7 +136,7 @@ test("running work finishes behind notice; maximum sidebar and long model keep c
 	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const prompt = page.getByLabel("Prompt", { exact: true });
-	const send = page.getByRole("button", { name: "Submit", exact: true });
+	const send = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
 	const content = page.getByRole("region", { name: "Chat", exact: true });
 	await prompt.fill("Second question");
 	await expect(send).toBeInViewport();

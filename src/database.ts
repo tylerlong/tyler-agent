@@ -45,9 +45,9 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			![8, 9].includes(Number(version)) ||
+			![8, 9, 10].includes(Number(version)) ||
 			tables.join(",") !==
-				(version === 9
+				(Number(version) >= 9
 					? "chats,folders,managed_models,model_calls,projects,settings,turns"
 					: "chats,folders,model_calls,projects,settings,turns")
 		) {
@@ -68,10 +68,10 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			model_calls:
 				"id,turn_id,url,method,requested_at,request_body,status,http_status,response_body,duration_ms,error",
 			settings:
-				version === 9
-					? "id,sidebar_width,language,api_key,default_model_id"
+				Number(version) >= 9
+					? `id,sidebar_width,language,api_key,default_model_id${version === 10 ? ",enter_behavior" : ""}`
 					: "id,sidebar_width,language",
-			...(version === 9 ? { managed_models: "id,name,metadata" } : {}),
+			...(Number(version) >= 9 ? { managed_models: "id,name,metadata" } : {}),
 		})) {
 			if (columns(table) !== expected)
 				throw new Error("Invalid database schema");
@@ -89,7 +89,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			)
 		)
 			throw new Error("Corrupt database");
-		if (version !== 9) {
+		if (Number(version) < 9) {
 			db.exec(`BEGIN;
                 CREATE TABLE managed_models (id TEXT PRIMARY KEY CHECK(length(trim(id))>0), name TEXT NOT NULL, metadata TEXT NOT NULL CHECK(json_valid(metadata)));
                 ALTER TABLE settings ADD COLUMN api_key TEXT;
@@ -97,6 +97,22 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
                 PRAGMA user_version=9;
                 COMMIT;`);
 		}
+		if (Number(version) < 10) {
+			db.exec(`BEGIN;
+                ALTER TABLE settings ADD COLUMN enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline'));
+                PRAGMA user_version=10;
+                COMMIT;`);
+		}
+		if (
+			!["send", "newline"].includes(
+				String(
+					db.prepare("SELECT enter_behavior FROM settings WHERE id=1").get()
+						?.enter_behavior,
+				),
+			)
+		)
+			throw new Error("Corrupt database");
+
 		if (path !== ":memory:") {
 			chmodSync(path, 0o600);
 		}

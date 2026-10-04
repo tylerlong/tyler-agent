@@ -171,7 +171,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		server.emit("close");
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 9);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 10);
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
 			{
@@ -180,6 +180,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				language: "en",
 				api_key: null,
 				default_model_id: null,
+				enter_behavior: "send",
 			},
 		);
 		assert.equal(
@@ -257,6 +258,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				language: "zh-CN",
 				api_key: null,
 				default_model_id: null,
+				enter_behavior: "send",
 			},
 		);
 		saved.close();
@@ -404,6 +406,7 @@ test("sidebar width validates bounds and preserves language across restart", asy
 				language: "zh-CN",
 				api_key: null,
 				default_model_id: null,
+				enter_behavior: "send",
 			},
 		);
 		db.close();

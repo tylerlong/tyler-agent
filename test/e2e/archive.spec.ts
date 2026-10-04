@@ -30,7 +30,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 	await page
 		.getByRole("textbox", { name: "Prompt", exact: true })
 		.fill("Question");
-	await page.getByRole("button", { name: "Submit", exact: true }).click();
+	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
 	await hold.entered;
 	try {
 		const work = page
@@ -50,7 +50,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 			"Chat is archived and read-only. Restore the chat to continue.",
 		);
 		await expect(
-			other.getByRole("button", { name: "Submit", exact: true }),
+			other.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 		).toBeDisabled();
 		await expect(
 			page.getByRole("heading", { name: "A", exact: true }),
@@ -113,7 +113,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 			.getByRole("button", { name: "Restore project", exact: true })
 			.click();
 		await expect(
-			other.getByRole("button", { name: "Submit", exact: true }),
+			other.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 		).toBeEnabled();
 		await expect(
 			page

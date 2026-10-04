@@ -28,7 +28,7 @@ test("two pages share activity, busy and history while keeping selections, folds
 	const nav = (p: typeof page) =>
 		p.getByRole("navigation", { name: "Projects and chats" });
 	const submit = (p: typeof page) =>
-		p.getByRole("button", { name: "Submit", exact: true });
+		p.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
 	await expect(submit(page)).toBeDisabled();
 	await expect(submit(other)).toBeDisabled();
 	await expect(nav(page).getByRole("heading").first()).toHaveText("Newer");

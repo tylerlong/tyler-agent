@@ -69,6 +69,7 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 		const sharedState = async (chatId?: number) => ({
 			projects: (await (await fetch(`${base}/api/projects`)).json()).projects,
 			language: await (await fetch(`${base}/api/language`)).json(),
+			enterBehavior: await (await fetch(`${base}/api/enter-behavior`)).json(),
 			chat:
 				chatId === undefined
 					? null
@@ -85,6 +86,19 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 		assert.deepEqual(await (await fetch(`${base}/api/language`)).json(), {
 			language: "en",
 		});
+		await fetch(`${base}/api/enter-behavior`, {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ behavior: "newline" }),
+		});
+		assert.deepEqual(
+			await Promise.all([first.next("changed"), second.next("changed")]),
+			["data: changed", "data: changed"],
+		);
+		assert.deepEqual(await (await fetch(`${base}/api/enter-behavior`)).json(), {
+			behavior: "newline",
+		});
+
 		const project = await (
 			await fetch(`${base}/api/projects`, {
 				method: "POST",

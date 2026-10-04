@@ -25,7 +25,7 @@ pnpm start --port 3001
 pnpm start --db /path/to/chat.sqlite
 ```
 
-相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本仅对已知的 v8 schema 非破坏升级，保留历史与偏好，不做历史选择回填。
+相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本仅对已知的 v8/v9 schema 非破坏升级至 v10，保留历史与偏好，不做历史选择回填。
 
 ## 项目与对话
 
@@ -53,7 +53,7 @@ Sidebar work status: a noninteractive 16px CSS ring appears after the chat actio
 
 已提交的项目、文件夹、chat、所有已接受的 Turn 和活动时间由 server 维护，是共享数据的唯一来源。创建、排序、历史、busy 和语言变化通过 SSE 通知所有页面重新读取，不整页刷新；初次加载、刷新和断线重连都会读取最新数据。SSE 通知和重连不改变本页选择、折叠与未提交草稿；整页刷新通过 URL 恢复选择，折叠与草稿重新初始化。busy 只在 server 内存中，重启恢复空闲。
 
-新数据库自动建立数据表，不生成默认项目或对话。用户配置使用单行 `settings` 表，保存 `sidebar_width`、`language`、密钥及默认模型；默认宽度 320px、界面语言英文，修改任一项不覆盖另一项。项目、文件夹、chat、历史、活动时间和归档状态重启保留。仅升级已知 v8 schema；未知或不支持的数据库报错且不重置。没有删除功能。
+新数据库自动建立数据表，不生成默认项目或对话。用户配置使用单行 `settings` 表，保存 `sidebar_width`、`language`、`enter_behavior`、密钥及默认模型；默认宽度 320px、界面语言英文，修改任一项不覆盖另一项。项目、文件夹、chat、历史、活动时间和归档状态重启保留。仅升级已知 v8/v9 schema 至 v10；未知或不支持的数据库报错且不重置。没有删除功能。
 
 ## 桌面视口与思考强度
 
@@ -77,7 +77,7 @@ One composer trigger summarizes Model and **Reasoning: Default** or the selected
 
 ## OpenRouter 通信记录
 
-Settings 是唯一的总标题，语言、OpenRouter API 密钥、模型为并列分区。设置标题和底部 Close 始终可见，仅中间内容滚动；长模型名称和 ID 换行，行操作保留可用。可写对话缺少配置时，在标题附近明确提示缺少密钥、模型或两者。
+Settings 是唯一的总标题，语言、Enter 键行为、OpenRouter API 密钥、模型为并列分区。设置标题和底部 Close 始终可见，仅中间内容滚动；长模型名称和 ID 换行，行操作保留可用。可写对话缺少配置时，在标题附近明确提示缺少密钥、模型或两者。
 
 Settings has peer Language, OpenRouter API key and Models sections, with a fixed title and Close footer and scrolling content. Configured status is separate from the write-only replacement field. Blank saves send no request; meaningful saves show Saving, then Saved and clear the field. Failures retain confirmed settings and the draft. Removal is immediate, secondary, and retains the draft; credential and model errors appear in their respective sections. Required Settings identifies the missing key, models, or both beside its title.
 
@@ -135,6 +135,14 @@ pnpm exec playwright show-trace test-results/<失败用例目录>/trace.zip
 归档允许在回答或保存进行中执行，已接纳的操作继续完成、保存及同步，不取消请求。当前选中 chat 不自动切换或清空，主区域保留历史、提示只读原因，已开始的回答继续更新。现有编辑及提问草稿保留；恢复后重新判断可用操作。编辑、归档及恢复经 SSE 同步所有页面，选择、未提交草稿及 Archived 折叠只属于本页；刷新后 Archived 重新折叠，重启保留所有已提交的归档状态和历史。
 
 侧栏的 New project 默认透明无描边，标题行、+ / ⋯ 图标按钮及菜单项有浅灰圆角 hover 反馈（禁用菜单项置灰）。⋯ 使用原生 Popover：点击外部关闭，打开其他菜单关闭旧菜单，选择动作立即关闭后执行。菜单与 ⋯ 下方右对齐，靠近底部时向上避让，不被侧栏裁切。+ 提供“New chat”悬停提示。
+
+## 发送快捷键
+
+默认 Enter 发送，Shift+Enter 换行；macOS 使用 Cmd+Enter，Windows/Linux 使用 Ctrl+Enter，在两种模式下均可发送。按用户浏览器平台确定快捷键，与 server 操作系统无关。Settings 中的“Enter 键行为”可改为普通 Enter 换行，立即保存，无单独 Save；Shift+Enter 始终换行。发送按钮的悬停提示和无障碍名称显示当前快捷键，不额外占用输入区一行。
+
+偏好以语义值 send/newline 保存在 SQLite，刷新、重启、SSE、断线重连及多页面同步后恢复；新数据库和已知 v8/v9 升级默认 send，不改变历史、凭据或其它配置。读取失败或尚未确认时不会将未知偏好当作 Enter 发送；草稿和显式 Send 按钮仍可用，Settings 显示错误及 Retry，不写回默认。保存失败重新读取并保留服务端确认值；结果不明时同样核对服务器，较旧读取不能覆盖新值。
+
+快捷键仅处理问题输入框，模型弹层、其它字段的 Enter 保留自身行为。输入法组合及确认、按住 Enter 的重复事件不会发送；所有发送方式复用相同保护，无法绕过空白、只读、缺少配置或整个 Turn 进行中时的禁用规则。期间可编辑下一次草稿和选项，不修改已接受请求；失败不会自动重发。
 
 ## 界面语言
 

@@ -176,6 +176,18 @@ export const resources = {
 			add: "Add",
 
 			settingsLanguage: "Language",
+			enterBehavior: "Enter key behavior",
+			enterSend: "Send message",
+			enterNewline: "Insert newline",
+			enterHelp:
+				"Shift+Enter inserts a newline. {{shortcut}} sends in either mode.",
+			submitShortcut: "Submit ({{shortcut}})",
+			invalidEnterBehavior: "Unsupported Enter key behavior.",
+			enterBehaviorReadFailed:
+				"Unable to read Enter key behavior. Please retry.",
+			enterBehaviorSaveFailed:
+				"Unable to confirm Enter key behavior. Please retry.",
+			enterBehaviorWriteFailed: "Unable to save Enter key behavior.",
 			language: "Interface language",
 			close: "Close",
 			retry: "Retry",
@@ -352,6 +364,15 @@ export const resources = {
 			add: "添加",
 
 			settingsLanguage: "语言",
+			enterBehavior: "Enter 键行为",
+			enterSend: "发送消息",
+			enterNewline: "插入换行",
+			enterHelp: "Shift+Enter 插入换行。两种模式下 {{shortcut}} 均可发送。",
+			submitShortcut: "提交 ({{shortcut}})",
+			invalidEnterBehavior: "不支持的 Enter 键行为",
+			enterBehaviorReadFailed: "读取 Enter 键行为失败，请重试",
+			enterBehaviorSaveFailed: "无法确认 Enter 键行为，请重试",
+			enterBehaviorWriteFailed: "保存 Enter 键行为失败",
 			language: "界面语言",
 			close: "关闭",
 			retry: "重试",

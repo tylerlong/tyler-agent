@@ -52,6 +52,9 @@ const errorMessages: Record<string, string> = {
 	directoryAccessFailed: "Cannot access the target directory",
 	invalidSidebarWidth: "Invalid sidebar width",
 	sidebarWidthFailed: "Could not read or save sidebar width",
+	invalidEnterBehavior: "Unsupported Enter key behavior",
+	enterBehaviorReadFailed: "Could not read Enter key behavior",
+	enterBehaviorWriteFailed: "Could not save Enter key behavior",
 	invalidLanguage: "Unsupported interface language",
 	languageReadFailed: "Could not read interface language",
 	invalidDirectoryPath: "Invalid directory path",
@@ -620,6 +623,42 @@ export function createServer(
 						request.method === "PUT"
 							? "languageWriteFailed"
 							: "languageReadFailed",
+					),
+				);
+			}
+			return;
+		}
+		if (
+			path === "/api/enter-behavior" &&
+			(request.method === "GET" || request.method === "PUT")
+		) {
+			try {
+				if (request.method === "PUT") {
+					const { behavior } = await readJson(request);
+					if (behavior !== "send" && behavior !== "newline")
+						throw new InputError("invalidEnterBehavior");
+					database
+						.prepare("UPDATE settings SET enter_behavior=? WHERE id=1")
+						.run(behavior);
+				}
+				const behavior = database
+					.prepare("SELECT enter_behavior FROM settings WHERE id=1")
+					.get()?.enter_behavior;
+				if (behavior !== "send" && behavior !== "newline")
+					throw new Error("Invalid saved Enter behavior");
+				json(response, 200, { behavior });
+				if (request.method === "PUT") notifyChange();
+			} catch (error) {
+				if (!(error instanceof InputError))
+					console.error("Enter behavior setting read/write failed", error);
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(
+						error,
+						request.method === "PUT"
+							? "enterBehaviorWriteFailed"
+							: "enterBehaviorReadFailed",
 					),
 				);
 			}

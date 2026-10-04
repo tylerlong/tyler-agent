@@ -167,7 +167,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 		.toBeLessThan(2);
 	await page.getByLabel("Prompt").fill("My question\n".repeat(20));
 	const ownGate = app.holdModel();
-	await page.getByRole("button", { name: "Submit", exact: true }).click();
+	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
 	await ownGate.entered;
 	try {
 		await expect(page.getByRole("log")).toContainText("My question");
@@ -175,7 +175,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 			.poll(async () => (await scrollState(content)).bottom)
 			.toBeLessThan(2);
 		await expect(
-			page.getByRole("button", { name: "Submit", exact: true }),
+			page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 		).toBeDisabled();
 		await page
 			.getByRole("log")
@@ -191,7 +191,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	}
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	await expect(page.getByRole("log").locator("details").last()).toContainText(
 		"HTTP 200",
@@ -202,7 +202,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 	await page.setViewportSize({ width: 1280, height: 720 });
 	await expect(page.getByLabel("Prompt")).toBeInViewport();
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeInViewport();
 	expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
@@ -228,7 +228,7 @@ test("returning to a previously non-scrollable chat keeps its original position"
 	const content = page.getByRole("region", { name: "Chat", exact: true });
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	expect((await scrollState(content)).top).toBe(0);
 	await page.getByRole("button", { name: "Beta", exact: true }).click();

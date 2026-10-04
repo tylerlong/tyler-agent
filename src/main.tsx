@@ -171,6 +171,36 @@ function App() {
 			},
 		),
 	);
+	const [enterBehavior, setEnterBehavior] = useState<string | null>(null);
+	const [enterPending, setEnterPending] = useState(false);
+	const [enterError, setEnterError] = useState("");
+	const [enterState] = useState(() =>
+		createSettingState<string>(
+			async () => {
+				const data = await api("/api/enter-behavior");
+				if (data.behavior !== "send" && data.behavior !== "newline")
+					throw new Error("Invalid Enter behavior");
+				return data.behavior;
+			},
+			async (behavior) => {
+				await api("/api/enter-behavior", "PUT", { behavior });
+			},
+			(behavior) => {
+				setEnterBehavior(behavior);
+				setEnterError(behavior === null ? "enterBehaviorReadFailed" : "");
+			},
+		),
+	);
+	const mac = navigator.platform.startsWith("Mac");
+	const submitName =
+		enterBehavior === null
+			? t("submit")
+			: t("submitShortcut", {
+					shortcut:
+						enterBehavior === "send" ? "Enter" : mac ? "⌘ Enter" : "Ctrl Enter",
+				});
+	const composing = useRef(false);
+	const compositionEnded = useRef(false);
 	const [modelSettings, setModelSettings] = useState<ModelSettings | null>(
 		null,
 	);
@@ -597,6 +627,7 @@ function App() {
 	const refresh = useCallback(async () => {
 		const settingsReads = Promise.all([
 			languageState.refresh(),
+			enterState.refresh(),
 			refreshModelSettings(),
 		]);
 		const revision = ++refreshRevision.current;
@@ -628,7 +659,7 @@ function App() {
 				setProjectsError(appError(cause));
 		}
 		await settingsReads;
-	}, [languageState, refreshModelSettings]);
+	}, [languageState, enterState, refreshModelSettings]);
 	useEffect(() => {
 		const sync = () => {
 			void refresh();
@@ -1461,6 +1492,41 @@ function App() {
 									aria-label={t("prompt")}
 									placeholder={t("prompt")}
 									rows={2}
+									onCompositionStart={() => {
+										composing.current = true;
+										compositionEnded.current = false;
+									}}
+									onCompositionEnd={() => {
+										composing.current = false;
+										compositionEnded.current = true;
+									}}
+									onKeyUp={(event) => {
+										if (event.key === "Enter") compositionEnded.current = false;
+									}}
+									onKeyDown={(event) => {
+										if (event.key !== "Enter") {
+											compositionEnded.current = false;
+											return;
+										}
+										if (
+											composing.current ||
+											event.nativeEvent.isComposing ||
+											event.nativeEvent.keyCode === 229 ||
+											compositionEnded.current
+										)
+											return;
+										const primary = mac ? event.metaKey : event.ctrlKey;
+										if (
+											event.shiftKey ||
+											event.altKey ||
+											(!primary && (event.ctrlKey || event.metaKey))
+										)
+											return;
+										if (!primary && enterBehavior !== "send") return;
+										event.preventDefault();
+										if (!event.repeat)
+											event.currentTarget.form?.requestSubmit();
+									}}
 									readOnly={readOnly}
 									value={drafts[chat.id] ?? ""}
 									onChange={(event) => {
@@ -1486,7 +1552,8 @@ function App() {
 									)}
 									<button
 										type="submit"
-										aria-label={t("submit")}
+										aria-label={submitName}
+										title={submitName}
 										className="h-9 w-9 shrink-0 rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
 										disabled={
 											!(drafts[chat.id] ?? "").trim() ||
@@ -1817,6 +1884,50 @@ function App() {
 								className={button}
 								disabled={languagePending}
 								onClick={() => void languageState.refresh()}
+							>
+								{t("retry")}
+							</button>
+						</div>
+					)}
+					<h3 className="mt-6 font-semibold">{t("enterBehavior")}</h3>
+					<label className="block">
+						<span className="sr-only">{t("enterBehavior")}</span>
+						<select
+							className={control}
+							value={enterBehavior ?? ""}
+							disabled={enterPending || enterBehavior === null}
+							onChange={async (event) => {
+								setEnterPending(true);
+								try {
+									const result = await enterState.save(event.target.value);
+									setEnterError(
+										result === "saved" ? "" : "enterBehaviorSaveFailed",
+									);
+								} finally {
+									setEnterPending(false);
+								}
+							}}
+						>
+							{enterBehavior === null && (
+								<option value="">{t("loading")}</option>
+							)}
+							<option value="send">{t("enterSend")}</option>
+							<option value="newline">{t("enterNewline")}</option>
+						</select>
+					</label>
+					<p className="mt-2 text-sm text-neutral-600">
+						{t("enterHelp", { shortcut: mac ? "⌘ Enter" : "Ctrl Enter" })}
+					</p>
+					{enterError && (
+						<div className="mt-4">
+							<p role="alert" className="text-red-700">
+								{t(enterError)}
+							</p>
+							<button
+								type="button"
+								className={button}
+								disabled={enterPending}
+								onClick={() => void enterState.refresh()}
 							>
 								{t("retry")}
 							</button>

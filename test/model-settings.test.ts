@@ -195,13 +195,13 @@ test("known v8 database upgrades without losing history or unrelated settings; n
 	try {
 		const db = openDatabase(path, false);
 		db.exec(
-			"INSERT INTO projects(id,name,created_at) VALUES(1,'Preserved',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1); INSERT INTO turns(id,chat_id,user_content,status,created_at) VALUES(1,1,'Question','succeeded',1); UPDATE settings SET language='zh-CN',sidebar_width=500; ALTER TABLE settings DROP COLUMN default_model_id; ALTER TABLE settings DROP COLUMN api_key; DROP TABLE managed_models; PRAGMA user_version=8;",
+			"INSERT INTO projects(id,name,created_at) VALUES(1,'Preserved',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1); INSERT INTO turns(id,chat_id,user_content,status,created_at) VALUES(1,1,'Question','succeeded',1); UPDATE settings SET language='zh-CN',sidebar_width=500; ALTER TABLE settings DROP COLUMN enter_behavior; ALTER TABLE settings DROP COLUMN default_model_id; ALTER TABLE settings DROP COLUMN api_key; DROP TABLE managed_models; PRAGMA user_version=8;",
 		);
 		db.close();
 		const upgraded = openDatabase(path, false);
 		assert.equal(
 			upgraded.prepare("PRAGMA user_version").get()?.user_version,
-			9,
+			10,
 		);
 		assert.equal(
 			upgraded.prepare("SELECT user_content FROM turns WHERE id=1").get()
@@ -216,6 +216,7 @@ test("known v8 database upgrades without losing history or unrelated settings; n
 				language: "zh-CN",
 				api_key: null,
 				default_model_id: null,
+				enter_behavior: "send",
 			},
 		);
 		upgraded.close();

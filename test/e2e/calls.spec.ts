@@ -23,13 +23,13 @@ test("large failed responses stay folded and keep the composer visible until req
 		if (request.url().includes("/calls")) reads++;
 	});
 	await page.getByLabel("Prompt").fill("question");
-	await page.getByRole("button", { name: "Submit", exact: true }).click();
+	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("alert")).toHaveText(
 		"OpenRouter request failed.",
 	);
 	await expect(page.getByLabel("Prompt")).toBeInViewport();
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeInViewport();
 	await expect(page.getByRole("log")).not.toContainText("private diagnostic");
 	expect(reads).toBe(0);
@@ -302,7 +302,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	);
 	await page.getByLabel("Prompt").fill("next draft");
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeDisabled();
 	await response.locator("summary").click();
 	await page.getByRole("button", { name: "Other", exact: true }).click();

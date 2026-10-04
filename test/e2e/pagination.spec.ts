@@ -91,7 +91,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 	app.disconnectClients();
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
 		data: { modelId: "test", prompt: "After reconnect" },
@@ -152,7 +152,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	const gate = app.holdModel();
 	const pending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
@@ -242,7 +242,7 @@ test("an initially empty chat catches up every turn after more than one unseen p
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	let offline = true;
 	await page.route("**/api/chats/*", (route) =>
