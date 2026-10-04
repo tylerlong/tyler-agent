@@ -127,6 +127,7 @@ export const resources = {
 			modelConfigMissing: "OpenRouter configuration is missing.",
 			modelRequestFailed: "OpenRouter request failed.",
 			modelNoAnswer: "OpenRouter did not return a text answer.",
+			modelCallLimit: "Turn reached the five model request limit.",
 			modelInvalidResponse: "OpenRouter returned an invalid response.",
 
 			modelCall: "Model call #{{id}}",
@@ -318,6 +319,7 @@ export const resources = {
 			modelConfigMissing: "OpenRouter 配置缺失。",
 			modelRequestFailed: "OpenRouter 请求失败。",
 			modelNoAnswer: "OpenRouter 没有返回文本答案。",
+			modelCallLimit: "本轮已达到五次模型请求上限。",
 			modelInvalidResponse: "OpenRouter 返回了无效响应。",
 
 			modelCall: "模型调用 #{{id}}",

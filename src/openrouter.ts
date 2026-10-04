@@ -1,3 +1,5 @@
+import { countFilesTool, executeTool } from "./count-files.ts";
+
 type Message = { role: "user" | "assistant"; content: string };
 export type OutputPart = { index: number; type: string; text: string };
 export type OutputItem = {
@@ -53,15 +55,72 @@ export type ModelConfig = {
 	apiKey: string;
 	model: string;
 	reasoningEffort?: string | null;
+	targetFolders?: string[];
+};
+type Recorder = {
+	request: (request: CallRequest) => void;
+	result: (result: CallResult, output: OutputItem[]) => void;
 };
 export async function requestModel(
 	messages: Message[],
 	prompt: string,
 	fetchModel: typeof fetch,
-	record?: {
-		request: (request: CallRequest) => void;
-		result: (result: CallResult, output: OutputItem[]) => void;
-	},
+	record?: Recorder,
+	config?: ModelConfig,
+) {
+	const input: unknown[] = [...messages, { role: "user", content: prompt }];
+	let previous: OutputItem[] = [];
+	for (let round = 0; round < 5; round++) {
+		let current: OutputItem[] = [];
+		const response = await requestOnce(
+			input,
+			fetchModel,
+			{
+				request: (call) => record?.request(call),
+				result: (result, output) => {
+					const offset = previous.reduce(
+						(next, item) => Math.max(next, item.index + 1),
+						0,
+					);
+					current = output.map((item) => ({
+						...item,
+						index: offset + item.index,
+					}));
+					record?.result(result, [...previous, ...current]);
+				},
+			},
+			config,
+		);
+		previous = [...previous, ...current];
+		if (!response.tools.length) return answerText(previous);
+		if (round === 4)
+			throw new ModelError(
+				"modelCallLimit",
+				"Turn reached the five model request limit",
+			);
+		input.push(...response.protocol);
+		for (const call of response.tools) {
+			const result = await executeTool(
+				call.name,
+				call.arguments,
+				config?.targetFolders ?? [],
+			);
+			input.push({
+				type: "function_call_output",
+				call_id: call.call_id,
+				output: JSON.stringify(result),
+			});
+		}
+	}
+	throw new ModelError(
+		"modelCallLimit",
+		"Turn reached the five model request limit",
+	);
+}
+async function requestOnce(
+	input: unknown[],
+	fetchModel: typeof fetch,
+	record: Recorder,
 	config?: ModelConfig,
 ) {
 	const { apiKey, model, reasoningEffort } = config ?? {
@@ -94,7 +153,9 @@ export async function requestModel(
 	const url = "https://openrouter.ai/api/v1/responses";
 	const body = JSON.stringify({
 		model,
-		input: [...messages, { role: "user", content: prompt }],
+		input,
+		tools: [countFilesTool],
+		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use count_files only for these folders or their subdirectories.`,
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
 	});
@@ -102,6 +163,7 @@ export async function requestModel(
 	let upstream: Response | undefined;
 	let raw = "";
 	let completed = false;
+	let protocol: unknown[] = [];
 	let terminalFailure = false;
 	const items = new Map<number, OutputItem>();
 	const item = (index: number, id = "", type = "message") => {
@@ -245,8 +307,9 @@ export async function requestModel(
 				});
 			completed =
 				type === "response.completed" &&
-				response.status !== "failed" &&
-				response.status !== "incomplete";
+				response.status === "completed" &&
+				Array.isArray(response.output);
+			if (completed) protocol = response.output as unknown[];
 			terminalFailure ||= !completed;
 		}
 		if (type === "error") terminalFailure = true;
@@ -307,14 +370,58 @@ export async function requestModel(
 				"modelInvalidResponse",
 				"OpenRouter returned an incomplete response",
 			);
-		const answer = answerText(output(true));
-		if (!answer)
+		const tools: { name: string; arguments: string; call_id: string }[] = [];
+		const callIds = new Set<string>();
+		for (const value of protocol) {
+			const call = object(value);
+			if (typeof call.type !== "string" || !call.type)
+				throw new ModelError(
+					"modelInvalidResponse",
+					"OpenRouter returned an invalid response",
+				);
+			if (call.type !== "function_call") continue;
+			if (
+				typeof call.call_id !== "string" ||
+				!call.call_id.trim() ||
+				callIds.has(call.call_id) ||
+				typeof call.name !== "string" ||
+				typeof call.arguments !== "string"
+			)
+				throw new ModelError(
+					"modelInvalidResponse",
+					"OpenRouter returned an invalid tool call",
+				);
+			callIds.add(call.call_id);
+			tools.push({
+				name: call.name,
+				arguments: call.arguments,
+				call_id: call.call_id,
+			});
+		}
+		const hasAnswer = protocol.some((value) => {
+			const item = object(value);
+			return (
+				item.type === "message" &&
+				Array.isArray(item.content) &&
+				item.content.some((value) => {
+					const part = object(value);
+					const text =
+						part.type === "refusal"
+							? (part.refusal ?? part.text)
+							: part.type === "output_text"
+								? part.text
+								: null;
+					return typeof text === "string" && text.trim().length > 0;
+				})
+			);
+		});
+		if (!hasAnswer && !tools.length)
 			throw new ModelError(
 				"modelNoAnswer",
 				"OpenRouter did not return a text answer",
 			);
 		save("succeeded", null, true);
-		return answer;
+		return { protocol, tools };
 	} catch (error) {
 		// Persistence errors never trigger another write or model call.
 		if (error instanceof PersistenceError) throw error.cause;

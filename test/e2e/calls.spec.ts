@@ -87,11 +87,24 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await request.locator("summary").click();
 	await expect(request.locator("pre")).toContainText('  "model"');
 	await request.getByRole("button", { name: "Copy", exact: true }).click();
+	const history = await (
+		await page.request.get(`${app.url}/api/chats/${chat.id}`)
+	).json();
+	const savedRequests = await (
+		await page.request.get(
+			`${app.url}/api/turns/${history.turns[0].id}/calls?kind=request`,
+		)
+	).json();
+	const requestBody = savedRequests.calls[0].requestBody;
+	expect(JSON.parse(requestBody)).toMatchObject({
+		model: "test",
+		input: [{ role: "user", content: "question" }],
+		stream: true,
+		tools: [{ type: "function", name: "count_files" }],
+	});
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-		.toBe(
-			'{"model":"test","input":[{"role":"user","content":"question"}],"stream":true}',
-		);
+		.toBe(requestBody);
 	await response.locator("summary").click();
 	await expect(response).toContainText("Working");
 	gate.release();

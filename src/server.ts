@@ -83,6 +83,7 @@ const errorMessages: Record<string, string> = {
 	invalidReasoning: "Choose a supported reasoning level",
 	invalidApiKey: "Invalid API key",
 	modelConfigMissing: "OpenRouter configuration is missing",
+	modelCallLimit: "Turn reached the five model request limit",
 };
 class InputError extends Error {
 	code: string;
@@ -1020,6 +1021,13 @@ export function createServer(
 						))
 				)
 					throw new InputError("invalidReasoning");
+				const targetFolders = database
+					.prepare(
+						"SELECT folders.path FROM folders JOIN chats ON chats.project_id=folders.project_id WHERE chats.id=? ORDER BY folders.rowid",
+					)
+					.all(id)
+					.map((row) => String(row.path));
+				const turnConfig = { ...config, targetFolders };
 				busy.add(id);
 				locked = true;
 				let turnId: number;
@@ -1103,7 +1111,7 @@ export function createServer(
 								notifyTurn(id, turnId);
 							},
 						},
-						config,
+						turnConfig,
 					);
 				} catch (error) {
 					failure = error;

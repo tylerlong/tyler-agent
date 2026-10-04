@@ -107,7 +107,7 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 		const body = JSON.parse(String(options?.body));
 		assert.equal(body.stream, true);
 		assert.equal(body.model, "stream-fixture");
-		assert(!("tools" in body));
+		assert.equal(body.tools[0].name, "count_files");
 		return new Response(
 			new ReadableStream({
 				start(controller) {

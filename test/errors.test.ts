@@ -78,7 +78,7 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 			["network", "modelRequestFailed", undefined],
 			["json", "modelInvalidResponse", undefined],
 			["empty", "modelNoAnswer", undefined],
-			["shape", "modelNoAnswer", undefined],
+			["shape", "modelInvalidResponse", undefined],
 		] as const) {
 			failure = kind;
 			const response = await post(`/api/chats/${chat.id}`, {
