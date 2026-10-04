@@ -75,6 +75,13 @@ test("local literal search highlights complete displayed text, navigates only th
 		.poll(() => body.evaluate((el) => el.scrollTop))
 		.toBeGreaterThan(0);
 	expect(await outer.evaluate((el) => el.scrollTop)).toBe(outerTop);
+	const selectedBounds = await response
+		.locator('[data-search-match="1"].bg-orange-300')
+		.boundingBox();
+	const outerBounds = await outer.boundingBox();
+	expect(
+		(selectedBounds?.y ?? 0) + (selectedBounds?.height ?? 0),
+	).toBeLessThanOrEqual((outerBounds?.y ?? 0) + (outerBounds?.height ?? 0) + 1);
 	await input.press("Enter");
 	await expect(counter).toHaveText("1 / 2");
 	await input.press("Shift+Enter");

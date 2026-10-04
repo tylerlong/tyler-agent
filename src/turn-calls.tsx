@@ -220,11 +220,16 @@ export function TurnCalls({
 		);
 		if (target) {
 			const bounds = body.getBoundingClientRect();
+			const outerBounds = body.closest("section")?.getBoundingClientRect();
+			const top = Math.max(bounds.top, outerBounds?.top ?? bounds.top);
+			const bottom = Math.min(
+				bounds.bottom,
+				outerBounds?.bottom ?? bounds.bottom,
+			);
 			const matchBounds = target.getBoundingClientRect();
-			if (matchBounds.top < bounds.top)
-				body.scrollTop += matchBounds.top - bounds.top;
-			else if (matchBounds.bottom > bounds.bottom)
-				body.scrollTop += matchBounds.bottom - bounds.bottom;
+			if (matchBounds.top < top) body.scrollTop += matchBounds.top - top;
+			else if (matchBounds.bottom > bottom)
+				body.scrollTop += matchBounds.bottom - bottom;
 			record.scrollTop = body.scrollTop;
 		}
 		render((value) => value + 1);
