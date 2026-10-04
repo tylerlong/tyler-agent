@@ -58,8 +58,15 @@ test("composer stays visible while reading, paging and returning to a chat prese
 	await expect
 		.poll(async () => (await question.boundingBox())?.y)
 		.toBeCloseTo(before?.y ?? 0, 0);
-	await question.locator("details summary").click();
-	await expect(question.locator("pre")).toContainText('"model"');
+	const turnId = (await question.getAttribute("data-message-id"))?.split(
+		"-",
+	)[0];
+	const request = page
+		.getByRole("log")
+		.locator(`[data-message-id="${turnId}-assistant"] details`)
+		.filter({ has: page.locator("summary", { hasText: /^Request 1$/ }) });
+	await request.locator("summary").click();
+	await expect(request.locator("pre")).toContainText('"model"');
 	const afterPaging = (await scrollState(content)).top;
 	await content.hover();
 	await page.mouse.wheel(0, -200);
@@ -80,7 +87,7 @@ test("composer stays visible while reading, paging and returning to a chat prese
 		.toBeCloseTo(position, 0);
 	await expect(prompt).toHaveValue("saved draft");
 	await expect(prompt).toBeInViewport();
-	await expect(question.locator("details")).toHaveAttribute("open", "");
+	await expect(request).toHaveAttribute("open", "");
 	await content.hover();
 	await page.mouse.wheel(0, 100000);
 	await expect
