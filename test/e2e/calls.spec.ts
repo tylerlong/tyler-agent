@@ -24,7 +24,7 @@ test("large failed responses stay folded and keep the composer visible until req
 	});
 	await page.getByLabel("Prompt").fill("question");
 	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
-	await expect(page.getByRole("alert")).toHaveText(
+	await expect(page.getByRole("log")).toContainText(
 		"OpenRouter request failed.",
 	);
 	await expect(page.getByLabel("Prompt")).toBeInViewport();

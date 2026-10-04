@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
+import { waitForTurn } from "./turn-fixture.ts";
 
 test("accepted questions sort immediately, failures count, rejected questions and answers do not; activity survives restart", async (context) => {
 	const start = Date.now();
@@ -104,20 +105,22 @@ test("accepted questions sort immediately, failures count, rejected questions an
 		);
 		assert.deepEqual(await list(), projects);
 		release();
-		assert.equal((await pending).status, 200);
+		const accepted = await pending;
+		assert.equal(accepted.status, 202);
+		await waitForTurn(url, (await accepted.json()).turnId);
 		projects = await list();
 		assert.equal(projects[0].chats[0].lastQuestionAt, start + 200);
 		assert.equal(projects[0].chats[0].busy, false);
 		time = start + 400;
 		fail = true;
+		const failed = await post(`/api/chats/${b.id}`, {
+			modelId: "test",
+			prompt: "failed question",
+		});
+		assert.equal(failed.status, 202);
 		assert.equal(
-			(
-				await post(`/api/chats/${b.id}`, {
-					modelId: "test",
-					prompt: "failed question",
-				})
-			).status,
-			502,
+			(await waitForTurn(url, (await failed.json()).turnId)).status,
+			"failed",
 		);
 		projects = await list();
 		assert.deepEqual(

@@ -437,6 +437,14 @@ function App() {
 	);
 	const [submitting, setSubmitting] = useState<Set<number>>(() => new Set());
 	const submissionRequests = useRef(new Set<number>());
+	const reconciliationReads = useRef(new Map<number, number>());
+	const [reconciling, setReconciling] = useState<Set<number>>(() => new Set());
+	const confirmBusy = useCallback((id: number, read: number) => {
+		const uncertainRead = reconciliationReads.current.get(id);
+		if (uncertainRead === undefined || read <= uncertainRead) return;
+		reconciliationReads.current.delete(id);
+		setReconciling(new Set(reconciliationReads.current.keys()));
+	}, []);
 	const changeSelectedChat = useCallback((id: number | null) => {
 		const previous = selectedRef.current;
 		if (previous !== null && previous !== id) {
@@ -485,6 +493,7 @@ function App() {
 					cursor = Math.min(cursor ?? pendingId - 1, pendingId - 1);
 				const target = latest.turns.at(-1)?.id;
 				mergeChat(id, latest, false, read);
+				confirmBusy(id, read);
 				// Refresh cached pending records and fill unseen turns in bounded pages.
 				while (
 					cursor !== undefined &&
@@ -523,7 +532,7 @@ function App() {
 				setHistoryErrors((errors) => ({ ...errors, [id]: error }));
 			}
 		},
-		[mergeChat, changeSelectedChat],
+		[mergeChat, changeSelectedChat, confirmBusy],
 	);
 	const refreshTurn = useCallback(
 		async (chatId: number, turnId: number) => {
@@ -534,6 +543,7 @@ function App() {
 				if (cacheRef.current[chatId] || selectedRef.current === chatId)
 					mergeChat(chatId, data, false, read, true);
 				else updateBusy(chatId, data.busy, read);
+				confirmBusy(chatId, read);
 				setHistoryErrors((errors) => ({ ...errors, [chatId]: null }));
 			} catch (cause) {
 				if ((turnReads.current[turnId] ?? 0) <= read)
@@ -543,7 +553,7 @@ function App() {
 					}));
 			}
 		},
-		[mergeChat, updateBusy],
+		[mergeChat, updateBusy, confirmBusy],
 	);
 	async function loadEarlier() {
 		const id = selectedRef.current;
@@ -583,6 +593,7 @@ function App() {
 			chatState?.id !== id ||
 			chatState.busy ||
 			submissionRequests.current.has(id) ||
+			reconciliationReads.current.has(id) ||
 			!(drafts[id] ?? "").trim() ||
 			!modelSettings?.apiKeyConfigured ||
 			modelSettingsError ||
@@ -598,18 +609,39 @@ function App() {
 		setSubmitting(new Set(submissionRequests.current));
 		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
-			await api(`/api/chats/${id}`, "POST", { prompt, ...turnOptions[id] });
+			const { turnId } = await api(`/api/chats/${id}`, "POST", {
+				prompt,
+				...turnOptions[id],
+			});
+			const current = cacheRef.current[id];
+			const accepted = current?.turns.find((turn) => turn.id === turnId);
+			if (current && (!accepted || accepted.status === "pending")) {
+				// Establish execution ownership before releasing the submission lock.
+				updateBusy(id, true, ++readSequence.current);
+				cacheRef.current = {
+					...cacheRef.current,
+					[id]: { ...current, busy: true },
+				};
+				setChatCache(cacheRef.current);
+			}
+			void refreshTurn(id, turnId);
 			if ((draftVersions.current[id] ?? 0) === version)
 				setDrafts((current) => ({ ...current, [id]: "" }));
 		} catch (cause) {
+			const error = appError(cause);
+			if (error.code === "networkFailed" || error.code === "invalidResponse") {
+				// Missing confirmation is ambiguous: keep Send locked until a newer read.
+				reconciliationReads.current.set(id, ++readSequence.current);
+				setReconciling(new Set(reconciliationReads.current.keys()));
+			}
 			setChatErrors((current) => ({
 				...current,
-				[id]: appError(cause),
+				[id]: error,
 			}));
 		} finally {
 			submissionRequests.current.delete(id);
 			setSubmitting(new Set(submissionRequests.current));
-			void refreshChat();
+			void refreshChat(id);
 		}
 	}
 	const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
@@ -1531,6 +1563,7 @@ function App() {
 											event.currentTarget.form?.requestSubmit();
 									}}
 									readOnly={readOnly}
+									disabled={submitting.has(chat.id)}
 									value={drafts[chat.id] ?? ""}
 									onChange={(event) => {
 										draftVersions.current[chat.id] =
@@ -1567,7 +1600,8 @@ function App() {
 											!validTurnOptions(options, modelSettings.models) ||
 											chatState?.id !== chat.id ||
 											chatState.busy ||
-											submitting.has(chat.id)
+											submitting.has(chat.id) ||
+											reconciling.has(chat.id)
 										}
 									>
 										<svg

@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
+import { waitForTurn } from "./turn-fixture.ts";
 
 test("two SSE clients see creations and language changes; reconnection reads current shared state", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-sse-"));
@@ -123,17 +124,19 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 			["data: changed", "data: changed"],
 		);
 		assert.equal((await agree(chat.id)).projects[0].chats[0].id, chat.id);
-		const pending = fetch(`${base}/api/chats/${chat.id}`, {
+		const accepted = await fetch(`${base}/api/chats/${chat.id}`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ modelId: "test", prompt: "question" }),
 		});
+		assert.equal(accepted.status, 202);
+		const { turnId } = await accepted.json();
 		await Promise.all([first.next("turn"), second.next("turn")]);
 		const active = await agree(chat.id);
 		assert.equal(active.chat.busy, true);
 		assert.equal(typeof active.projects[0].chats[0].lastQuestionAt, "number");
 		release();
-		assert.equal((await pending).status, 200);
+		assert.equal((await waitForTurn(base, turnId)).status, "succeeded");
 		await Promise.all([first.next("turn"), second.next("turn")]);
 		const shared = (await agree(chat.id)).chat;
 		assert.equal(shared.busy, false);

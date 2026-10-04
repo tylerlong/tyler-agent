@@ -6,6 +6,14 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, completedResponse } from "./model-fixture.ts";
+import { waitForTurn } from "./turn-fixture.ts";
+
+async function complete(base: string, submitted: Promise<Response>) {
+	const response = await submitted;
+	assert.equal(response.status, 202);
+	const { turnId } = await response.json();
+	return waitForTurn(base, turnId);
+}
 
 test("chat histories are isolated; busy rejects duplicates and allows parallel chats; failures release busy", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-chat-"));
@@ -77,23 +85,29 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 		);
 		assert.equal(
 			(
-				await post(`/api/chats/${b.id}`, {
-					modelId: "test",
-					prompt: "separate",
-				})
+				await complete(
+					base,
+					post(`/api/chats/${b.id}`, {
+						modelId: "test",
+						prompt: "separate",
+					}),
+				)
 			).status,
-			200,
+			"succeeded",
 		);
 		release();
-		assert.equal((await first).status, 200);
+		assert.equal((await complete(base, first)).status, "succeeded");
 		assert.equal(
 			(
-				await post(`/api/chats/${a.id}`, {
-					modelId: "test",
-					prompt: "followup",
-				})
+				await complete(
+					base,
+					post(`/api/chats/${a.id}`, {
+						modelId: "test",
+						prompt: "followup",
+					}),
+				)
 			).status,
-			200,
+			"succeeded",
 		);
 		assert.deepEqual(inputs, [
 			[{ role: "user", content: "first" }],
@@ -106,9 +120,13 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 		]);
 		fail = true;
 		assert.equal(
-			(await post(`/api/chats/${a.id}`, { modelId: "test", prompt: "failure" }))
-				.status,
-			502,
+			(
+				await complete(
+					base,
+					post(`/api/chats/${a.id}`, { modelId: "test", prompt: "failure" }),
+				)
+			).status,
+			"failed",
 		);
 		const saved = await (await fetch(`${base}/api/chats/${a.id}`)).json();
 		assert.equal(saved.messages.length, 6);
@@ -116,9 +134,13 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 		assert.equal(saved.busy, false);
 		fail = false;
 		assert.equal(
-			(await post(`/api/chats/${a.id}`, { modelId: "test", prompt: "retry" }))
-				.status,
-			200,
+			(
+				await complete(
+					base,
+					post(`/api/chats/${a.id}`, { modelId: "test", prompt: "retry" }),
+				)
+			).status,
+			"succeeded",
 		);
 		assert.deepEqual(inputs.at(-1), [
 			{ role: "user", content: "first" },
@@ -174,8 +196,13 @@ test("all model and database failures preserve complete history and release chat
 		).json();
 		const route = `/api/chats/${chat.id}`;
 		assert.equal(
-			(await post(route, { modelId: "test", prompt: "saved question" })).status,
-			200,
+			(
+				await complete(
+					url,
+					post(route, { modelId: "test", prompt: "saved question" }),
+				)
+			).status,
+			"succeeded",
 		);
 		for (mode of ["network", "parse", "empty", "db"]) {
 			const db = new DatabaseSync(path);
@@ -185,9 +212,14 @@ test("all model and database failures preserve complete history and release chat
 				);
 			try {
 				assert.equal(
-					(await post(route, { modelId: "test", prompt: "failed question" }))
-						.status,
-					mode === "db" ? 500 : 502,
+					(mode === "db"
+						? await post(route, { modelId: "test", prompt: "failed question" })
+						: await complete(
+								url,
+								post(route, { modelId: "test", prompt: "failed question" }),
+							)
+					).status,
+					mode === "db" ? 500 : "failed",
 				);
 				const state = await (await fetch(url + route)).json();
 				assert.equal(
@@ -205,8 +237,9 @@ test("all model and database failures preserve complete history and release chat
 		mode = "ok";
 		await rm(folder, { recursive: true });
 		assert.equal(
-			(await post(route, { modelId: "test", prompt: "retry" })).status,
-			200,
+			(await complete(url, post(route, { modelId: "test", prompt: "retry" })))
+				.status,
+			"succeeded",
 		);
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -308,7 +341,7 @@ test("turn communication is exact, redacted, independently readable and survives
 			{ role: "user", content: "question [REDACTED]" },
 		]);
 		release();
-		assert.equal((await first).status, 200);
+		assert.equal((await complete(url, first)).status, "succeeded");
 		calls = (await get(`/api/turns/${turnId}/calls`)).calls;
 		assert.equal(
 			calls[0].responseBody,
@@ -328,16 +361,16 @@ test("turn communication is exact, redacted, independently readable and survives
 		assert.equal((await fetch(`${url}/api/debug`)).status, 404);
 		assert(!("headers" in calls[0]));
 		for (mode of ["network", "read", "bad"]) {
-			const submission = await post(route, {
-				modelId: "fixture",
-				prompt: mode,
-			});
-			assert.equal(submission.status, 502);
+			const submission = await complete(
+				url,
+				post(route, {
+					modelId: "fixture",
+					prompt: mode,
+				}),
+			);
+			assert.equal(submission.status, "failed");
 			if (mode === "bad")
-				assert.doesNotMatch(
-					JSON.stringify(await submission.json()),
-					/not JSON/,
-				);
+				assert.doesNotMatch(JSON.stringify(submission), /not JSON/);
 			history = await get(route);
 			if (mode === "bad")
 				assert.doesNotMatch(JSON.stringify(history), /not JSON/);
@@ -385,8 +418,13 @@ test("turn communication is exact, redacted, independently readable and survives
 		);
 		const before = count;
 		assert.equal(
-			(await post(route, { modelId: "fixture", prompt: "not sent" })).status,
-			500,
+			(
+				await complete(
+					url,
+					post(route, { modelId: "fixture", prompt: "not sent" }),
+				)
+			).status,
+			"failed",
 		);
 		assert.equal(count, before);
 		db.exec("DROP TRIGGER reject_request");
@@ -394,12 +432,23 @@ test("turn communication is exact, redacted, independently readable and survives
 			"CREATE TRIGGER reject_complete BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'no result write');END",
 		);
 		assert.equal(
-			(await post(route, { modelId: "fixture", prompt: "interrupted" })).status,
-			500,
+			(
+				await complete(
+					url,
+					post(route, { modelId: "fixture", prompt: "interrupted" }),
+				)
+			).status,
+			"failed",
 		);
 		history = await get(route);
 		const interrupted = history.turns.at(-1);
-		assert.equal(interrupted.status, "pending");
+		assert.equal(interrupted.status, "failed");
+		assert.equal(interrupted.errorCode, "answerWriteFailed");
+		assert.equal(
+			db.prepare("SELECT status FROM turns WHERE id=?").get(interrupted.id)
+				?.status,
+			"pending",
+		);
 		assert.equal(
 			(await get(`/api/turns/${interrupted.id}/calls`)).calls[0].responseBody,
 			null,

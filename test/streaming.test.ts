@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
+import { waitForIdle, waitForTurn } from "./turn-fixture.ts";
 
 const item = (id: string, text: string) => ({
 	id,
@@ -59,6 +60,8 @@ async function fixture(fake: typeof fetch) {
 		chat,
 		post,
 		get,
+		wait: (id: number) => waitForTurn(base, id),
+		waitForIdle: (id: number) => waitForIdle(base, id),
 		events: (signal: AbortSignal) => fetch(`${base}/api/events`, { signal }),
 		restart: async () => {
 			await stop();
@@ -124,10 +127,12 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 		]);
 		assert.equal(await a(), ": connected");
 		assert.equal(await b(), ": connected");
-		const pending = f.post(`/api/chats/${f.chat.id}`, {
+		const pending = await f.post(`/api/chats/${f.chat.id}`, {
 			modelId: "stream-fixture",
 			prompt: "question",
 		});
+		assert.equal(pending.status, 202);
+		const acceptedId = (await pending.json()).turnId;
 		const [acceptedA, acceptedB] = await Promise.all([a(), b()]);
 		assert.equal(acceptedA, acceptedB);
 		assert.match(acceptedA, /event: turn/);
@@ -204,7 +209,7 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 		});
 		stream.enqueue(new TextEncoder().encode(final));
 		stream.close();
-		assert.equal((await pending).status, 200);
+		assert.equal((await f.wait(acceptedId)).status, "succeeded");
 		const result = (await f.get(`/api/turns/${turnId}`)).turns[0];
 		assert.equal(result.status, "succeeded");
 		assert.deepEqual(
@@ -260,9 +265,10 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 				modelId: "stream-fixture",
 				prompt: "failed question",
 			});
-			assert.equal(response.status, 502);
+			assert.equal(response.status, 202);
+			const completedTurn = await f.wait((await response.json()).turnId);
 			assert.doesNotMatch(
-				JSON.stringify(await response.json()),
+				JSON.stringify(completedTurn),
 				/private provider body|broken/,
 			);
 			const history = await f.get(`/api/chats/${f.chat.id}`);
@@ -276,24 +282,28 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 			);
 		}
 		raw = completedBody({ output: [item("m0", "saved")] });
-		assert.equal(
-			(
-				await f.post(`/api/chats/${f.chat.id}`, {
-					modelId: "stream-fixture",
-					prompt: "success",
-				})
-			).status,
-			200,
-		);
-		assert.equal(
-			(
-				await f.post(`/api/chats/${f.chat.id}`, {
-					modelId: "stream-fixture",
-					prompt: "followup",
-				})
-			).status,
-			200,
-		);
+		{
+			const accepted = await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "success",
+			});
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await f.wait((await accepted.json()).turnId)).status,
+				"succeeded",
+			);
+		}
+		{
+			const accepted = await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "followup",
+			});
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await f.wait((await accepted.json()).turnId)).status,
+				"succeeded",
+			);
+		}
 		assert.deepEqual(inputs.at(-1), [
 			{ role: "user", content: "success" },
 			{ role: "assistant", content: "saved" },
@@ -323,21 +333,25 @@ test("split credentials are redacted before storage; later failed writes retain 
 		db.exec(
 			"CREATE TRIGGER reject_request BEFORE INSERT ON model_calls BEGIN SELECT RAISE(ABORT,'rejected'); END",
 		);
-		assert.equal(
-			(
-				await f.post(`/api/chats/${f.chat.id}`, {
-					modelId: "stream-fixture",
-					prompt: "not sent",
-				})
-			).status,
-			500,
-		);
+		{
+			const accepted = await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "not sent",
+			});
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await f.wait((await accepted.json()).turnId)).status,
+				"failed",
+			);
+		}
 		assert.equal(requests, 0);
 		db.exec("DROP TRIGGER reject_request");
-		const pending = f.post(`/api/chats/${f.chat.id}`, {
+		const pending = await f.post(`/api/chats/${f.chat.id}`, {
 			modelId: "stream-fixture",
 			prompt: "accepted",
 		});
+		assert.equal(pending.status, 202);
+		const acceptedId = (await pending.json()).turnId;
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		const raw =
 			frame("unknown.event", { echo: "stream-secret" }) +
@@ -377,9 +391,15 @@ test("split credentials are redacted before storage; later failed writes retain 
 		);
 		stream.enqueue(new TextEncoder().encode(delta(" unsaved")));
 		stream.close();
-		assert.equal((await pending).status, 500);
+		await f.waitForIdle(acceptedId);
 		const retained = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
-		assert.equal(retained.status, "pending");
+		assert.equal(retained.status, "failed");
+		assert.equal(retained.errorCode, "answerWriteFailed");
+		assert.equal(
+			db.prepare("SELECT status FROM turns WHERE id=?").get(retained.id)
+				?.status,
+			"pending",
+		);
 		assert.equal(retained.output[0].content[0].text, "saved");
 		db.exec("DROP TRIGGER reject_progress");
 		await f.restart();
@@ -416,10 +436,12 @@ for (const httpStatus of [200, 503])
 			);
 		});
 		try {
-			const pending = f.post(`/api/chats/${f.chat.id}`, {
+			const pending = await f.post(`/api/chats/${f.chat.id}`, {
 				modelId: "stream-fixture",
 				prompt: "question",
 			});
+			assert.equal(pending.status, 202);
+			const acceptedId = (await pending.json()).turnId;
 			while (!stream) await new Promise((resolve) => setImmediate(resolve));
 			const raw =
 				httpStatus === 200
@@ -435,10 +457,10 @@ for (const httpStatus of [200, 503])
 				saved = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
 			}
 			stream.error(new Error("private upstream body stream-secret"));
-			const response = await pending;
-			assert.equal(response.status, 502);
+			const completedTurn = await f.wait(acceptedId);
+			assert.equal(completedTurn.status, "failed");
 			assert.doesNotMatch(
-				JSON.stringify(await response.json()),
+				JSON.stringify(completedTurn),
 				/private upstream body|stream-secret/,
 			);
 			const history = await f.get(`/api/chats/${f.chat.id}`);
@@ -485,10 +507,12 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 			},
 		});
 	try {
-		const pending = f.post(`/api/chats/${f.chat.id}`, {
+		const pending = await f.post(`/api/chats/${f.chat.id}`, {
 			modelId: "stream-fixture",
 			prompt: "think",
 		});
+		assert.equal(pending.status, 202);
+		const acceptedId = (await pending.json()).turnId;
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		stream.enqueue(
 			new TextEncoder().encode(
@@ -556,7 +580,7 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 		assert.equal(details.output[0].content[1].text, "brief grows!");
 		assert.equal((await f.get(`/api/turns/${id}`)).turns[0].status, "pending");
 		stream.close();
-		assert.equal((await pending).status, 502);
+		assert.equal((await f.wait(acceptedId)).status, "failed");
 		await f.restart();
 		assert.equal((await f.get(`/api/turns/${id}`)).turns[0].status, "failed");
 		assert.equal(
@@ -590,10 +614,12 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 	try {
 		const initial = await f.events(first.signal).then(events);
 		assert.equal(await initial(), ": connected");
-		const submitted = f.post(`/api/chats/${f.chat.id}`, {
+		const submitted = await f.post(`/api/chats/${f.chat.id}`, {
 			modelId: "stream-fixture",
 			prompt: "recover",
 		});
+		assert.equal(submitted.status, 202);
+		const acceptedId = (await submitted.json()).turnId;
 		const turnId = JSON.parse((await initial()).split("data: ")[1]).turnId;
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		first.abort();
@@ -634,7 +660,7 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 			409,
 		);
 		stream.close();
-		assert.equal((await submitted).status, 502);
+		assert.equal((await f.wait(acceptedId)).status, "failed");
 		assert.equal((await f.get(`/api/turns/${turnId}`)).busy, false);
 		assert.equal(requests, 1);
 	} finally {

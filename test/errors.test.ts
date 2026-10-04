@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, completedResponse } from "./model-fixture.ts";
+import { waitForTurn } from "./turn-fixture.ts";
 
 test("HTTP errors provide stable identifiers independent of interface language", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-errors-"));
@@ -38,7 +39,7 @@ test("HTTP errors provide stable identifiers independent of interface language",
 	}
 });
 
-test("HTTP model failures return concise errors and keep redacted bodies in communication records", async () => {
+test("accepted model failures persist concise errors and keep redacted bodies in communication records", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-model-errors-"));
 	let failure = "upstream";
 	const fake: typeof fetch = async () => {
@@ -73,25 +74,25 @@ test("HTTP model failures return concise errors and keep redacted bodies in comm
 		const chat = await (
 			await post(`/api/projects/${project.id}/chats`, { name: "C" })
 		).json();
-		for (const [kind, code, details] of [
-			["upstream", "modelRequestFailed", undefined],
-			["network", "modelRequestFailed", undefined],
-			["json", "modelInvalidResponse", undefined],
-			["empty", "modelNoAnswer", undefined],
-			["shape", "modelInvalidResponse", undefined],
+		for (const [kind, code] of [
+			["upstream", "modelRequestFailed"],
+			["network", "modelRequestFailed"],
+			["json", "modelInvalidResponse"],
+			["empty", "modelNoAnswer"],
+			["shape", "modelInvalidResponse"],
 		] as const) {
 			failure = kind;
 			const response = await post(`/api/chats/${chat.id}`, {
 				modelId: "test-model",
 				prompt: "question",
 			});
-			assert.equal(response.status, 502);
-			const body = await response.json();
-			assert.equal(body.code, code);
-			assert.equal(body.details, details);
+			assert.equal(response.status, 202);
+			const body = await waitForTurn(url, (await response.json()).turnId);
+			assert.equal(body.status, "failed");
+			assert.equal(body.errorCode, code);
 			assert.doesNotMatch(
 				JSON.stringify(body),
-				/secret|provider detail|malformed body|output/,
+				/secret|provider detail|malformed body/,
 			);
 			const history = await (await fetch(`${url}/api/chats/${chat.id}`)).json();
 			const calls = await (

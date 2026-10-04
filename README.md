@@ -43,7 +43,9 @@ project 可以有零个或多个文件夹，无需选择目录即可创建。添
 
 每个 project 可创建多个具名 chat，空 chat 立即保存，不自动生成 chat。创建成功后仅当前页面选中它；其他页面通过 SSE 更新列表，不改变选择或折叠。项目默认展开，折叠状态仅当前页面有效。右侧显示所选 project/chat 和只读文件夹；没有选择时，首页提示从侧栏选择对话或在所属项目内创建；没有可写项目时提示使用侧栏 New project。初始项目读取显示加载，失败显示错误与 Retry，不冒充空列表，已有可用列表保留。
 
-每个 chat 的提问与追问仅使用自己的成功历史。每次服务器已接受的问题成为持久化 Turn，历史显示进行中、成功或失败；失败保留问题和错误，但不会进入后续模型上下文。草稿可修改重试，每次重新提交产生新的 Turn。发送前写入失败不会调用模型；完成结果写入失败明确报错，不自动重发，也不声称结果已保存。busy 由 server 按 chat 保存：同 chat 请求进行中时所有页面禁止再次提交，server 返回 409；不同 chat（包括同项目）可以同时请求。侧栏使用 chat 行最右侧（操作菜单之后）的 16px 旋转圆环标记 server 已接受且尚未结束的 Turn；提交接受前不显示，成功或失败后消失。所有行预留状态位置，名称与菜单不会位移。未选中、同时运行及归档中的 chat 同样显示；折叠项目不额外汇总状态。圆环不可点击，提供本地化“运行中”无障碍状态，系统减少动态效果时改为静态圆环，无需 GIF 或动画库。目录之后失效也不阻止纯文本聊天。
+提交接口在校验及保存 pending Turn/活动数据的事务成功后立即返回 HTTP 202 和 `{ turnId }`，表示已接受，不包含最终回答或表示执行成功。模型/工具循环继续在 server 运行；关闭页面或断开确认连接不取消已接受任务。进度及终态通过现有 SSE 和 Turn/历史读取同步，busy 持续覆盖整个执行。接受前的拒绝属于提交错误；已接受任务的模型、工具循环或结果保存错误属于该 Turn，保存失败显示无法保存的错误，不声称未保存结果已保存。
+
+每个 chat 的提问与追问仅使用自己的成功历史。每次服务器已接受的问题成为持久化 Turn，历史显示进行中、成功或失败；失败保留问题和错误，但不会进入后续模型上下文。失败的问题保留在历史中，可手动复制后重新提交，每次重新提交产生新的 Turn。发送前写入失败不会调用模型；完成结果写入失败明确报错，不自动重发，也不声称结果已保存。busy 由 server 按 chat 保存：同 chat 请求进行中时所有页面禁止再次提交，server 返回 409；不同 chat（包括同项目）可以同时请求。侧栏使用 chat 行最右侧（操作菜单之后）的 16px 旋转圆环标记 server 已接受且尚未结束的 Turn；提交接受前不显示，成功或失败后消失。所有行预留状态位置，名称与菜单不会位移。未选中、同时运行及归档中的 chat 同样显示；折叠项目不额外汇总状态。圆环不可点击，提供本地化“运行中”无障碍状态，系统减少动态效果时改为静态圆环，无需 GIF 或动画库。目录之后失效也不阻止纯文本聊天。
 
 Sidebar work status: a noninteractive 16px CSS ring appears after the chat actions menu while the server reports an ongoing Turn. Every row reserves the slot so names/actions stay aligned. It covers unselected, parallel and archived work and recovers through existing refresh/reconnect synchronization; there is no pre-acceptance or project aggregate indicator. Reduced-motion preference makes the localized Working status static.
 
@@ -109,7 +111,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖本地计数、隐藏和特殊文件名、路径范围、工具错误修正、完成协议、五次调用上限、多次调用通信与整个 Turn 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE/Copy、分页和阅读锚点；分页不截断完整成功上下文，失败部分内容不进入模型上下文。
+自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖本地计数、隐藏和特殊文件名、路径范围、工具错误修正、完成协议、五次调用上限、多次调用通信与整个 Turn 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE/Copy、分页和阅读锚点；分页不截断完整成功上下文，失败部分内容不进入模型上下文。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。
 
@@ -192,7 +194,7 @@ OpenRouter 通信始终保存到 SQLite，已移除 terminal 通信日志、Sett
 
 ### 固定输入区与阅读位置
 
-右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，底部圆角输入区固定：Prompt 提示放在 placeholder，输入框从约 2 行随草稿增长/缩小，到约 8 行后内部滚动；框内右下角箭头发送按钮始终可见且尺寸固定；空白、只读、配置缺失或无效选择时禁用。从点击发送开始到整个 Turn 成功或失败结束持续禁用；提交前失败后按当前条件重新判断。期间仍可编辑本地草稿与提问选项，不改变已提交请求，不自动重试。底部控件始终留在输入区；左侧固定头尾及列表滚动保持独立。加载更早记录、文本增量增长及展开/折叠保持正在阅读的内容锚点，即使已展开的思考或通信正文很长。
+右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，底部圆角输入区固定：Prompt 提示放在 placeholder，输入框从约 2 行随草稿增长/缩小，到约 8 行后内部滚动；框内右下角箭头发送按钮始终可见且尺寸固定；空白、只读、配置缺失或无效选择时禁用。Send 从点击发送开始到整个 Turn 成功或失败结束持续禁用。确认提交期间保留原文并暂时禁用原 Chat 的输入框；HTTP 202 确认后清空提交页原 Chat 的草稿并恢复编辑，可准备下一条草稿。执行成功、失败或中断不会清空或回填下一条草稿。接受前拒绝保留原文并恢复编辑，按当前条件重新判断 Send；确认网络失败同样保留原文、恢复编辑并核对历史和 busy，未收到确认不代表拒绝。可以切换 Chat，确认不影响后来选中 Chat 或其它页面的草稿；提问选项仍可编辑，不改变已捕获请求，不自动重试。底部控件始终留在输入区；左侧固定头尾及列表滚动保持独立。加载更早记录、文本增量增长及展开/折叠保持正在阅读的内容锚点，即使已展开的思考或通信正文很长。
 
 首次打开 chat 显示最新内容，自己提交后跟随到底部（包括进行中与回答完成）。其他页面产生的新内容或状态变化只在本来位于底部时跟随，阅读旧内容时不跳转。每个 chat 的阅读位置仅保存在当前页面；切走再返回恢复原位置，即使期间新增轮次，也不强制跳到最新。已下载历史、草稿和通信展开状态继续保留；整页刷新后重新加载最新 10 个并显示底部，不使用 localStorage 或 cookie 保存阅读位置。
 
@@ -202,4 +204,4 @@ Each writable Project keeps its + action. An expanded Project with no visible no
 
 每个可写项目保留 +；展开且没有可见未归档对话时，另显示新建对话按钮，包括仅有归档对话的项目。有对话或折叠时隐藏行内入口，归档项目不提供创建。两种入口都打开标明所属项目的原创建框，仅点击创建后保存，取消保留草稿，创建项目不自动创建对话。首页提示在所属项目内选择或创建；无可写项目时提示侧栏新建项目，仍可访问已归档数据。项目初始加载、可重试读取失败和成功空列表分别显示，失败保留已有列表。所选对话只有在成功加载空历史后才提示输入第一个问题；加载与失败分别显示，可重试，缓存和部分内容保留。归档对话继续显示只读及恢复提示；未知对话 ID 返回首页。
 
-The lower-right Send button stays visible at a fixed size, including empty drafts. Whitespace, read-only state, unavailable configuration or invalid options disable it. It disables immediately on submission and throughout the whole Turn, then recomputes availability after success, failure or rejection. Prompt and Turn Options edits remain local for the next submission; no automatic retry occurs. Fixed footer space prevents visibility or enabled-state changes from moving the input, while multiline drafts still grow and shrink normally.
+The lower-right Send button stays visible at a fixed size, including empty drafts. Whitespace, read-only state, unavailable configuration or invalid options disable it. It disables immediately on submission and throughout the whole Turn, then recomputes availability after success, failure or rejection. Prompt stays visible and temporarily disabled until submission confirmation. Acceptance clears only the originating page and Chat draft and restores editing; later execution outcomes preserve the next draft. Rejection or lost acknowledgment preserves the original text; lost acknowledgment refreshes history and busy without automatically retrying. Turn Options edits remain local for the next submission. Fixed footer space prevents visibility or enabled-state changes from moving the input, while multiline drafts still grow and shrink normally.

@@ -233,16 +233,16 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await fresh.getByRole("button", { name: "取消", exact: true }).click();
 	app.failModel();
 	await page.getByRole("button", { name: /^发送(?: \(.+\))?$/ }).click();
-	await expect(page.getByRole("alert")).toHaveText("OpenRouter 请求失败。");
+	await expect(page.getByRole("log")).toContainText("OpenRouter 请求失败。");
 	await page.request.put(`${app.url}/api/language`, {
 		data: { language: "en" },
 	});
-	await expect(page.getByRole("alert")).toHaveText(
+	await expect(page.getByRole("log")).toContainText(
 		"OpenRouter request failed.",
 	);
 	await expect(
 		page.getByRole("textbox", { name: "Prompt", exact: true }),
-	).toHaveValue("question draft 原样");
+	).toHaveValue("");
 	await page
 		.getByRole("button", { name: "Project actions", exact: true })
 		.click();

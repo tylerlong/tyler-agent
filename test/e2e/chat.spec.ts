@@ -143,7 +143,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	await expect(page.getByRole("log")).toContainText("original question");
 });
 
-test("a failed request belongs to its chat and successful retry clears the error", async ({
+test("a failed accepted turn stays in history and user resubmission succeeds", async ({
 	page,
 	app,
 }) => {
@@ -163,14 +163,13 @@ test("a failed request belongs to its chat and successful retry clears the error
 	app.failModel();
 	await page.getByLabel("Prompt").fill("retry me");
 	await submit.click();
-	await expect(page.getByRole("alert")).toHaveText(
-		"OpenRouter request failed.",
-	);
-	await expect(page.getByLabel("Prompt")).toHaveValue("retry me");
+	await expect(page.getByLabel("Prompt")).toHaveValue("");
 	await expect(page.getByRole("log")).toContainText("retry me");
 	await expect(page.getByRole("log")).toContainText(
 		"OpenRouter request failed.",
 	);
+	await expect(submit).toBeDisabled();
+	await page.getByLabel("Prompt").fill("retry me");
 	await expect(submit).toBeEnabled();
 	await submit.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");

@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createTestServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
+import { waitForTurn } from "./turn-fixture.ts";
 
 test("history restores a same-request pair across all statuses and pages, skipping unreadable calls only", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-options-"));
@@ -208,7 +209,12 @@ test("chosen model/effort are validated before acceptance and immutable through 
 			db.prepare("UPDATE settings SET api_key='new-key'").run();
 			db.prepare("DELETE FROM managed_models WHERE id='chosen'").run();
 			release();
-			assert.equal((await pending).status, 502);
+			const accepted = await pending;
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await waitForTurn(base, (await accepted.json()).turnId)).status,
+				"failed",
+			);
 			assert.deepEqual(requests[0].reasoning, { effort: "high" });
 			assert.equal(requests[0].model, "chosen");
 			const history = await (await request(route)).json();
@@ -222,27 +228,21 @@ test("chosen model/effort are validated before acceptance and immutable through 
 				/"test"/,
 			);
 			fail = false;
-			assert.equal(
-				(
-					await request(route, "POST", {
-						prompt: "Q",
-						modelId: "plain",
-						reasoningEffort: null,
-					})
-				).status,
-				200,
-			);
+			const plain = await request(route, "POST", {
+				prompt: "Q",
+				modelId: "plain",
+				reasoningEffort: null,
+			});
+			assert.equal(plain.status, 202);
+			await waitForTurn(base, (await plain.json()).turnId);
 			assert(!("reasoning" in requests[1]));
-			assert.equal(
-				(
-					await request(route, "POST", {
-						prompt: "Q",
-						modelId: "gateway",
-						reasoningEffort: "xhigh",
-					})
-				).status,
-				200,
-			);
+			const gateway = await request(route, "POST", {
+				prompt: "Q",
+				modelId: "gateway",
+				reasoningEffort: "xhigh",
+			});
+			assert.equal(gateway.status, 202);
+			await waitForTurn(base, (await gateway.json()).turnId);
 			assert.deepEqual(requests[2].reasoning, { effort: "xhigh" });
 			assert.deepEqual((await (await request(route)).json()).turnOptions, {
 				modelId: "gateway",

@@ -14,6 +14,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createTestServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
+import { waitForIdle, waitForTurn } from "./turn-fixture.ts";
 
 const message = (text: string) => ({
 	id: "answer",
@@ -68,6 +69,8 @@ async function fixture(fake: typeof fetch, roots: string[]) {
 			base = `http://127.0.0.1:${address.port}`;
 		},
 		get,
+		wait: (id: number) => waitForTurn(base, id),
+		waitForIdle: (id: number) => waitForIdle(base, id),
 		send,
 		project,
 		chat,
@@ -142,7 +145,12 @@ test("Turn counts a real tree and continues with complete protocol context while
 		[root],
 	);
 	try {
-		assert.equal((await f.ask()).status, 200);
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		assert.equal(
+			(await f.wait((await accepted.json()).turnId)).status,
+			"succeeded",
+		);
 		const history = await f.get(`/api/chats/${f.chat.id}`);
 		assert.equal(history.turns[0].status, "succeeded");
 		assert.equal(history.turns[0].answer, "Counting\n109 files");
@@ -245,7 +253,12 @@ test("Tool Results reject invalid scope and arguments and let the model correct 
 		[join(base, "configured-link"), second],
 	);
 	try {
-		assert.equal((await f.ask()).status, 200);
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		assert.equal(
+			(await f.wait((await accepted.json()).turnId)).status,
+			"succeeded",
+		);
 		assert.equal(request, 3);
 		assert.deepEqual(await readdir(root), ["empty", "escape"]);
 	} finally {
@@ -264,7 +277,12 @@ test("a tool request with no target folders gets a scope error without gating te
 		return new Response(completed([message("no configured folders")]));
 	}, []);
 	try {
-		assert.equal((await f.ask()).status, 200);
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		assert.equal(
+			(await f.wait((await accepted.json()).turnId)).status,
+			"succeeded",
+		);
 		assert.equal(request, 2);
 	} finally {
 		await f.close();
@@ -293,10 +311,9 @@ for (const finalAnswer of [true, false])
 		}, []);
 		try {
 			const response = await f.ask();
-			assert.equal(response.status, finalAnswer ? 200 : 502);
-			if (!finalAnswer)
-				assert.equal((await response.json()).code, "modelCallLimit");
-			const turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+			assert.equal(response.status, 202);
+			const turn = await f.wait((await response.json()).turnId);
+			if (!finalAnswer) assert.equal(turn.errorCode, "modelCallLimit");
 			assert.equal(turn.status, finalAnswer ? "succeeded" : "failed");
 			assert.match(
 				turn.answer,
@@ -330,7 +347,12 @@ for (const output of [
 			return new Response(completed(output));
 		}, []);
 		try {
-			assert.equal((await f.ask()).status, 502);
+			const accepted = await f.ask();
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await f.wait((await accepted.json()).turnId)).status,
+				"failed",
+			);
 			assert.equal(requests, 1);
 		} finally {
 			await f.close();
@@ -352,7 +374,12 @@ for (const terminal of [
 			return new Response(terminal);
 		}, []);
 		try {
-			assert.equal((await f.ask()).status, 502);
+			const accepted = await f.ask();
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await f.wait((await accepted.json()).turnId)).status,
+				"failed",
+			);
 			assert.equal(requests, 1);
 		} finally {
 			await f.close();
@@ -373,7 +400,12 @@ test("remote continuation failure retains saved prior and partial output without
 				);
 	}, []);
 	try {
-		assert.equal((await f.ask()).status, 502);
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		assert.equal(
+			(await f.wait((await accepted.json()).turnId)).status,
+			"failed",
+		);
 		assert.equal(requests, 2);
 		const turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
 		assert.equal(turn.status, "failed");
@@ -422,7 +454,9 @@ test("an accepted Turn keeps its target scope and selected credentials while set
 		[root],
 	);
 	try {
-		const pending = f.ask();
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		const { turnId } = await accepted.json();
 		await started;
 		assert.equal(
 			(
@@ -442,7 +476,7 @@ test("an accepted Turn keeps its target scope and selected credentials while set
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
 		assert.equal((await f.ask()).status, 409);
 		release();
-		assert.equal((await pending).status, 200);
+		assert.equal((await f.wait(turnId)).status, "succeeded");
 		assert.equal(requests, 2);
 	} finally {
 		release();
@@ -481,7 +515,12 @@ test("failed file-count execution returns actual status and bounded diagnostics,
 	);
 	try {
 		process.env.PATH = bin;
-		assert.equal((await f.ask()).status, 200);
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		assert.equal(
+			(await f.wait((await accepted.json()).turnId)).status,
+			"succeeded",
+		);
 		assert.equal(requests, 2);
 	} finally {
 		process.env.PATH = originalPath;
@@ -522,7 +561,12 @@ for (const mode of ["missing", "timeout"] as const)
 		);
 		try {
 			process.env.PATH = bin;
-			assert.equal((await f.ask()).status, 200);
+			const accepted = await f.ask();
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await f.wait((await accepted.json()).turnId)).status,
+				"succeeded",
+			);
 			assert.equal(requests, 2);
 		} finally {
 			process.env.PATH = originalPath;
@@ -543,7 +587,12 @@ test("a completed final response must itself contain a usable answer", async () 
 		[],
 	);
 	try {
-		assert.equal((await f.ask()).status, 502);
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		assert.equal(
+			(await f.wait((await accepted.json()).turnId)).status,
+			"failed",
+		);
 		const turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
 		assert.equal(turn.answer, "partial");
 		assert.equal(turn.status, "failed");
@@ -568,10 +617,17 @@ test("a continuation persistence failure preserves prior calls and restart inter
 		db.exec(
 			"CREATE TRIGGER reject_failure BEFORE UPDATE OF status ON turns WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'rejected'); END",
 		);
-		assert.equal((await f.ask()).status, 500);
+		const accepted = await f.ask();
+		assert.equal(accepted.status, 202);
+		await f.waitForIdle((await accepted.json()).turnId);
 		assert.equal(requests, 1);
 		let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		assert.equal(turn.status, "pending");
+		assert.equal(turn.status, "failed");
+		assert.equal(turn.errorCode, "answerWriteFailed");
+		assert.equal(
+			db.prepare("SELECT status FROM turns WHERE id=?").get(turn.id)?.status,
+			"pending",
+		);
 		assert.equal(turn.answer, "saved first");
 		assert.equal((await f.get(`/api/turns/${turn.id}/calls`)).calls.length, 1);
 		db.exec("DROP TRIGGER reject_continuation; DROP TRIGGER reject_failure");
@@ -595,7 +651,12 @@ for (const status of ["in_progress", "incomplete"])
 			return new Response(completed([{ ...tool("/tmp"), status }]));
 		}, []);
 		try {
-			assert.equal((await f.ask()).status, 502);
+			const accepted = await f.ask();
+			assert.equal(accepted.status, 202);
+			assert.equal(
+				(await f.wait((await accepted.json()).turnId)).status,
+				"failed",
+			);
 			assert.equal(requests, 1);
 		} finally {
 			await f.close();

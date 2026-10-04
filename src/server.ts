@@ -172,6 +172,11 @@ export function createServer(
 	);
 	const home = homedir();
 	const busy = new Set<number>();
+	const unsavedTurns = new Set<number>();
+	const persistenceError = (turnId: unknown) =>
+		unsavedTurns.has(Number(turnId))
+			? { status: "failed", errorCode: "answerWriteFailed" }
+			: {};
 	const projects = () =>
 		listProjects(database).map((project) => ({
 			...project,
@@ -199,6 +204,7 @@ export function createServer(
 		const more = rows.length > 10;
 		const page = rows.slice(0, 10).map((row) => ({
 			...row,
+			...persistenceError(row.id),
 			output: outputSummary(JSON.parse(String(row.output))),
 		}));
 		if (after === null) page.reverse();
@@ -877,7 +883,11 @@ export function createServer(
 				return;
 			}
 			const turns = [
-				{ ...row, output: outputSummary(JSON.parse(String(row.output))) },
+				{
+					...row,
+					...persistenceError(row.id),
+					output: outputSummary(JSON.parse(String(row.output))),
+				},
 			];
 			json(response, 200, {
 				turns,
@@ -1054,6 +1064,7 @@ export function createServer(
 					throw error;
 				}
 				acceptedTurnId = turnId;
+				json(response, 202, { turnId });
 				notifyChange();
 				let answer: string | undefined;
 				let failure: unknown;
@@ -1137,18 +1148,21 @@ export function createServer(
 					database.exec("ROLLBACK");
 					throw error;
 				}
-				if (failure) throw failure;
-				json(response, 200, { answer, turnId });
 			} catch (error) {
-				json(
-					response,
-					error instanceof InputError
-						? 400
-						: error instanceof ModelError
-							? 502
-							: 500,
-					caughtError(error, "answerWriteFailed"),
-				);
+				if (acceptedTurnId !== undefined) {
+					// Keep unsaved failures visible without claiming the result was persisted.
+					unsavedTurns.add(acceptedTurnId);
+					console.error("Accepted Turn persistence failed", error);
+				} else
+					json(
+						response,
+						error instanceof InputError
+							? 400
+							: error instanceof ModelError
+								? 502
+								: 500,
+						caughtError(error, "answerWriteFailed"),
+					);
 			} finally {
 				if (locked) {
 					busy.delete(id);

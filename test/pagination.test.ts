@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
+import { waitForTurn } from "./turn-fixture.ts";
 
 test("stable ten-turn pages and forward catch-up preserve complete model context", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-pages-"));
@@ -39,8 +40,13 @@ test("stable ten-turn pages and forward catch-up preserve complete model context
 		const project = await post("/api/projects", { name: "Work", folders: [] });
 		const chat = await post(`/api/projects/${project.id}/chats`, { name: "A" });
 		const path = `/api/chats/${chat.id}`;
-		for (let i = 1; i <= 25; i++)
-			await post(path, { modelId: "test", prompt: `Question ${i}` });
+		for (let i = 1; i <= 25; i++) {
+			const accepted = await post(path, {
+				modelId: "test",
+				prompt: `Question ${i}`,
+			});
+			await waitForTurn(base, accepted.turnId);
+		}
 		const read = async (query = "") =>
 			(await fetch(base + path + query)).json();
 		const latest = await read();
@@ -49,7 +55,11 @@ test("stable ten-turn pages and forward catch-up preserve complete model context
 		assert.equal(latest.hasMore, true);
 		assert.equal(latest.messages.length, 20);
 		assert(!JSON.stringify(latest).includes("requestBody"));
-		await post(path, { modelId: "test", prompt: "Question 26" });
+		const accepted = await post(path, {
+			modelId: "test",
+			prompt: "Question 26",
+		});
+		await waitForTurn(base, accepted.turnId);
 		const older = await read(`?before=${latest.turns[0].id}`);
 		assert.deepEqual(
 			older.turns.map((turn: { question: string }) => turn.question),

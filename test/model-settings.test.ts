@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { openDatabase } from "../src/database.ts";
 import { createServer } from "../src/server.ts";
 import { completedResponse } from "./model-fixture.ts";
+import { waitForTurn } from "./turn-fixture.ts";
 
 const catalogModel = (id: string, name = id, reasoning?: unknown) => ({
 	id,
@@ -338,7 +339,9 @@ test("accepted call keeps captured key/model through replacement and removal, wi
 		await request("/api/models/old-model", "DELETE");
 		await request("/api/model-settings", "PUT", { removeApiKey: true });
 		release?.();
-		assert.equal((await pending).status, 200);
+		const accepted = await pending;
+		assert.equal(accepted.status, 202);
+		await waitForTurn(base, (await accepted.json()).turnId);
 		const history = await (await request(`/api/chats/${chat.id}`)).json();
 		assert.equal(history.turns[0].question, "Question [REDACTED]");
 		assert.equal(history.turns[0].answer, "Echo [REDACTED]");
