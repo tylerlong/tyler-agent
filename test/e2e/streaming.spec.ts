@@ -21,18 +21,18 @@ test("two pages show saved answer increments before completion using targeted tu
 	for (const browserPage of [page, other]) {
 		await browserPage.getByLabel("Prompt").fill("next local draft");
 		await expect(
-			browserPage.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+			browserPage.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 		).toBeEnabled();
 	}
 	const stream = app.streamModel();
 	await page.getByLabel("Prompt").fill("stream question");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await stream.entered;
 	for (const browserPage of [page, other]) {
 		await expect(browserPage.getByRole("log")).toContainText("Test ");
 		await expect(browserPage.getByRole("log")).not.toContainText("Test answer");
 		await expect(
-			browserPage.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+			browserPage.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 		).toBeDisabled();
 	}
 	const reads: string[] = [];
@@ -44,7 +44,7 @@ test("two pages show saved answer increments before completion using targeted tu
 	for (const browserPage of [page, other]) {
 		await expect(browserPage.getByRole("log")).toContainText("Test answer");
 		await expect(
-			browserPage.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+			browserPage.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 		).toBeEnabled();
 	}
 	expect(reads.some((path) => /^\/api\/turns\/\d+$/.test(path))).toBe(true);
@@ -52,13 +52,13 @@ test("two pages show saved answer increments before completion using targeted tu
 	expect(reads).not.toContain(`/api/chats/${chat.id}`);
 	const closingStream = app.streamModel();
 	await page.getByLabel("Prompt").fill("continue after closing this page");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await closingStream.entered;
 	await expect(other.getByRole("log")).toContainText(
 		"continue after closing this page",
 	);
 	await expect(
-		other.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeDisabled();
 	await page.close();
 	closingStream.release();
@@ -66,7 +66,7 @@ test("two pages show saved answer increments before completion using targeted tu
 		other.getByRole("log").getByText("Test answer", { exact: true }),
 	).toHaveCount(2);
 	await expect(
-		other.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 });
 
@@ -143,7 +143,7 @@ test("restart retains partial answers and labels them incomplete", async ({
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await page.getByLabel("Prompt").fill("draft");
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	const stream = app.streamModel();
 	const submitted = page.request
@@ -160,7 +160,7 @@ test("restart retains partial answers and labels them incomplete", async ({
 	await expect(page.getByRole("log")).toContainText("Incomplete answer.");
 	await page.getByLabel("Prompt").fill("new draft");
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	stream.release();
 	await submitted;

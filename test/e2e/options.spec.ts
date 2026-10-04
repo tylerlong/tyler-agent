@@ -54,14 +54,14 @@ test("model and effort choices stay local while busy and restore submitted histo
 	});
 	const hold = app.holdModel();
 	await page.getByLabel("Prompt", { exact: true }).fill("First question");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await hold.entered;
 	try {
 		await selectModel(page, "second");
 		await expect(turnPicker(page)).not.toContainText(" · ");
 		await page.getByLabel("Prompt", { exact: true }).fill("Next draft");
 		await expect(
-			page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+			page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 		).toBeDisabled();
 		await page.getByRole("button", { name: "Other", exact: true }).click();
 		await expectModel(page, "test");
@@ -93,7 +93,7 @@ test("model and effort choices stay local while busy and restore submitted histo
 	app.failModel();
 	await selectEffort(page, "low");
 	await page.getByLabel("Prompt", { exact: true }).fill("Fail this call");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("log")).toContainText(
 		"OpenRouter request failed.",
 	);
@@ -118,14 +118,14 @@ test("default updates preserve initialized choices and removed selection recover
 	await expectModel(page, "");
 	await expect(page.getByRole("dialog")).toBeHidden();
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeDisabled();
 	await selectModel(page, "second");
 	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
 		"Keep draft",
 	);
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 });
 
@@ -175,7 +175,7 @@ test("empty configuration uses sole mandatory Settings, then initializes the com
 	await close.click();
 	await expectModel(page, "second");
 	await page.getByLabel("Prompt", { exact: true }).fill("First question");
-	const submit = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
+	const submit = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 	await expect(submit).toBeEnabled();
 	await submit.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
@@ -307,7 +307,7 @@ test("configuration read failures show unknown state and retry without losing lo
 	await expect(alert).toContainText("Unable to read model settings");
 	await expectModel(page, "second");
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeDisabled();
 	fail = false;
 	await alert.getByRole("button", { name: "Retry", exact: true }).click();
@@ -317,7 +317,7 @@ test("configuration read failures show unknown state and retry without losing lo
 		"Preserve draft on read error",
 	);
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 });
 
@@ -421,7 +421,7 @@ test("restored unsupported effort silently resets to Default and model capabilit
 	await expectModel(page, "test");
 	await expectEffort(page, "");
 	await page.getByLabel("Prompt", { exact: true }).fill("Use restored default");
-	const send = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
+	const send = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 	await expect(send).toBeEnabled();
 	let popup = await openTurnPicker(page);
 	await expect(
@@ -514,7 +514,7 @@ test("catalog capability changes normalize the current draft without rewriting s
 	await page.goto(`${app.url}/?chat=${first.id}`);
 	await selectEffort(page, "high");
 	await page.getByLabel("Prompt", { exact: true }).fill("First high turn");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await page.getByLabel("Prompt", { exact: true }).fill("Preserve my draft");
 	app.setCatalog([
@@ -526,7 +526,7 @@ test("catalog capability changes normalize the current draft without rewriting s
 	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
 		"Preserve my draft",
 	);
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await expect
 		.poll(
 			async () =>

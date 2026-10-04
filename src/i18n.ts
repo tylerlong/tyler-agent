@@ -68,7 +68,7 @@ export const resources = {
 			setupRequired:
 				"Save an API key and enable at least one model to continue. Select your chat model in the prompt composer.",
 			prompt: "Prompt",
-			submit: "Submit",
+			submit: "Send",
 			name: "Name",
 			selectedFolders: "Selected folders",
 			removeFolder: "Remove {{path}}",
@@ -179,9 +179,8 @@ export const resources = {
 			enterBehavior: "Enter key behavior",
 			enterSend: "Send message",
 			enterNewline: "Insert newline",
-			enterHelp:
-				"Shift+Enter inserts a newline. {{shortcut}} sends in either mode.",
-			submitShortcut: "Submit ({{shortcut}})",
+			enterHelp: "Shift+Enter inserts a newline. {{shortcut}} to send.",
+			submitShortcut: "Send ({{shortcut}})",
 			invalidEnterBehavior: "Unsupported Enter key behavior.",
 			enterBehaviorReadFailed:
 				"Unable to read Enter key behavior. Please retry.",
@@ -260,7 +259,7 @@ export const resources = {
 			setupRequired:
 				"保存 API key 并启用至少一个模型后可关闭设置。在输入区选择当前对话的模型。",
 			prompt: "问题",
-			submit: "提交",
+			submit: "发送",
 			name: "名称",
 			selectedFolders: "已选文件夹",
 			removeFolder: "移除 {{path}}",
@@ -367,8 +366,8 @@ export const resources = {
 			enterBehavior: "Enter 键行为",
 			enterSend: "发送消息",
 			enterNewline: "插入换行",
-			enterHelp: "Shift+Enter 插入换行。两种模式下 {{shortcut}} 均可发送。",
-			submitShortcut: "提交 ({{shortcut}})",
+			enterHelp: "Shift+Enter 插入换行。{{shortcut}} 发送。",
+			submitShortcut: "发送 ({{shortcut}})",
 			invalidEnterBehavior: "不支持的 Enter 键行为",
 			enterBehaviorReadFailed: "读取 Enter 键行为失败，请重试",
 			enterBehaviorSaveFailed: "无法确认 Enter 键行为，请重试",

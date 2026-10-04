@@ -23,13 +23,13 @@ test("Enter sends once by default and the persisted newline preference keeps bot
 	await prompt.press("Enter");
 	await held.entered;
 	await expect(
-		page.getByRole("button", { name: "Submit (Enter)", exact: true }),
+		page.getByRole("button", { name: "Send (Enter)", exact: true }),
 	).toBeDisabled();
 	await prompt.fill("next");
 	await prompt.press("Enter");
 	held.release();
 	await expect(
-		page.getByRole("button", { name: "Submit (Enter)", exact: true }),
+		page.getByRole("button", { name: "Send (Enter)", exact: true }),
 	).toBeEnabled();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await page
@@ -78,8 +78,7 @@ for (const [platform, primary, wrong] of [
 		await page.goto(`${app.url}/?chat=${chat.id}`);
 		const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
 		const send = page.getByRole("button", {
-			name:
-				platform === "MacIntel" ? "Submit (⌘ Enter)" : "Submit (Ctrl Enter)",
+			name: platform === "MacIntel" ? "Send (⌘+Enter)" : "Send (Ctrl+Enter)",
 			exact: true,
 		});
 		await expect(send).toBeVisible();
@@ -95,7 +94,7 @@ for (const [platform, primary, wrong] of [
 			data: { behavior: "send" },
 		});
 		await expect(
-			page.getByRole("button", { name: "Submit (Enter)", exact: true }),
+			page.getByRole("button", { name: "Send (Enter)", exact: true }),
 		).toBeVisible();
 		await prompt.evaluate((input: HTMLTextAreaElement) => {
 			input.dispatchEvent(
@@ -137,7 +136,7 @@ for (const [platform, primary, wrong] of [
 			data: { behavior: "send" },
 		});
 		await expect(
-			page.getByRole("button", { name: "Submit (Enter)", exact: true }),
+			page.getByRole("button", { name: "Send (Enter)", exact: true }),
 		).toBeVisible();
 		await prompt.evaluate((input: HTMLTextAreaElement) => {
 			input.dispatchEvent(
@@ -154,7 +153,7 @@ for (const [platform, primary, wrong] of [
 		mouseCommit.release();
 		await prompt.fill("explicit shortcut");
 		await expect(
-			page.getByRole("button", { name: "Submit (Enter)", exact: true }),
+			page.getByRole("button", { name: "Send (Enter)", exact: true }),
 		).toBeEnabled();
 		await page.request.put(`${app.url}/api/enter-behavior`, {
 			data: { behavior: "newline" },
@@ -201,7 +200,7 @@ test("unknown keyboard preference preserves draft and explicit Send, retries wit
 	await prompt.press("Enter");
 	await expect(prompt).toHaveValue("draft\n");
 	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
+		page.getByRole("button", { name: "Send", exact: true }),
 	).toBeEnabled();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(

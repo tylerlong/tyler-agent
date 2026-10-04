@@ -79,7 +79,7 @@ test("mandatory Settings explains reload recovery after an initial catalog failu
 	await close.click();
 	await expectModel(page, "second");
 	await page.getByLabel("Prompt", { exact: true }).fill("Recovered setup");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 });
 
@@ -509,7 +509,7 @@ test("row removal failures preserve default and composer, successful removal rep
 		page.getByRole("combobox", { name: "Reasoning level", exact: true }),
 	).toBeHidden();
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeDisabled();
 	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
 		"Keep draft",

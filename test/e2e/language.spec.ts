@@ -219,7 +219,7 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await expect(fresh.getByLabel("名称", { exact: true })).toHaveValue("新对话");
 	await fresh.getByRole("button", { name: "取消", exact: true }).click();
 	app.failModel();
-	await page.getByRole("button", { name: /^提交(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^发送(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("alert")).toHaveText("OpenRouter 请求失败");
 	await page.request.put(`${app.url}/api/language`, {
 		data: { language: "en" },

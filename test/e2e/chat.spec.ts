@@ -39,7 +39,7 @@ test("URL navigation isolates history and drafts; refresh discards drafts and st
 	).json();
 	await page.goto(`${app.url}/?chat=${a.id}`);
 	const prompt = page.getByLabel("Prompt");
-	const submit = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
+	const submit = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 	await expect(submit).toBeDisabled();
 	await prompt.fill("alpha question");
 	await submit.click();
@@ -110,7 +110,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${a.id}`);
 	const pending = app.holdModel();
-	const submit = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
+	const submit = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 	await expect(submit).toBeDisabled();
 	await other.getByLabel("Prompt").fill("other page draft");
 	await page.getByLabel("Prompt").fill("original question");
@@ -118,7 +118,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	await pending.entered;
 	await expect(other.getByRole("log")).toContainText("Waiting for response");
 	await expect(
-		other.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeDisabled();
 	await expect(
 		page
@@ -134,7 +134,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	pending.release();
 	await expect(other.getByRole("log")).toContainText("original question");
 	await expect(
-		other.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	await expect(page.getByRole("log")).toBeEmpty();
 	await expect(page.getByLabel("Prompt")).toHaveValue("beta draft");
@@ -158,7 +158,7 @@ test("a failed request belongs to its chat and successful retry clears the error
 		})
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	const submit = page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ });
+	const submit = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 	await expect(submit).toBeDisabled();
 	app.failModel();
 	await page.getByLabel("Prompt").fill("retry me");

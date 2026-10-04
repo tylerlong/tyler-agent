@@ -176,7 +176,7 @@ test("switching edit targets loads their data and closing does not cancel pendin
 	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	const model = app.holdModel();
 	await page.getByRole("textbox", { name: "Prompt", exact: true }).fill("Wait");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await model.entered;
 	await edit("Alpha");
 	await modal.getByLabel("Name", { exact: true }).fill("While running");

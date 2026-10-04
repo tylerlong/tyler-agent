@@ -107,7 +107,7 @@ test("server acceptance drives parallel, archived and unselected work across ref
 	});
 	const first = app.streamModel();
 	await page.getByLabel("Prompt").fill("first");
-	await page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }).click();
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await started;
 	await expect(statuses()).toHaveCount(0);
 	releaseRequest();

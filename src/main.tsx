@@ -197,7 +197,7 @@ function App() {
 			? t("submit")
 			: t("submitShortcut", {
 					shortcut:
-						enterBehavior === "send" ? "Enter" : mac ? "⌘ Enter" : "Ctrl Enter",
+						enterBehavior === "send" ? "Enter" : mac ? "⌘+Enter" : "Ctrl+Enter",
 				});
 	const composing = useRef(false);
 	const compositionEndedAt = useRef(-Infinity);
@@ -1927,7 +1927,7 @@ function App() {
 						</select>
 					</label>
 					<p className="mt-2 text-sm text-neutral-600">
-						{t("enterHelp", { shortcut: mac ? "⌘ Enter" : "Ctrl Enter" })}
+						{t("enterHelp", { shortcut: mac ? "⌘+Enter" : "Ctrl+Enter" })}
 					</p>
 					{enterError && (
 						<div className="mt-4">

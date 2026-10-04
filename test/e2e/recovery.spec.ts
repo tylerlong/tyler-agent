@@ -26,7 +26,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	const stream = app.rawStreamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
@@ -82,7 +82,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	const delivered = page.waitForResponse((response) =>
 		/\/api\/turns\/\d+$/.test(response.url()),
@@ -98,7 +98,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await page.getByLabel("Prompt").fill("local draft");
 	await expect(
-		page.getByRole("button", { name: /^Submit(?: \(.+\))?$/ }),
+		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 });
 
