@@ -319,11 +319,34 @@ test("completing an incomplete SSE JSON frame retains its selected occurrence an
 		response.locator("pre").last().locator("mark.bg-orange-300"),
 	).toHaveText("needle");
 	expect(await body.evaluate((element) => element.scrollTop)).toBe(top);
+	stream.push('event: vendor.spaces\ndata: {"value":"first second"');
+	await expect(response.locator("pre").last()).toContainText(
+		'data: {"value":"first second"',
+	);
+	await input.fill(" ");
+	await input.press("Shift+Enter");
+	const selectedSpace = response
+		.locator("pre")
+		.last()
+		.locator("mark.bg-orange-300");
+	const context = () =>
+		selectedSpace.evaluate((element) => [
+			element.previousSibling?.textContent?.slice(-5),
+			element.nextSibling?.textContent?.slice(0, 6),
+		]);
+	await expect.poll(context).toEqual(["first", "second"]);
+	const spaceTop = await body.evaluate((element) => element.scrollTop);
+	stream.push("}\n\n");
+	await expect(response.locator("pre").last()).toContainText(
+		'  "value": "first second"',
+	);
+	await expect.poll(context).toEqual(["first", "second"]);
+	expect(await body.evaluate((element) => element.scrollTop)).toBe(spaceTop);
 	stream.end();
 	await pending;
 	await expect(
 		response.getByRole("button", { name: "Copy", exact: true }),
 	).toBeVisible();
-	await expect(counter).toHaveText("2 / 2");
-	expect(await body.evaluate((element) => element.scrollTop)).toBe(top);
+	await expect.poll(context).toEqual(["first", "second"]);
+	expect(await body.evaluate((element) => element.scrollTop)).toBe(spaceTop);
 });

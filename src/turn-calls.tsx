@@ -192,7 +192,7 @@ export function TurnCalls({
 			}
 			offset += character.length;
 		}
-		const occurrences = new Map<string | undefined, number>();
+		const occurrences = new Map<string, number>();
 		let start = text.indexOf(query);
 		while (start !== -1) {
 			const originalStart = offsets[start];
@@ -206,13 +206,17 @@ export function TurnCalls({
 				partStart += part.text.length + 2;
 				return false;
 			});
-			// Formatting an incomplete frame must not change its selected occurrence.
-			const occurrence = occurrences.get(part?.id) ?? 0;
-			occurrences.set(part?.id, occurrence + 1);
+			// Added formatting whitespace must not change an existing match identity.
+			const position = part?.text
+				.slice(0, originalStart - partStart)
+				.replace(/\s/g, "").length;
+			const boundary = `${part?.id}:${position}`;
+			const occurrence = occurrences.get(boundary) ?? 0;
+			occurrences.set(boundary, occurrence + 1);
 			matches.push({
 				start: originalStart,
 				end,
-				anchor: `${part?.id}:${occurrence}`,
+				anchor: `${boundary}:${occurrence}`,
 			});
 		}
 	}
