@@ -162,7 +162,7 @@ OpenRouter 通信始终保存到 SQLite，已移除 terminal 通信日志、Sett
 
 ### 固定输入区与阅读位置
 
-右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，底部圆角输入区固定：Prompt 提示放在 placeholder，输入框从约 2 行随草稿增长/缩小，到约 8 行后内部滚动；框内右下角箭头提交按钮仅在内容非空白时显示，进行中仍可编辑但禁止同 chat 再次提交。底部控件始终留在输入区；左侧固定头尾及列表滚动保持独立。加载更早记录、文本增量增长及展开/折叠保持正在阅读的内容锚点，即使已展开的思考或通信正文很长。
+右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，底部圆角输入区固定：Prompt 提示放在 placeholder，输入框从约 2 行随草稿增长/缩小，到约 8 行后内部滚动；框内右下角箭头提交按钮始终可见且尺寸固定；空白、只读、配置缺失或无效选择时禁用。从点击发送开始到整个 Turn 成功或失败结束持续禁用；提交前失败后按当前条件重新判断。期间仍可编辑本地草稿与提问选项，不改变已提交请求，不自动重试。底部控件始终留在输入区；左侧固定头尾及列表滚动保持独立。加载更早记录、文本增量增长及展开/折叠保持正在阅读的内容锚点，即使已展开的思考或通信正文很长。
 
 首次打开 chat 显示最新内容，自己提交后跟随到底部（包括进行中与回答完成）。其他页面产生的新内容或状态变化只在本来位于底部时跟随，阅读旧内容时不跳转。每个 chat 的阅读位置仅保存在当前页面；切走再返回恢复原位置，即使期间新增轮次，也不强制跳到最新。已下载历史、草稿和通信展开状态继续保留；整页刷新后重新加载最新 10 个并显示底部，不使用 localStorage 或 cookie 保存阅读位置。
 
@@ -171,3 +171,5 @@ OpenRouter 通信始终保存到 SQLite，已移除 terminal 通信日志、Sett
 Each writable Project keeps its + action. An expanded Project with no visible nonarchived Chats also offers New chat, including Projects containing only archived Chats. Populated or collapsed Projects hide the inline action; archived Projects offer neither creation action. Both open the existing form identifying the owning Project, and save only when Create is submitted. Cancel preserves the draft; creating a Project never creates a Chat automatically. The homepage guides selection or creation within a Project. Without a writable Project it points to New project in the sidebar; Archived remains accessible. Project reads distinguish initial loading, retryable failure, and successful empty results, retaining previously usable lists on read failure. A selected Chat shows first-question guidance only after successfully loading empty history; loading and errors have distinct presentation and Retry, preserving cached or partial content. Archived Chats retain their restore/read-only guidance. Unknown Chat IDs redirect to home.
 
 每个可写项目保留 +；展开且没有可见未归档对话时，另显示新建对话按钮，包括仅有归档对话的项目。有对话或折叠时隐藏行内入口，归档项目不提供创建。两种入口都打开标明所属项目的原创建框，仅点击创建后保存，取消保留草稿，创建项目不自动创建对话。首页提示在所属项目内选择或创建；无可写项目时提示侧栏新建项目，仍可访问已归档数据。项目初始加载、可重试读取失败和成功空列表分别显示，失败保留已有列表。所选对话只有在成功加载空历史后才提示输入第一个问题；加载与失败分别显示，可重试，缓存和部分内容保留。归档对话继续显示只读及恢复提示；未知对话 ID 返回首页。
+
+The lower-right Send button stays visible at a fixed size, including empty drafts. Whitespace, read-only state, unavailable configuration or invalid options disable it. It disables immediately on submission and throughout the whole Turn, then recomputes availability after success, failure or rejection. Prompt and Turn Options edits remain local for the next submission; no automatic retry occurs. Fixed footer space prevents visibility or enabled-state changes from moving the input, while multiline drafts still grow and shrink normally.

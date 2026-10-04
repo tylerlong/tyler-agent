@@ -40,7 +40,7 @@ test("URL navigation isolates history and drafts; refresh discards drafts and st
 	await page.goto(`${app.url}/?chat=${a.id}`);
 	const prompt = page.getByLabel("Prompt");
 	const submit = page.getByRole("button", { name: "Submit", exact: true });
-	await expect(submit).toBeHidden();
+	await expect(submit).toBeDisabled();
 	await prompt.fill("alpha question");
 	await submit.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
@@ -78,7 +78,7 @@ test("URL navigation isolates history and drafts; refresh discards drafts and st
 	await prompt.fill("waiting draft");
 	await expect(submit).toBeDisabled();
 	await page.getByRole("button", { name: "Beta", exact: true }).click();
-	await expect(submit).toBeHidden();
+	await expect(submit).toBeDisabled();
 	release?.();
 	await expect(
 		page.getByRole("heading", { name: "Beta", exact: true }),
@@ -111,7 +111,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	await other.goto(`${app.url}/?chat=${a.id}`);
 	const pending = app.holdModel();
 	const submit = page.getByRole("button", { name: "Submit", exact: true });
-	await expect(submit).toBeHidden();
+	await expect(submit).toBeDisabled();
 	await other.getByLabel("Prompt").fill("other page draft");
 	await page.getByLabel("Prompt").fill("original question");
 	await submit.click();
@@ -125,7 +125,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	).toBeVisible();
 	await page.getByLabel("Prompt").fill("later alpha draft");
 	await page.getByRole("button", { name: "Beta", exact: true }).click();
-	await expect(submit).toBeHidden();
+	await expect(submit).toBeDisabled();
 	await page.getByLabel("Prompt").fill("beta draft");
 	await expect(submit).toBeEnabled();
 	pending.release();
@@ -156,7 +156,7 @@ test("a failed request belongs to its chat and successful retry clears the error
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const submit = page.getByRole("button", { name: "Submit", exact: true });
-	await expect(submit).toBeHidden();
+	await expect(submit).toBeDisabled();
 	app.failModel();
 	await page.getByLabel("Prompt").fill("retry me");
 	await submit.click();

@@ -24,11 +24,22 @@ test("compact composer grows and shrinks with drafts, bounds scrolling and guard
 	const send = page.getByRole("button", { name: "Submit", exact: true });
 	await expect(prompt).toHaveAttribute("placeholder", "Prompt");
 	await expect(page.getByText("Prompt", { exact: true })).toHaveCount(0);
-	await expect(send).toBeHidden();
+	await expect(send).toBeVisible();
+	await expect(send).toBeDisabled();
+	const emptyBounds = await prompt.boundingBox();
+	const buttonBounds = await send.boundingBox();
+	await prompt.fill("one line");
+	await expect(send).toBeEnabled();
+	expect(await prompt.boundingBox()).toEqual(emptyBounds);
+	expect(await send.boundingBox()).toEqual(buttonBounds);
+	await prompt.fill("");
+	await expect(send).toBeDisabled();
+	expect(await prompt.boundingBox()).toEqual(emptyBounds);
+	expect(await send.boundingBox()).toEqual(buttonBounds);
 	const initial = (await prompt.boundingBox())?.height ?? 0;
 	expect(initial).toBeGreaterThan(40);
 	await prompt.fill(" \n\t ");
-	await expect(send).toBeHidden();
+	await expect(send).toBeDisabled();
 	let posts = 0;
 	page.on("request", (request) => {
 		if (
@@ -70,10 +81,38 @@ test("compact composer grows and shrinks with drafts, bounds scrolling and guard
 	await page.screenshot({ path: "/tmp/tyler-agent-66-composer-small.png" });
 	await prompt.fill("short draft");
 	expect((await prompt.boundingBox())?.height).toBe(initial);
+	for (const viewport of [
+		{ width: 1280, height: 720 },
+		{ width: 1600, height: 1000 },
+	]) {
+		await page.setViewportSize(viewport);
+		for (const width of [240, 600]) {
+			const divider = await page
+				.getByRole("separator", { name: "Resize sidebar" })
+				.boundingBox();
+			if (!divider) throw new Error("Missing sidebar divider");
+			await page.mouse.move(divider.x + divider.width / 2, divider.y + 100);
+			await page.mouse.down();
+			await page.mouse.move(width, divider.y + 100);
+			await page.mouse.up();
+			await expect(page.locator("aside")).toHaveCSS("width", `${width}px`);
+			await prompt.fill("");
+			await expect(send).toBeDisabled();
+			const emptyInput = await prompt.boundingBox();
+			const emptySend = await send.boundingBox();
+			await prompt.fill("short draft");
+			await expect(send).toBeEnabled();
+			expect(await prompt.boundingBox()).toEqual(emptyInput);
+			expect(await send.boundingBox()).toEqual(emptySend);
+			await page.screenshot({
+				path: `/tmp/tyler-agent-86-${viewport.width}-${width}.png`,
+			});
+		}
+	}
 	await send.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await expect(prompt).toHaveValue("");
-	await expect(send).toBeHidden();
+	await expect(send).toBeDisabled();
 	expect(posts).toBe(1);
 	await page.request.put(`${app.url}/api/language`, {
 		data: { language: "zh-CN" },
@@ -84,4 +123,87 @@ test("compact composer grows and shrinks with drafts, bounds scrolling and guard
 	await expect(
 		page.getByRole("textbox", { name: "问题", exact: true }),
 	).toBeVisible();
+});
+
+test("Send stays disabled from pending submission through execution and preserves later drafts", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Lifecycle", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Lifecycle" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
+	const send = page.getByRole("button", { name: "Submit", exact: true });
+	let posts = 0;
+	let releaseRequest!: () => void;
+	const requestGate = new Promise<void>((resolve) => {
+		releaseRequest = resolve;
+	});
+	await page.route(`**/api/chats/${chat.id}`, async (route) => {
+		if (route.request().method() === "POST") {
+			posts++;
+			await requestGate;
+		}
+		await route.continue();
+	});
+	const held = app.holdModel();
+	await prompt.fill("Accepted question");
+	await expect(send).toBeEnabled();
+	await prompt.evaluate((input: HTMLTextAreaElement) => {
+		input.form?.requestSubmit();
+		input.form?.requestSubmit();
+	});
+	await expect(send).toBeDisabled();
+	await prompt.fill("Next local draft");
+	await expect(send).toBeDisabled();
+	releaseRequest();
+	await held.entered;
+	try {
+		await expect(send).toBeDisabled();
+		await expect(prompt).toBeEditable();
+		await expect(page.getByRole("log")).toContainText("Accepted question");
+		await prompt.evaluate((input: HTMLTextAreaElement) =>
+			input.form?.requestSubmit(),
+		);
+		expect(posts).toBe(1);
+	} finally {
+		held.release();
+	}
+	await expect(page.getByRole("log")).toContainText("Test answer");
+	await expect(prompt).toHaveValue("Next local draft");
+	await expect(send).toBeEnabled();
+	app.failModel();
+	await send.click();
+	await expect(page.getByRole("log")).toContainText(
+		"OpenRouter request failed.",
+	);
+	await expect(prompt).toHaveValue("Next local draft");
+	await expect(send).toBeEnabled();
+	expect(posts).toBe(2);
+	await page.unroute(`**/api/chats/${chat.id}`);
+	await page.route(`**/api/chats/${chat.id}`, async (route) => {
+		if (route.request().method() === "POST") {
+			posts++;
+			await route.fulfill({
+				status: 400,
+				contentType: "application/json",
+				body: JSON.stringify({ error: "invalidModel" }),
+			});
+		} else await route.continue();
+	});
+	await send.click();
+	await expect(send).toBeEnabled();
+	await expect(prompt).toHaveValue("Next local draft");
+	expect(posts).toBe(3);
+	await prompt.fill(" \t ");
+	await expect(send).toBeVisible();
+	await expect(send).toBeDisabled();
 });

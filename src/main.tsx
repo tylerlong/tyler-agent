@@ -408,6 +408,7 @@ function App() {
 		{},
 	);
 	const [submitting, setSubmitting] = useState<Set<number>>(() => new Set());
+	const submissionRequests = useRef(new Set<number>());
 	const changeSelectedChat = useCallback((id: number | null) => {
 		const previous = selectedRef.current;
 		if (previous !== null && previous !== id) {
@@ -553,7 +554,7 @@ function App() {
 			readOnly ||
 			chatState?.id !== id ||
 			chatState.busy ||
-			submitting.has(id) ||
+			submissionRequests.current.has(id) ||
 			!(drafts[id] ?? "").trim() ||
 			!modelSettings?.apiKeyConfigured ||
 			modelSettingsError ||
@@ -565,7 +566,8 @@ function App() {
 		restoreReadingPosition();
 		const prompt = drafts[id] ?? "";
 		const version = draftVersions.current[id] ?? 0;
-		setSubmitting((current) => new Set(current).add(id));
+		submissionRequests.current.add(id);
+		setSubmitting(new Set(submissionRequests.current));
 		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
 			await api(`/api/chats/${id}`, "POST", { prompt, ...turnOptions[id] });
@@ -577,11 +579,8 @@ function App() {
 				[id]: appError(cause),
 			}));
 		} finally {
-			setSubmitting((current) => {
-				const next = new Set(current);
-				next.delete(id);
-				return next;
-			});
+			submissionRequests.current.delete(id);
+			setSubmitting(new Set(submissionRequests.current));
 			void refreshChat();
 		}
 	}
@@ -1468,9 +1467,9 @@ function App() {
 									}}
 									required
 								/>
-								<div className="flex min-h-9 flex-wrap items-center justify-end gap-2 pt-2">
+								<div className="flex min-h-11 items-center justify-end gap-2 pt-2">
 									{options && (
-										<div className="mr-auto flex min-w-0 flex-wrap gap-1">
+										<div className="mr-auto flex min-w-0 flex-1 flex-wrap gap-1">
 											<TurnOptionPicker
 												options={options}
 												models={modelSettings?.models ?? []}
@@ -1482,9 +1481,9 @@ function App() {
 									<button
 										type="submit"
 										aria-label={t("submit")}
-										hidden={!(drafts[chat.id] ?? "").trim()}
 										className="h-9 w-9 shrink-0 rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
 										disabled={
+											!(drafts[chat.id] ?? "").trim() ||
 											readOnly ||
 											modelSettingsError ||
 											!modelSettings?.apiKeyConfigured ||
