@@ -57,11 +57,11 @@ project 可以有零个或多个文件夹，无需选择目录即可创建。添
 
 支持的浏览器内容视口为宽 ≥1280 且高 ≥720 CSS 像素（包含边界），不是屏幕物理分辨率。任一尺寸不足会显示扩大窗口提示，阻止被遮挡的页面及弹窗交互；扩大后自动恢复选中的对话、草稿、提问选项、弹窗和阅读位置，已接受请求及同步继续。窗口尺寸不保存为偏好，也不修改面板宽度。此版本使用固定左右桌面布局，不提供移动端布局。
 
-输入区在原生强度选择框旁持续显示“思考”，默认项显示“默认”：不指定强度，使用模型或提供方行为，区别于显式 none 和全局默认模型。支持的级别、无效历史保护和进行中编辑下次草稿的行为不变。控件可换行，发送按钮保留在输入区右下方。
+输入区用一个控件显示模型与“思考：默认”或所选强度。点击打开同一弹层中的模型和思考区域；选择立即应用，弹层保持打开。默认不指定强度，区别于显式 none 和全局默认模型。模型列表独立滚动，弹层根据可用空间显示在控件上方或下方，不扩大输入区；长名称在控件中截断，在弹层中完整显示。Escape 或再次点击控件关闭并返回焦点；点击外部关闭并保留目标焦点。进行中仍可编辑下次草稿，只读对话不可修改。
 
 The desktop workspace supports browser content viewports at least 1280×720 CSS pixels, including that exact boundary. If either dimension is smaller, an enlarge-window notice blocks obscured interactions. Enlarging restores the selected Chat, drafts, local Turn Options, dialogs and reading position; accepted work and synchronization continue. Resizing never saves a viewport or sidebar preference. The sidebar stays beside Chat, with its existing 320px default and 240–600px drag range.
 
-The composer visibly labels its native level selector **Reasoning**, with **Default** meaning omitted strength and provider/model behavior. It differs from explicit none and the global Default Model. Supported levels, invalid-history protection and editing future drafts while a request runs remain unchanged. Controls can wrap while Send stays at the lower right.
+One composer trigger summarizes Model and **Reasoning: Default** or the selected effort. Its popup has labeled Model and Reasoning groups; selections apply immediately and keep it open. Default omits explicit effort and differs from none and the global Default Model. The model list scrolls independently; the popup fits above or below without enlarging the composer. Long trigger labels truncate while popup names remain readable. Escape or clicking the trigger closes and returns focus; outside clicks keep target focus. Running Chats allow next-draft edits; read-only Chats do not.
 
 ## 左侧面板宽度
 
@@ -87,7 +87,7 @@ Add model sits below the enabled-model list and focuses the editable Search mode
 
 每次打开 Settings 都匿名请求 OpenRouter 最热门的 100 个文本模型（不传 Authorization 或 API key），列表按过去一周 token 使用量排序，只下载一页。模型分区中，启用模型列表下方的 Add model 打开自动聚焦的、带“按名称或 ID 搜索模型”提示的输入框及相邻 Cancel 按钮；候选在输入框旁的浮层中独立滚动，空间不足时向上展开，不改变 Settings 高度或移动标题与关闭按钮；候选仅包含尚未启用的模型，按热门顺序排列。在同一个输入中按名称或 ID 不区分大小写地即时筛选，不发送网络请求。点击候选立即添加；方向键选择候选，Enter 仅确认已高亮的有效候选，不接受任意 ID。成功后清空搜索并恢复 Add model 按钮和焦点，失败保留输入与候选以便重试。Cancel 或 Escape 取消未提交的添加、清空输入并返回 Add model；第一个 Escape 不关闭 Settings，再次 Escape 可关闭普通 Settings，强制设置仍不能关闭。已发出的保存不撤销，期间禁用取消和重复提交。移除在已启用列表中进行，不提供单独 Search、Refresh 或模型保存按钮。加载与筛选无结果分别提示，保存失败恢复已确认状态。服务启动、输入、配置保存与发送不刷新目录；添加仅验证 server 已缓存的候选，server 重启后若页面仍保留旧候选，添加会报错并保留输入，重新打开 Settings 下载目录后再试；刷新失败提示错误并保留上次成功列表，重新打开设置重试；若因缺少密钥或启用模型而无法关闭设置，重新加载页面重试（未保存输入会丢失）。排名仅缓存在 server 内存，SQLite 保存启用成员、名称及能力；成功刷新仅更新排名内已启用模型的信息，不覆盖并发成员修改。跌出前 100 的已启用模型保留能力、默认和历史选择，在统一已启用列表里仍可移除；排名变化不代表模型不可用。已启用列表始终按添加顺序排列，设置默认或排名刷新不会移动行；既存模型在目录失败时仍可使用。
 
-输入区只列出配置的常用模型。思考强度根据模型能力动态显示：不支持指定强度时隐藏，支持时提供相应级别；“模型默认”不发送强度，区别于关闭思考。切换模型保留兼容的强度，否则回到模型默认。已恢复的强度若能力更新后不再支持，明确标为无效并禁止发送，需重新选择。
+输入区只列出配置的常用模型。思考强度根据模型能力动态显示：不支持指定强度时隐藏，支持时提供相应级别；“模型默认”不发送强度，区别于关闭思考。切换模型保留兼容的强度，否则回到模型默认。历史恢复或后续能力更新后不再支持的强度自动回到模型默认，不提示、不阻止发送；历史请求及已接受的请求保持原样，服务端仍校验提交的选项。
 
 未提交的模型与强度仅保存在当前页面、对应 chat 的内存中，切换回来与发送成功后保留，不共享到其他页面。刷新时按当前 chat 的 Turn 从新到旧、每 Turn 的 Model Call 从新到旧读取 request 原文中的模型与强度，不区分进行中、失败或成功，不受显示分页限制；坏 JSON、无模型或无调用记录跳过。两者始终来自同一请求，未指定强度表示模型默认并停止查找；全部读取不到才使用全局默认模型与模型默认强度。不新增聊天或轮次的选项字段，不回填旧历史。读到已移除模型时清空选择、禁止发送，不回退到更旧记录或全局默认。
 

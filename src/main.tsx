@@ -15,6 +15,7 @@ import { ModelConfiguration } from "./model-configuration.tsx";
 import { createSettingState } from "./setting-state.ts";
 import { TurnCalls } from "./turn-calls.tsx";
 import {
+	normalizeTurnOptions,
 	TurnOptionPicker,
 	type TurnOptions,
 	validTurnOptions,
@@ -382,8 +383,7 @@ function App() {
 			!modelSettings ||
 			!Object.values(turnOptions).some(
 				(options) =>
-					options.modelId &&
-					!modelSettings.models.some((model) => model.id === options.modelId),
+					normalizeTurnOptions(options, modelSettings.models) !== options,
 			)
 		)
 			return;
@@ -391,11 +391,9 @@ function App() {
 			let changed = false;
 			const next = { ...current };
 			for (const [id, options] of Object.entries(current)) {
-				if (
-					options.modelId &&
-					!modelSettings.models.some((model) => model.id === options.modelId)
-				) {
-					next[Number(id)] = { modelId: null, reasoningEffort: null };
+				const normalized = normalizeTurnOptions(options, modelSettings.models);
+				if (normalized !== options) {
+					next[Number(id)] = normalized;
 					changed = true;
 				}
 			}

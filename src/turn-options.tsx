@@ -1,3 +1,5 @@
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ManagedModel } from "./database.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
@@ -9,12 +11,24 @@ export type TurnOptions = {
 function reasoningEfforts(model: ManagedModel | undefined) {
 	return model ? (supportedReasoningEfforts(model) ?? []) : [];
 }
-export function validTurnOptions(options: TurnOptions, models: ManagedModel[]) {
+export function normalizeTurnOptions(
+	options: TurnOptions,
+	models: ManagedModel[],
+): TurnOptions {
 	const model = models.find((model) => model.id === options.modelId);
+	if (!model)
+		return options.modelId === null && options.reasoningEffort === null
+			? options
+			: { modelId: null, reasoningEffort: null };
+	return options.reasoningEffort === null ||
+		reasoningEfforts(model).includes(options.reasoningEffort)
+		? options
+		: { ...options, reasoningEffort: null };
+}
+export function validTurnOptions(options: TurnOptions, models: ManagedModel[]) {
 	return (
-		!!model &&
-		(options.reasoningEffort === null ||
-			reasoningEfforts(model).includes(options.reasoningEffort))
+		options.modelId !== null &&
+		normalizeTurnOptions(options, models) === options
 	);
 }
 export function TurnOptionPicker({
@@ -29,74 +43,183 @@ export function TurnOptionPicker({
 	disabled?: boolean;
 }) {
 	const { t } = useTranslation();
+	const [open, setOpen] = useState(false);
+	const [position, setPosition] = useState({
+		left: 0,
+		top: 0,
+		width: 320,
+		maxHeight: 400,
+	});
+	const trigger = useRef<HTMLButtonElement>(null);
+	const popup = useRef<HTMLDivElement>(null);
+	const id = useId();
 	const model = models.find((model) => model.id === options.modelId);
 	const efforts = reasoningEfforts(model);
-	const invalid =
-		options.reasoningEffort !== null &&
-		!efforts.includes(options.reasoningEffort);
-	const control =
-		"min-w-0 max-w-full rounded-md bg-transparent px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-blue-600";
+	const summary = model
+		? `${model.name}${efforts.length ? ` · ${t("reasoningLabel")}: ${options.reasoningEffort ?? t("reasoningDefault")}` : ""}`
+		: t("chooseModel");
+	function close(returnFocus: boolean) {
+		setOpen(false);
+		if (returnFocus) trigger.current?.focus();
+	}
+	useEffect(() => {
+		if (disabled) setOpen(false);
+	}, [disabled]);
+	useLayoutEffect(() => {
+		if (!open) return;
+		function place() {
+			const bounds = trigger.current?.getBoundingClientRect();
+			if (!bounds) return;
+			const width = Math.min(420, window.innerWidth - 24);
+			const above = bounds.top - 12;
+			const below = window.innerHeight - bounds.bottom - 12;
+			const maxHeight = Math.min(440, Math.max(above, below) - 8);
+			const height = Math.min(popup.current?.scrollHeight ?? 440, maxHeight);
+			setPosition({
+				width,
+				maxHeight,
+				left: Math.max(
+					12,
+					Math.min(bounds.left, window.innerWidth - width - 12),
+				),
+				top: below >= height ? bounds.bottom + 8 : bounds.top - height - 8,
+			});
+		}
+		place();
+		const observer = new ResizeObserver(place);
+		if (popup.current) observer.observe(popup.current);
+		window.addEventListener("resize", place);
+		window.addEventListener("scroll", place, true);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", place);
+			window.removeEventListener("scroll", place, true);
+		};
+	}, [open]);
+	useEffect(() => {
+		if (!open) return;
+		(
+			popup.current?.querySelector<HTMLInputElement>("input:checked") ??
+			popup.current?.querySelector<HTMLInputElement>('input[type="radio"]')
+		)?.focus();
+		function outside(event: PointerEvent) {
+			if (
+				event.target instanceof Node &&
+				!popup.current?.contains(event.target) &&
+				!trigger.current?.contains(event.target)
+			)
+				setOpen(false);
+		}
+		document.addEventListener("pointerdown", outside);
+		return () => document.removeEventListener("pointerdown", outside);
+	}, [open]);
+	function group(
+		label: string,
+		values: { value: string | null; label: string }[],
+		selected: string | null,
+		select: (value: string | null) => void,
+		scrolling = false,
+	) {
+		return (
+			<div
+				role="radiogroup"
+				aria-label={label}
+				className={scrolling ? "min-h-0 overflow-y-auto" : "shrink-0"}
+			>
+				{values.map((item) => (
+					<label
+						key={item.value ?? "default"}
+						className="flex cursor-pointer items-center gap-2 rounded px-3 py-2 text-sm hover:bg-gray-100 has-focus-visible:outline-2 has-focus-visible:outline-blue-600"
+					>
+						<input
+							type="radio"
+							name={`${id}-${label}`}
+							checked={selected === item.value}
+							onChange={() => select(item.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") {
+									event.preventDefault();
+									select(item.value);
+								}
+							}}
+							className="shrink-0 accent-blue-600"
+						/>
+						<span className="min-w-0 break-words">{item.label}</span>
+					</label>
+				))}
+			</div>
+		);
+	}
 	return (
 		<>
-			<select
-				aria-label={t("model")}
-				className={control}
-				value={options.modelId ?? ""}
+			<button
+				ref={trigger}
+				type="button"
+				title={summary}
+				aria-haspopup="dialog"
+				aria-expanded={open}
+				aria-controls={open ? id : undefined}
 				disabled={disabled || models.length === 0}
-				onChange={(event) => {
-					const modelId = event.target.value || null;
-					const compatible = reasoningEfforts(
-						models.find((item) => item.id === modelId),
-					);
-					change({
-						modelId,
-						reasoningEffort:
-							options.reasoningEffort !== null &&
-							compatible.includes(options.reasoningEffort)
-								? options.reasoningEffort
-								: null,
-					});
-				}}
+				className="flex min-w-0 max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-blue-600"
+				onClick={() => (open ? close(true) : setOpen(true))}
 			>
-				<option value="">
-					{t(models.length === 0 ? "noConfiguredModels" : "chooseModel")}
-				</option>
-				{models.map((model) => (
-					<option key={model.id} value={model.id}>
-						{model.name}
-					</option>
-				))}
-			</select>
-			{(efforts.length > 0 || invalid) && (
-				<label className="flex min-w-0 max-w-full items-center gap-1">
-					<span>{t("reasoningLabel")}</span>
-					<select
-						aria-label={t("reasoningLevel")}
-						aria-invalid={invalid}
-						className={control}
-						value={options.reasoningEffort ?? ""}
-						disabled={disabled}
-						onChange={(event) =>
-							change({
-								...options,
-								reasoningEffort: event.target.value || null,
-							})
-						}
+				<span className="truncate">{summary}</span>
+				<span aria-hidden="true" className="shrink-0">
+					⌄
+				</span>
+			</button>
+			{open &&
+				createPortal(
+					<div
+						ref={popup}
+						id={id}
+						role="dialog"
+						aria-label={t("model")}
+						style={position}
+						className="fixed z-50 flex flex-col rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
+						onKeyDown={(event) => {
+							if (event.key === "Escape") {
+								event.preventDefault();
+								event.stopPropagation();
+								close(true);
+							}
+						}}
 					>
-						<option value="">{t("reasoningDefault")}</option>
-						{invalid && (
-							<option value={options.reasoningEffort ?? ""} disabled>
-								{t("unsupportedReasoning", { effort: options.reasoningEffort })}
-							</option>
+						<div className="shrink-0 px-3 py-1 text-sm font-semibold">
+							{t("model")}
+						</div>
+						{group(
+							t("model"),
+							models.map((item) => ({ value: item.id, label: item.name })),
+							options.modelId,
+							(modelId) =>
+								change(
+									normalizeTurnOptions(
+										{ modelId, reasoningEffort: options.reasoningEffort },
+										models,
+									),
+								),
+							true,
 						)}
-						{efforts.map((effort) => (
-							<option key={effort} value={effort}>
-								{effort}
-							</option>
-						))}
-					</select>
-				</label>
-			)}
+						{efforts.length > 0 && (
+							<>
+								<div className="mt-2 shrink-0 border-t border-gray-200 px-3 pt-2 text-sm font-semibold">
+									{t("reasoningLabel")}
+								</div>
+								{group(
+									t("reasoningLevel"),
+									[
+										{ value: null, label: t("reasoningDefault") },
+										...efforts.map((value) => ({ value, label: value })),
+									],
+									options.reasoningEffort,
+									(reasoningEffort) => change({ ...options, reasoningEffort }),
+								)}
+							</>
+						)}
+					</div>,
+					document.body,
+				)}
 		</>
 	);
 }

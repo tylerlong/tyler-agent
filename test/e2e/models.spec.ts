@@ -1,4 +1,10 @@
 import { expect, test } from "./fixtures.ts";
+import {
+	expectEffort,
+	expectModel,
+	selectEffort,
+	turnPicker,
+} from "./turn-picker.ts";
 
 test("mandatory Settings explains reload recovery after an initial catalog failure", async ({
 	page,
@@ -71,9 +77,7 @@ test("mandatory Settings explains reload recovery after an initial catalog failu
 		.click();
 	await expect(close).toBeEnabled();
 	await close.click();
-	await expect(
-		page.getByRole("combobox", { name: "Model", exact: true }),
-	).toHaveValue("second");
+	await expectModel(page, "second");
 	await page.getByLabel("Prompt", { exact: true }).fill("Recovered setup");
 	await page.getByRole("button", { name: "Submit", exact: true }).click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
@@ -442,12 +446,8 @@ test("ranking changes preserve selected default and historical model outside top
 	).toContainText("Default");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await page.reload();
-	await expect(
-		page.getByRole("combobox", { name: "Model", exact: true }),
-	).toHaveValue("test");
-	await expect(
-		page.getByRole("combobox", { name: "Reasoning level", exact: true }),
-	).toHaveValue("high");
+	await expectModel(page, "test");
+	await expectEffort(page, "high");
 });
 
 test("row removal failures preserve default and composer, successful removal replaces only the global default", async ({
@@ -467,10 +467,8 @@ test("row removal failures preserve default and composer, successful removal rep
 	await page.request.post(`${app.url}/api/model-catalog`);
 	await page.request.post(`${app.url}/api/models`, { data: { id: "second" } });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	const model = page.getByRole("combobox", { name: "Model", exact: true });
-	await page
-		.getByRole("combobox", { name: "Reasoning level", exact: true })
-		.selectOption("high");
+	const _model = turnPicker(page);
+	await selectEffort(page, "high");
 	await page.getByLabel("Prompt", { exact: true }).fill("Keep draft");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
@@ -483,7 +481,7 @@ test("row removal failures preserve default and composer, successful removal rep
 		.getByRole("button", { name: "Set default", exact: true })
 		.click();
 	await expect(second).toContainText("Default");
-	await expect(model).toHaveValue("test");
+	await expectModel(page, "test");
 	await first.getByRole("button", { name: "Set default", exact: true }).click();
 	await expect(first).toContainText("Default");
 	await page.route("**/api/models/test", (route) =>
@@ -497,17 +495,15 @@ test("row removal failures preserve default and composer, successful removal rep
 	);
 	await expect(rows).toHaveCount(2);
 	await expect(first).toContainText("Default");
-	await expect(model).toHaveValue("test");
-	await expect(
-		page.getByRole("combobox", { name: "Reasoning level", exact: true }),
-	).toHaveValue("high");
+	await expectModel(page, "test");
+	await expectEffort(page, "high");
 	await page.unroute("**/api/models/test");
 	await first
 		.getByRole("button", { name: "Disable model", exact: true })
 		.click();
 	await expect(rows).toHaveCount(1);
 	await expect(second).toContainText("Default");
-	await expect(model).toHaveValue("");
+	await expectModel(page, "");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(
 		page.getByRole("combobox", { name: "Reasoning level", exact: true }),

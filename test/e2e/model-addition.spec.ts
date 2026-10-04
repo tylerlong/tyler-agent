@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures.ts";
+import { expectModel, selectModel, turnPicker } from "./turn-picker.ts";
 
 async function chats(page: import("@playwright/test").Page, url: string) {
 	const project = await (
@@ -31,10 +32,10 @@ test("first addition fills the initiating empty composer even with history; pass
 	await page.goto(`${app.url}/?chat=${id}`);
 	const peer = await page.context().newPage();
 	await peer.goto(`${app.url}/?chat=${id}`);
-	const model = page.getByRole("combobox", { name: "Model", exact: true });
-	const peerModel = peer.getByRole("combobox", { name: "Model", exact: true });
-	await expect(model).toHaveValue("");
-	await expect(peerModel).toHaveValue("");
+	const _model = turnPicker(page);
+	const peerModel = turnPicker(peer);
+	await expectModel(page, "");
+	await expectModel(peer, "");
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	await settings
 		.getByRole("button", { name: "Add model", exact: true })
@@ -45,9 +46,9 @@ test("first addition fills the initiating empty composer even with history; pass
 	await expect(
 		settings.getByRole("button", { name: "Add model", exact: true }),
 	).toBeFocused();
-	await expect(model).toHaveValue("second");
+	await expectModel(page, "second");
 	await expect(peerModel).toBeEnabled();
-	await expect(peerModel).toHaveValue("");
+	await expectModel(peer, "");
 	await expect(
 		page.getByRole("combobox", { name: "Reasoning level" }),
 	).toHaveCount(0);
@@ -89,9 +90,7 @@ test("first addition initializes its composer before a delayed historical read c
 	await expect(page.getByRole("log", { name: "Chat history" })).toContainText(
 		"History",
 	);
-	await expect(
-		page.getByRole("combobox", { name: "Model", exact: true }),
-	).toHaveValue("second");
+	await expectModel(page, "second");
 });
 
 for (const action of ["navigation", "selection"] as const) {
@@ -104,13 +103,11 @@ for (const action of ["navigation", "selection"] as const) {
 		await page.getByRole("button", { name: "Other", exact: true }).click();
 		await expect(page).toHaveURL(`${app.url}/?chat=${second}`);
 		await page.request.delete(`${app.url}/api/models/test`);
-		const model = page.getByRole("combobox", { name: "Model", exact: true });
-		await expect(model).toHaveValue("");
+		const model = turnPicker(page);
+		await expectModel(page, "");
 		const peer = await page.context().newPage();
 		await peer.goto(`${app.url}/?chat=${second}`);
-		await expect(
-			peer.getByRole("combobox", { name: "Model", exact: true }),
-		).toHaveValue("");
+		await expectModel(peer, "");
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => {
 			release = resolve;
@@ -154,12 +151,11 @@ for (const action of ["navigation", "selection"] as const) {
 		if (action === "navigation") {
 			await page.goBack();
 			await expect(page).toHaveURL(`${app.url}/?chat=${first}`);
-			await expect(model).toHaveValue("");
+			await expectModel(page, "");
 			await page.goForward();
 			await expect(page).toHaveURL(`${app.url}/?chat=${second}`);
 		} else {
-			await model.selectOption("second");
-			await model.selectOption("");
+			await selectModel(page, "second");
 		}
 		release();
 		await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -167,14 +163,12 @@ for (const action of ["navigation", "selection"] as const) {
 			settings.getByRole("button", { name: "Add model", exact: true }),
 		).toBeEnabled();
 		await settings.getByRole("button", { name: "Close", exact: true }).click();
-		await expect(model).toHaveValue("");
+		await expectModel(page, action === "selection" ? "second" : "");
 		if (action === "navigation") {
 			await page.goBack();
 			await expect(page).toHaveURL(`${app.url}/?chat=${first}`);
-			await expect(model).toHaveValue("");
+			await expectModel(page, "");
 		}
-		await expect(
-			peer.getByRole("combobox", { name: "Model", exact: true }),
-		).toHaveValue("");
+		await expectModel(peer, "");
 	});
 }
