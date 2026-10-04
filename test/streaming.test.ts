@@ -315,108 +315,136 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 	}
 });
 
-test("split credentials are redacted before storage; later failed writes retain durable partial state across restart", async () => {
-	let stream!: ReadableStreamDefaultController<Uint8Array>;
-	let requests = 0;
-	const f = await fixture(async () => {
-		requests++;
-		return new Response(
-			new ReadableStream({
-				start(controller) {
-					stream = controller;
-				},
-			}),
-		);
-	});
-	const db = new DatabaseSync(f.path);
-	try {
-		db.exec(
-			"CREATE TRIGGER reject_request BEFORE INSERT ON model_calls BEGIN SELECT RAISE(ABORT,'rejected'); END",
-		);
-		{
-			const accepted = await f.post(`/api/chats/${f.chat.id}`, {
+for (const failedWrite of ["progress", "terminal"])
+	test(`split credentials are redacted before storage; failed ${failedWrite} writes retain durable partial state across restart`, async () => {
+		let stream!: ReadableStreamDefaultController<Uint8Array>;
+		let requests = 0;
+		const f = await fixture(async () => {
+			requests++;
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						stream = controller;
+					},
+				}),
+			);
+		});
+		const db = new DatabaseSync(f.path);
+		try {
+			db.exec(
+				"CREATE TRIGGER reject_request BEFORE INSERT ON model_calls BEGIN SELECT RAISE(ABORT,'rejected'); END",
+			);
+			{
+				const accepted = await f.post(`/api/chats/${f.chat.id}`, {
+					modelId: "stream-fixture",
+					prompt: "not sent",
+				});
+				assert.equal(accepted.status, 202);
+				assert.equal(
+					(await f.wait((await accepted.json()).turnId)).status,
+					"failed",
+				);
+			}
+			assert.equal(requests, 0);
+			db.exec("DROP TRIGGER reject_request");
+			const pending = await f.post(`/api/chats/${f.chat.id}`, {
 				modelId: "stream-fixture",
-				prompt: "not sent",
+				prompt: "accepted",
 			});
-			assert.equal(accepted.status, 202);
+			assert.equal(pending.status, 202);
+			const acceptedId = (await pending.json()).turnId;
+			while (!stream) await new Promise((resolve) => setImmediate(resolve));
+			const raw =
+				frame("unknown.event", { echo: "stream-secret" }) +
+				delta("saved") +
+				frame("response.output_item.added", {
+					output_index: 1,
+					item: {
+						id: "stream-secret",
+						type: "stream-secret",
+						content: [{ type: "stream-secret", text: "stream-secret" }],
+					},
+				});
+			const split = raw.indexOf("stream-secret") + 7;
+			stream.enqueue(new TextEncoder().encode(raw.slice(0, split)));
+			stream.enqueue(new TextEncoder().encode(raw.slice(split)));
+			let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			do {
+				await new Promise((resolve) => setImmediate(resolve));
+				turn = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			} while (turn.output[0]?.content[0]?.text !== "saved");
+			const calls = (await f.get(`/api/turns/${turn.id}/calls`)).calls;
 			assert.equal(
-				(await f.wait((await accepted.json()).turnId)).status,
+				calls[0].responseBody,
+				raw.replaceAll("stream-secret", "[REDACTED]"),
+			);
+			assert.doesNotMatch(JSON.stringify(calls), /stream-secret/);
+			assert.doesNotMatch(JSON.stringify(turn), /stream-secret/);
+			assert.doesNotMatch(
+				String(
+					db.prepare("SELECT output_json FROM turns WHERE id=?").get(turn.id)
+						?.output_json,
+				),
+				/stream-secret/,
+			);
+			db.exec(
+				"CREATE TRIGGER reject_progress BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'write rejected'); END",
+			);
+			stream.enqueue(
+				new TextEncoder().encode(
+					failedWrite === "progress"
+						? delta(" unsaved")
+						: completedBody({
+								status: "completed",
+								output: [item("m0", "saved unsaved")],
+							}),
+				),
+			);
+			stream.close();
+			await f.waitForIdle(acceptedId);
+			const retained = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			assert.equal(retained.status, "failed");
+			assert.equal(retained.errorCode, "answerWriteFailed");
+			assert.equal(
+				db.prepare("SELECT status FROM turns WHERE id=?").get(retained.id)
+					?.status,
+				"pending",
+			);
+			assert.equal(retained.output[0].content[0].text, "saved");
+			assert.equal(retained.calls[0].status, "failed");
+			assert.equal(
+				(await f.get(`/api/turns/${turn.id}`)).turns[0].calls[0].status,
 				"failed",
 			);
+			for (const kind of ["metadata", "request", "response", ""]) {
+				const call = (
+					await f.get(
+						`/api/turns/${turn.id}/calls${kind ? `?kind=${kind}&callId=${calls[0].id}` : ""}`,
+					)
+				).calls[0];
+				assert.equal(call.status, "failed");
+				assert.equal(call.errorCode, "answerWriteFailed");
+				if (kind === "response" || !kind) {
+					assert.equal(call.responseBody, calls[0].responseBody);
+					assert.equal(call.error, "Could not save the answer");
+				}
+			}
+			db.exec("DROP TRIGGER reject_progress");
+			await f.restart();
+			const history = await f.get(`/api/chats/${f.chat.id}`);
+			assert.equal(history.busy, false);
+			assert.equal(history.turns.at(-1).errorCode, "modelInterrupted");
+			assert.equal(history.turns.at(-1).output[0].content[0].text, "saved");
+			assert.equal(
+				(await f.get(`/api/turns/${turn.id}/calls`)).calls[0].responseBody,
+				calls[0].responseBody,
+			);
+			assert.equal(requests, 1);
+		} finally {
+			db.close();
+			await f.close();
 		}
-		assert.equal(requests, 0);
-		db.exec("DROP TRIGGER reject_request");
-		const pending = await f.post(`/api/chats/${f.chat.id}`, {
-			modelId: "stream-fixture",
-			prompt: "accepted",
-		});
-		assert.equal(pending.status, 202);
-		const acceptedId = (await pending.json()).turnId;
-		while (!stream) await new Promise((resolve) => setImmediate(resolve));
-		const raw =
-			frame("unknown.event", { echo: "stream-secret" }) +
-			delta("saved") +
-			frame("response.output_item.added", {
-				output_index: 1,
-				item: {
-					id: "stream-secret",
-					type: "stream-secret",
-					content: [{ type: "stream-secret", text: "stream-secret" }],
-				},
-			});
-		const split = raw.indexOf("stream-secret") + 7;
-		stream.enqueue(new TextEncoder().encode(raw.slice(0, split)));
-		stream.enqueue(new TextEncoder().encode(raw.slice(split)));
-		let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
-		do {
-			await new Promise((resolve) => setImmediate(resolve));
-			turn = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
-		} while (turn.output[0]?.content[0]?.text !== "saved");
-		const calls = (await f.get(`/api/turns/${turn.id}/calls`)).calls;
-		assert.equal(
-			calls[0].responseBody,
-			raw.replaceAll("stream-secret", "[REDACTED]"),
-		);
-		assert.doesNotMatch(JSON.stringify(calls), /stream-secret/);
-		assert.doesNotMatch(JSON.stringify(turn), /stream-secret/);
-		assert.doesNotMatch(
-			String(
-				db.prepare("SELECT output_json FROM turns WHERE id=?").get(turn.id)
-					?.output_json,
-			),
-			/stream-secret/,
-		);
-		db.exec(
-			"CREATE TRIGGER reject_progress BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'write rejected'); END",
-		);
-		stream.enqueue(new TextEncoder().encode(delta(" unsaved")));
-		stream.close();
-		await f.waitForIdle(acceptedId);
-		const retained = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
-		assert.equal(retained.status, "failed");
-		assert.equal(retained.errorCode, "answerWriteFailed");
-		assert.equal(
-			db.prepare("SELECT status FROM turns WHERE id=?").get(retained.id)
-				?.status,
-			"pending",
-		);
-		assert.equal(retained.output[0].content[0].text, "saved");
-		db.exec("DROP TRIGGER reject_progress");
-		await f.restart();
-		const history = await f.get(`/api/chats/${f.chat.id}`);
-		assert.equal(history.busy, false);
-		assert.equal(history.turns.at(-1).errorCode, "modelInterrupted");
-		assert.equal(history.turns.at(-1).output[0].content[0].text, "saved");
-		assert.equal(
-			(await f.get(`/api/turns/${turn.id}/calls`)).calls[0].responseBody,
-			calls[0].responseBody,
-		);
-		assert.equal(requests, 1);
-	} finally {
-		db.close();
-		await f.close();
-	}
-});
+	});
 
 for (const httpStatus of [200, 503])
 	test(`a ${httpStatus} read error retains saved content and raw communication without retrying`, {
@@ -666,6 +694,39 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 	} finally {
 		first.abort();
 		reconnect.abort();
+		await f.close();
+	}
+});
+
+test("a Turn finalization write failure keeps a successfully saved Model Call succeeded", async () => {
+	const raw = completedBody({
+		status: "completed",
+		output: [item("m0", "saved")],
+	});
+	const f = await fixture(async () => new Response(raw));
+	const db = new DatabaseSync(f.path);
+	try {
+		db.exec(
+			"CREATE TRIGGER reject_final BEFORE UPDATE ON turns WHEN NEW.status != 'pending' BEGIN SELECT RAISE(ABORT,'write rejected'); END",
+		);
+		const accepted = await (
+			await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "answer",
+			})
+		).json();
+		await f.waitForIdle(accepted.turnId);
+		const turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+		assert.equal(turn.status, "failed");
+		assert.equal(turn.errorCode, "answerWriteFailed");
+		assert.equal(turn.calls[0].status, "succeeded");
+		const call = (await f.get(`/api/turns/${turn.id}/calls?kind=response`))
+			.calls[0];
+		assert.equal(call.status, "succeeded");
+		assert.equal(call.error, null);
+		assert.equal(call.responseBody, raw);
+	} finally {
+		db.close();
 		await f.close();
 	}
 });

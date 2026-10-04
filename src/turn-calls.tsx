@@ -12,6 +12,7 @@ type Call = {
 	httpStatus: number | null;
 	durationMs: number | null;
 	error: string | null;
+	errorCode?: string;
 };
 type RecordState = {
 	open: boolean;
@@ -164,7 +165,9 @@ export function TurnCalls({
 							call.status !== "pending" &&
 							body === null && <p>{t("noResponse")}</p>}
 						{kind === "response" && call.error && (
-							<p className="whitespace-pre-wrap break-words">{call.error}</p>
+							<p className="whitespace-pre-wrap break-words">
+								{call.errorCode ? t(call.errorCode) : call.error}
+							</p>
 						)}
 						{typeof body === "string" && (
 							<>

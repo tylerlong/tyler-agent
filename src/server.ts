@@ -174,6 +174,11 @@ export function createServer(
 	const home = homedir();
 	const busy = new Set<number>();
 	const unsavedTurns = new Set<number>();
+	const unsavedCalls = new Set<number>();
+	const callPersistenceError = (callId: unknown) =>
+		unsavedCalls.has(Number(callId))
+			? { status: "failed", errorCode: "answerWriteFailed" }
+			: {};
 	const persistenceError = (turnId: unknown) =>
 		unsavedTurns.has(Number(turnId))
 			? { status: "failed", errorCode: "answerWriteFailed" }
@@ -193,6 +198,7 @@ export function createServer(
 			.map((call, index) => ({
 				id: Number(call.id),
 				status: String(call.status),
+				...callPersistenceError(call.id),
 				ordinal: index + 1,
 			}));
 	const turnPage = (
@@ -954,9 +960,14 @@ export function createServer(
 								.prepare(
 									`SELECT id,turn_id AS turnId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE turn_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
 								)
-								.all(
-									...(callId === null ? [turnId] : [turnId, Number(callId)]),
-								),
+								.all(...(callId === null ? [turnId] : [turnId, Number(callId)]))
+								.map((call) => ({
+									...call,
+									...callPersistenceError(call.id),
+									...(unsavedCalls.has(Number(call.id)) && {
+										error: errorMessages.answerWriteFailed,
+									}),
+								})),
 			});
 			return;
 		}
@@ -1159,6 +1170,8 @@ export function createServer(
 									database.exec("COMMIT");
 								} catch (error) {
 									database.exec("ROLLBACK");
+									// A failed recorder write ends this call, but its body stays at the last commit.
+									unsavedCalls.add(callId);
 									throw error;
 								}
 								notifyTurn(id, turnId);
