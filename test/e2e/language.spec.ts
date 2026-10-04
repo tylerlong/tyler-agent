@@ -181,7 +181,7 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await page.getByText("Request 1", { exact: true }).click();
 	await expect(
 		page.locator("summary").filter({ hasText: /^Response 1/ }),
-	).toHaveText("Response 1 · Completed");
+	).toHaveText("Response 1");
 
 	await page
 		.getByRole("textbox", { name: "Prompt", exact: true })

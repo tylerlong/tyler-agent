@@ -45,7 +45,8 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(
 			other
 				.getByRole("region", { name: "Chat", exact: true })
-				.getByRole("status"),
+				.getByRole("status")
+				.filter({ hasText: "read-only" }),
 		).toHaveText(
 			"Chat is archived and read-only. Restore the chat to continue.",
 		);
@@ -77,7 +78,8 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(
 			other
 				.getByRole("region", { name: "Chat", exact: true })
-				.getByRole("status"),
+				.getByRole("status")
+				.filter({ hasText: "read-only" }),
 		).toHaveText(
 			"Project and chat are archived and read-only. Restore both to continue.",
 		);
@@ -97,7 +99,8 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(
 			other
 				.getByRole("region", { name: "Chat", exact: true })
-				.getByRole("status"),
+				.getByRole("status")
+				.filter({ hasText: "read-only" }),
 		).toHaveText(
 			"Project is archived; chat is read-only. Restore the project to continue.",
 		);

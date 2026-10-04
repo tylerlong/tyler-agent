@@ -1,4 +1,11 @@
+import type { Locator } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
+
+async function displayedText(record: Locator) {
+	return record
+		.locator(".communication-text")
+		.evaluate((element) => element.textContent ?? "");
+}
 
 test("large failed responses stay folded and keep the composer visible until requested", async ({
 	page,
@@ -45,7 +52,7 @@ test("large failed responses stay folded and keep the composer visible until req
 	await expect(page.getByLabel("Prompt")).toBeInViewport();
 });
 
-test("communication is lazy, formatted and copied as original text, retained across chats and updated after completion", async ({
+test("communication is lazy, formatted and copied as displayed text, retained across chats and updated after completion", async ({
 	page,
 	context,
 	app,
@@ -86,7 +93,9 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	expect(reads).toBe(0);
 	await request.locator("summary").click();
 	await expect(request.locator("pre")).toContainText('  "model"');
-	await request.getByRole("button", { name: "Copy", exact: true }).click();
+	await expect(
+		request.getByRole("button", { name: "Copy", exact: true }),
+	).toHaveCount(0);
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
@@ -102,23 +111,30 @@ test("communication is lazy, formatted and copied as original text, retained acr
 		stream: true,
 		tools: [{ type: "function", name: "count_files" }],
 	});
-	await expect
-		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-		.toBe(requestBody);
+	await expect(
+		response.getByRole("button", { name: "Copy", exact: true }),
+	).toHaveCount(0);
 	await response.locator("summary").click();
-	await expect(response).toContainText("Working");
+	await expect(
+		response.getByRole("status", { name: "Working…" }),
+	).toBeVisible();
 	gate.release();
 	await pending;
 	await expect(response.locator("pre")).toContainText(
 		'  "status": "completed"',
 	);
 	await expect(response.locator("pre")).toContainText("Test answer");
+	await request.getByRole("button", { name: "Copy", exact: true }).click();
+	await expect
+		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+		.toBe(await displayedText(request));
+	await expect(request).toHaveAttribute("open", "");
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-		.toBe(
-			'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","output":[{"id":"answer","type":"message","content":[{"type":"output_text","text":"Test answer"}]}]}}\n\n',
-		);
+		.toBe(await displayedText(response));
+	await expect(response).toHaveAttribute("open", "");
+	await expect(response.locator("summary")).not.toContainText("Completed");
 	const cachedReads = reads;
 	await page.getByRole("button", { name: "Other", exact: true }).click();
 	await page.getByRole("button", { name: "First", exact: true }).click();
@@ -132,7 +148,9 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await hiddenGate.entered;
 	await expect(response).toHaveCount(2);
 	await response.last().locator("summary").click();
-	await expect(response.last()).toContainText("Working");
+	await expect(
+		response.last().getByRole("status", { name: "Working…" }),
+	).toBeVisible();
 	await page.getByRole("button", { name: "Other", exact: true }).click();
 	await expect(page.getByRole("log")).toBeEmpty();
 	hiddenGate.release();
@@ -146,7 +164,7 @@ test("communication is lazy, formatted and copied as original text, retained acr
 	await expect(response.last().locator("pre")).not.toBeVisible();
 });
 
-test("failed responses show actual text, retry reading, copy original and remain readable when archived and translated", async ({
+test("failed responses show actual text, retry reading, copy displayed information and remain readable when archived and translated", async ({
 	page,
 	context,
 	app,
@@ -180,6 +198,7 @@ test("failed responses show actual text, retry reading, copy original and remain
 	await expect(response.getByRole("alert")).toContainText(
 		"Unable to read communication",
 	);
+	await expect(response.getByRole("button", { name: "Copy" })).toHaveCount(0);
 	fail = false;
 	await response.getByRole("button", { name: "Retry" }).click();
 	await expect(response).toContainText("HTTP 500");
@@ -187,7 +206,7 @@ test("failed responses show actual text, retry reading, copy original and remain
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-		.toBe("upstream failure");
+		.toBe(await displayedText(response));
 	await page.request.put(`${app.url}/api/chats/${chat.id}/archive`, {
 		data: { archived: true },
 	});
@@ -203,8 +222,9 @@ test("failed responses show actual text, retry reading, copy original and remain
 	await expect(response.locator("pre")).toHaveText("upstream failure");
 });
 
-test("network failures have no copyable response and unavailable saved records are explicit", async ({
+test("network failures have copyable diagnostics and unavailable saved records are explicit", async ({
 	page,
+	context,
 	app,
 }) => {
 	const project = await (
@@ -217,6 +237,7 @@ test("network failures have no copyable response and unavailable saved records a
 			data: { name: "Network" },
 		})
 	).json();
+	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 	app.failModel("network");
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
 		data: { modelId: "test", prompt: "failure" },
@@ -228,7 +249,10 @@ test("network failures have no copyable response and unavailable saved records a
 	await response.locator("summary").click();
 	await expect(response).toContainText("No response body was received");
 	await expect(response).toContainText("network disconnected");
-	await expect(response.getByRole("button", { name: "Copy" })).toHaveCount(0);
+	await response.getByRole("button", { name: "Copy", exact: true }).click();
+	await expect
+		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+		.toBe(await displayedText(response));
 	await page.route("**/calls?kind=request&callId=*", (route) =>
 		route.fulfill({ json: { calls: [] } }),
 	);
@@ -239,7 +263,7 @@ test("network failures have no copyable response and unavailable saved records a
 	await expect(request).toContainText("No communication record is available");
 });
 
-test("saved SSE events stay lazy, update while pending, retain cached text on read errors and copy exact redacted bytes", async ({
+test("saved SSE events stay lazy, update while pending, retain cached text on read errors and copy formatted redacted text", async ({
 	page,
 	context,
 	app,
@@ -363,7 +387,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-		.toBe(raw);
+		.toBe(await displayedText(response));
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
@@ -491,9 +515,7 @@ test("older downloads cannot overwrite newer per-call response and thinking cont
 		.getByRole("button", { name: /Thinking/ })
 		.click();
 	await expect(page.getByRole("log")).toContainText("old newest final");
-	await expect(response.locator("summary")).toHaveText(
-		"Response 1 · Completed",
-	);
+	await expect(response.locator("summary")).toHaveText("Response 1");
 });
 
 test("failure before a model call shows its question and turn error without communications", async ({

@@ -188,9 +188,13 @@ test("passive updates follow only at bottom and submitting follows pending and e
 			.last()
 			.locator("summary")
 			.click();
-		await expect(page.getByRole("log").locator("details").last()).toContainText(
-			"Working",
-		);
+		await expect(
+			page
+				.getByRole("log")
+				.locator("details")
+				.last()
+				.getByRole("status", { name: "Working…" }),
+		).toBeVisible();
 	} finally {
 		ownGate.release();
 	}

@@ -88,20 +88,9 @@ test("a tool turn retains output and exposes both communications while Send stay
 	await expect(request).toContainText("count-1");
 	await expect(request).toContainText('\\"count\\":2');
 	await expect(response).toContainText("count_files");
-	const turn = (
-		await (await page.request.get(`${app.url}/api/chats/${chat.id}`)).json()
-	).turns[0];
-	const saved = (
-		await (
-			await page.request.get(
-				`${app.url}/api/turns/${turn.id}/calls?kind=request`,
-			)
-		).json()
-	).calls;
-	await request.getByRole("button", { name: "Copy", exact: true }).click();
-	await expect
-		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-		.toBe(saved[1].requestBody);
+	await expect(
+		request.getByRole("button", { name: "Copy", exact: true }),
+	).toHaveCount(0);
 	const firstRequest = log
 		.locator("details")
 		.filter({ has: page.locator("summary", { hasText: /^Request 1$/ }) });
@@ -109,7 +98,7 @@ test("a tool turn retains output and exposes both communications while Send stay
 	await firstRequest.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-		.toBe(saved[0].requestBody);
+		.toBe(await firstRequest.locator(".communication-text").textContent());
 	await expect(request).toHaveAttribute("open", "");
 	await firstRequest.locator("summary").click();
 	await expect(request).toHaveAttribute("open", "");
@@ -123,7 +112,7 @@ test("a tool turn retains output and exposes both communications while Send stay
 			.evaluateAll((elements) =>
 				elements.map((element) =>
 					element.tagName === "SUMMARY"
-						? element.textContent
+						? element.querySelector("span > span")?.textContent
 						: element.getAttribute("data-output-index"),
 				),
 			),
@@ -131,10 +120,10 @@ test("a tool turn retains output and exposes both communications while Send stay
 		"Request 1",
 		"0",
 		"1",
-		"Response 1 · Completed",
+		"Response 1",
 		"Request 2",
 		"3",
-		"Response 2 · Completed",
+		"Response 2",
 	]);
 	await request.locator("summary").click();
 	await response.locator("summary").click();

@@ -53,8 +53,10 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 	const groups = log.locator("[data-model-call-id]");
 	await expect(groups).toHaveCount(2);
 	await expect(groups.first().locator("[data-output-index]")).toHaveCount(0);
-	await expect(groups.first()).toContainText("Response 1 · Completed");
-	await expect(groups.last()).toContainText("Response 2 · Working");
+	await expect(groups.first()).toContainText("Response 1");
+	await expect(
+		groups.last().getByRole("status", { name: "Working…" }),
+	).toBeVisible();
 	const items = [
 		{
 			id: "same-id",
