@@ -26,6 +26,8 @@ test("local literal search highlights complete displayed text, navigates only th
 			first: "İNeedle .* [x]",
 			padding: Array.from({ length: 160 }, (_, index) => `line ${index}`),
 			last: "needle .* [x]",
+			greek: "ΑΣ σςΣ",
+			expansions: "İİİ",
 		}),
 	);
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
@@ -57,7 +59,7 @@ test("local literal search highlights complete displayed text, navigates only th
 	await expect(counter).toHaveText("1 / 1");
 	await expect(response.locator("mark")).toHaveText("HTTP 500");
 	await input.fill("İ");
-	await expect(response.locator("mark")).toHaveText("İ");
+	await expect(response.locator("mark")).toHaveText(["İ", "İ", "İ", "İ"]);
 	await input.fill('"first": "İNEEDLE .* [x]"');
 	await expect(counter).toHaveText("1 / 1");
 	await input.fill("needle .* [x]");
@@ -89,10 +91,32 @@ test("local literal search highlights complete displayed text, navigates only th
 	expect(await outer.evaluate((el) => el.scrollTop)).toBe(outerTop);
 	const top = await body.evaluate((el) => el.scrollTop);
 	const original = await response.locator(".communication-text").textContent();
+	await input.fill("Σ");
+	await expect(counter).toHaveText("1 / 4");
+	await expect(response.locator("mark")).toHaveText(["Σ", "σ", "ς", "Σ"]);
+	await input.fill("ας");
+	await expect(response.locator("mark")).toHaveText("ΑΣ");
+	await input.fill("ς");
+	await expect(counter).toHaveText("1 / 4");
+	await expect(response.locator("mark")).toHaveText(["Σ", "σ", "ς", "Σ"]);
+	await input.fill("\u0307i");
+	await expect(counter).toHaveText("1 / 1");
+	await expect(response.locator("mark")).toHaveText("İİ");
+	await expect(response.locator(".communication-text")).toHaveText(
+		original ?? "",
+	);
+	await input.fill("i");
+	await expect(response.locator("mark").filter({ hasText: "İ" })).toHaveCount(
+		4,
+	);
+	await expect(response.locator(".communication-text")).toHaveText(
+		original ?? "",
+	);
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 		.toBe(original);
+	await input.fill("needle .* [x]");
 	await input.focus();
 	await input.press("Escape");
 	await expect(input).toHaveCount(0);

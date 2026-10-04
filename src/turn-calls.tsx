@@ -70,6 +70,11 @@ function responseEvents(body: string) {
 			}
 		});
 }
+function foldCase(text: string) {
+	return Array.from(text, (character) =>
+		character.toLowerCase().replaceAll("ς", "σ"),
+	).join("");
+}
 export function TurnCalls({
 	turnId,
 	callId,
@@ -172,15 +177,15 @@ export function TurnCalls({
 	const communicationText =
 		displayParts?.map((part) => part.text).join("\n\n") ?? "";
 	const matches: { start: number; end: number; anchor: string }[] = [];
-	const query = record.query.toLowerCase();
+	const query = foldCase(record.query);
 	if (record.searchOpen && query) {
 		// Lowercasing can expand a character (İ); keep original text offsets.
 		const offsets: number[] = [];
 		const ends: number[] = [];
-		const text = communicationText.toLowerCase();
+		const text = foldCase(communicationText);
 		let offset = 0;
 		for (const character of communicationText) {
-			const folded = character.toLowerCase();
+			const folded = foldCase(character);
 			for (let index = 0; index < folded.length; index++) {
 				offsets.push(offset);
 				ends.push(offset + character.length);
@@ -191,6 +196,9 @@ export function TurnCalls({
 		while (start !== -1) {
 			const originalStart = offsets[start];
 			const end = ends[start + query.length - 1];
+			start = text.indexOf(query, start + query.length);
+			// Expanded characters can map disjoint folded matches to overlapping text.
+			if (originalStart < (matches.at(-1)?.end ?? 0)) continue;
 			let partStart = 0;
 			const part = displayParts?.find((part) => {
 				if (originalStart < partStart + part.text.length) return true;
@@ -202,7 +210,6 @@ export function TurnCalls({
 				end,
 				anchor: `${part?.id}:${originalStart - partStart}`,
 			});
-			start = text.indexOf(query, start + query.length);
 		}
 	}
 	const retainedMatch = matches.findIndex(
