@@ -24,10 +24,11 @@ import {
 } from "./openrouter.ts";
 
 const readableParts = (item: OutputItem) =>
-	item.content.filter((part) =>
-		["output_text", "refusal", "reasoning_text", "summary_text"].includes(
-			part.type,
-		),
+	item.content.filter(
+		(part) =>
+			["output_text", "refusal", "reasoning_text", "summary_text"].includes(
+				part.type,
+			) && part.text.trim().length > 0,
 	);
 // Reader summaries preserve block order without downloading folded thinking.
 const outputSummary = (output: OutputItem[]) =>

@@ -27,6 +27,16 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 			status: "completed",
 			output: [
 				{
+					id: "empty-thought",
+					type: "reasoning",
+					summary: [{ type: "summary_text", text: "" }],
+				},
+				{
+					id: "blank-message",
+					type: "message",
+					content: [{ type: "output_text", text: "   " }],
+				},
+				{
 					id: "same-id",
 					type: "function_call",
 					name: "count_files",
