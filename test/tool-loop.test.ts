@@ -610,12 +610,20 @@ test("a completed final response must itself contain a usable answer", async () 
 
 test("a continuation persistence failure preserves prior calls and restart interrupts without resuming", async () => {
 	let requests = 0;
-	const f = await fixture(async () => {
-		requests++;
-		return requests === 1
-			? new Response(completed([message("saved first"), tool("/tmp")]))
-			: new Response(completed([message("must not request")]));
-	}, []);
+	let executions = 0;
+	const f = await fixture(
+		async () => {
+			requests++;
+			return requests === 1
+				? new Response(completed([message("saved first"), tool("/tmp")]))
+				: new Response(completed([message("must not request")]));
+		},
+		[],
+		async () => {
+			executions++;
+			return { status: "succeeded", result: "saved independently" };
+		},
+	);
 	const db = new DatabaseSync(f.databasePath);
 	try {
 		db.exec(
@@ -637,11 +645,20 @@ test("a continuation persistence failure preserves prior calls and restart inter
 		);
 		assert.equal(turn.answer, "saved first");
 		assert.equal((await f.get(`/api/turns/${turn.id}/calls`)).calls.length, 1);
+		const savedTools = (await f.get(`/api/turns/${turn.id}/tools`)).toolCalls;
+		assert.equal(savedTools[0].status, "succeeded");
+		assert.equal(savedTools[0].result, "saved independently");
+		assert.equal(executions, 1);
 		db.exec("DROP TRIGGER reject_continuation; DROP TRIGGER reject_failure");
 		await f.restart();
 		turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
 		assert.equal(turn.status, "failed");
 		assert.equal(turn.errorCode, "modelInterrupted");
+		assert.deepEqual(
+			(await f.get(`/api/turns/${turn.id}/tools`)).toolCalls,
+			savedTools,
+		);
+		assert.equal(executions, 1);
 		assert.equal(turn.answer, "saved first");
 		assert.equal(requests, 1);
 	} finally {

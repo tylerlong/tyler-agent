@@ -181,3 +181,49 @@ test("fifth model response shows localized unexecuted tools without result or lo
 	await page.reload();
 	await expect(cards.nth(4).locator("summary")).toContainText("Not executed");
 });
+
+test("later model failure leaves a saved successful tool result readable across restart", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "P", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "C" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const model = app.rawStreamModel();
+	const held = app.holdTool({
+		status: "succeeded",
+		result:
+			'{"error":"ordinary business field","key":"zkey","nested":[true,null,7]}',
+	});
+	await page.getByLabel("Prompt").fill("Run");
+	await page.getByRole("button", { name: /^Send/ }).click();
+	model.push(completedBody({ status: "completed", output: output() }));
+	model.end();
+	await held.entered;
+	app.failModel();
+	held.release();
+	const card = page.locator("[data-tool-call-id]");
+	await expect(card.locator("summary")).toHaveText("inspect");
+	await expect(card).toContainText('"error": "ordinary business field"');
+	await expect(card).toContainText('"key": "[REDACTED]"');
+	await expect(card.getByRole("status")).toHaveCount(0);
+	await expect(page.getByRole("log")).toContainText("OpenRouter");
+	const history = await (
+		await page.request.get(`${app.url}/api/chats/${chat.id}`)
+	).json();
+	expect(history.turns[0].status).toBe("failed");
+	expect(history.turns[0].toolCalls[0].status).toBe("succeeded");
+	await app.restart();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await expect(card.locator("summary")).toHaveText("inspect");
+	await expect(card).toContainText('"error": "ordinary business field"');
+	await expect(card).not.toContainText("zkey");
+});
