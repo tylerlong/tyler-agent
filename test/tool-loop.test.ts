@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import type { ToolExecutor } from "../src/count-files.ts";
+import { createServer } from "../src/server.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
 import { waitForIdle, waitForTurn } from "./turn-fixture.ts";
@@ -93,6 +94,91 @@ async function fixture(
 		},
 	};
 }
+
+test("fresh database configures through HTTP and saves a complete tool loop", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "tool-fresh-"));
+	const root = join(directory, "files");
+	await mkdir(root);
+	await writeFile(join(root, "one.txt"), "one");
+	let calls = 0;
+	const server = createServer(
+		async (_url, init) => {
+			calls++;
+			const request = JSON.parse(String(init?.body));
+			assert.equal(request.model, "fresh-model");
+			assert.equal(
+				new Headers(init?.headers).get("authorization"),
+				"Bearer fresh-secret",
+			);
+			if (calls === 1) return new Response(completed([tool(root)]));
+			assert.equal(JSON.parse(request.input.at(-1).output).count, 1);
+			return new Response(completed([message("one file")]));
+		},
+		join(directory, "db.sqlite"),
+		async () =>
+			Response.json({
+				data: [
+					{
+						id: "fresh-model",
+						name: "Fresh",
+						architecture: { output_modalities: ["text"] },
+					},
+				],
+			}),
+	).listen(0, "127.0.0.1");
+	await new Promise<void>((resolve) => server.once("listening", resolve));
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const base = `http://127.0.0.1:${address.port}`;
+	const request = async (route: string, method = "GET", body?: unknown) => {
+		const response = await fetch(base + route, {
+			method,
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
+		});
+		assert(response.ok, `${method} ${route}: ${response.status}`);
+		return response.json();
+	};
+	try {
+		assert.deepEqual(await request("/api/model-settings"), {
+			apiKeyConfigured: false,
+			defaultModelId: null,
+			models: [],
+		});
+		await request("/api/model-settings", "PUT", { apiKey: "fresh-secret" });
+		await request("/api/model-catalog");
+		await request("/api/models", "POST", { id: "fresh-model" });
+		await request("/api/model-settings", "PUT", {
+			defaultModelId: "fresh-model",
+		});
+		const project = await request("/api/projects", "POST", {
+			name: "Fresh",
+			folders: [root],
+		});
+		const chat = await request(`/api/projects/${project.id}/chats`, "POST", {
+			name: "Tools",
+		});
+		const accepted = await request(`/api/chats/${chat.id}`, "POST", {
+			modelId: "fresh-model",
+			prompt: "count",
+		});
+		assert.equal(
+			(await waitForTurn(base, accepted.turnId)).status,
+			"succeeded",
+		);
+		const history = await request(`/api/chats/${chat.id}`);
+		assert.equal(history.turns[0].answer, "one file");
+		assert.equal(history.turns[0].calls.length, 2);
+		assert.equal(history.turns[0].toolCalls[0].status, "succeeded");
+		const saved = await request(`/api/turns/${accepted.turnId}/tools`);
+		assert.equal(saved.toolCalls.length, 1);
+		assert.equal(JSON.parse(saved.toolCalls[0].result).count, 1);
+		assert.equal(calls, 2);
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
 
 test("Turn counts a real tree and continues with complete protocol context while retaining earlier output", async () => {
 	const root = await mkdtemp(join(tmpdir(), "tool-tree-"));

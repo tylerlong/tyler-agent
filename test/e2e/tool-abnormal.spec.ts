@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { Locator, Page } from "@playwright/test";
 import { completedBody } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
@@ -11,6 +12,22 @@ const output = (count = 1) =>
 		call_id: `call-${i}`,
 		arguments: '{"key":"zkey","path":"/tmp"}',
 	}));
+
+test.beforeEach(async ({ context }) => {
+	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+});
+
+async function copySavedContent(page: Page, card: Locator) {
+	const copy = card.getByRole("button", { name: "Copy", exact: true });
+	await expect(copy).toBeVisible();
+	const displayed = await card.locator(".communication-text").textContent();
+	expect(displayed).not.toMatch(/zkey|unsaved|never saved/);
+	await page.evaluate(() => navigator.clipboard.writeText("before tool Copy"));
+	await copy.click();
+	await expect
+		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+		.toBe(displayed);
+}
 
 test("restart removes running and waiting loading and rereads interrupted history without replay", async ({
 	page,
@@ -55,6 +72,7 @@ test("restart removes running and waiting loading and rereads interrupted histor
 		await expect(card.getByRole("status")).toHaveCount(0);
 		await expect(card).toContainText('"key": "[REDACTED]"');
 		await expect(card).not.toContainText("never saved");
+		await copySavedContent(page, card);
 	}
 	held.release();
 	await page.getByLabel("Prompt").fill("next");
@@ -121,6 +139,7 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 			await expect(card.getByRole("status")).toHaveCount(0);
 			await expect(card).not.toContainText("unsaved");
 			await expect(card).not.toContainText("zkey");
+			await copySavedContent(page, card);
 		}
 		await page.getByLabel("Prompt").fill("next");
 		await expect(page.getByRole("button", { name: /^Send/ })).toBeEnabled();
@@ -130,10 +149,12 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 		expect(history.turns[0].calls).toHaveLength(1);
 		await page.reload();
 		await expect(cards).toHaveCount(boundary === "establish" ? 0 : 2);
-		if (boundary !== "establish")
+		if (boundary !== "establish") {
 			await expect(cards.nth(0)).toContainText(
 				"Tool record could not be saved.",
 			);
+			await copySavedContent(page, cards.nth(0));
+		}
 	});
 }
 
@@ -173,6 +194,7 @@ test("fifth model response shows localized unexecuted tools without result or lo
 	await expect(cards.nth(4)).toContainText("five");
 	await expect(cards.nth(4).getByRole("status")).toHaveCount(0);
 	await expect(cards.nth(4).locator("pre")).toHaveCount(1);
+	await copySavedContent(page, cards.nth(4));
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
@@ -180,6 +202,7 @@ test("fifth model response shows localized unexecuted tools without result or lo
 	expect(history.turns[0].toolCalls[4].status).toBe("not_executed");
 	await page.reload();
 	await expect(cards.nth(4).locator("summary")).toContainText("Not executed");
+	await copySavedContent(page, cards.nth(4));
 });
 
 test("later model failure leaves a saved successful tool result readable across restart", async ({
@@ -226,4 +249,5 @@ test("later model failure leaves a saved successful tool result readable across 
 	await expect(card.locator("summary")).toHaveText("inspect");
 	await expect(card).toContainText('"error": "ordinary business field"');
 	await expect(card).not.toContainText("zkey");
+	await copySavedContent(page, card);
 });
