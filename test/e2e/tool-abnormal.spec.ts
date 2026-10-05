@@ -56,7 +56,7 @@ test("restart removes running and waiting loading and rereads interrupted histor
 	await held.entered;
 	await expect(
 		page.locator("[data-tool-call-id]").nth(0).getByRole("status"),
-	).toHaveCount(2);
+	).toHaveCount(1);
 	await expect(
 		page.locator("[data-tool-call-id]").nth(1).locator("summary"),
 	).toContainText("Waiting");
@@ -65,6 +65,8 @@ test("restart removes running and waiting loading and rereads interrupted histor
 	const cards = page.locator("[data-tool-call-id]");
 	await expect(cards).toHaveCount(2);
 	for (const card of await cards.all()) {
+		await expect(card).not.toHaveAttribute("open");
+		await card.locator("summary").click();
 		await expect(card.locator("summary")).toContainText("Interrupted");
 		await expect(card).toContainText(
 			"Service restarted before this tool completed",
@@ -134,6 +136,8 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 		const cards = page.locator("[data-tool-call-id]");
 		await expect(cards).toHaveCount(boundary === "establish" ? 0 : 2);
 		for (const card of await cards.all()) {
+			await expect(card).not.toHaveAttribute("open");
+			await card.locator("summary").click();
 			await expect(card.locator("summary")).toContainText("Interrupted");
 			await expect(card).toContainText("Tool record could not be saved.");
 			await expect(card.getByRole("status")).toHaveCount(0);
@@ -150,6 +154,7 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 		await page.reload();
 		await expect(cards).toHaveCount(boundary === "establish" ? 0 : 2);
 		if (boundary !== "establish") {
+			await cards.nth(0).locator("summary").click();
 			await expect(cards.nth(0)).toContainText(
 				"Tool record could not be saved.",
 			);
@@ -191,6 +196,7 @@ test("fifth model response shows localized unexecuted tools without result or lo
 	const cards = page.locator("[data-tool-call-id]");
 	await expect(cards).toHaveCount(5);
 	await expect(cards.nth(4).locator("summary")).toContainText("Not executed");
+	await cards.nth(4).locator("summary").click();
 	await expect(cards.nth(4)).toContainText("five");
 	await expect(cards.nth(4).getByRole("status")).toHaveCount(0);
 	await expect(cards.nth(4).locator("pre")).toHaveCount(1);
@@ -202,6 +208,7 @@ test("fifth model response shows localized unexecuted tools without result or lo
 	expect(history.turns[0].toolCalls[4].status).toBe("not_executed");
 	await page.reload();
 	await expect(cards.nth(4).locator("summary")).toContainText("Not executed");
+	await cards.nth(4).locator("summary").click();
 	await copySavedContent(page, cards.nth(4));
 });
 
@@ -234,7 +241,8 @@ test("later model failure leaves a saved successful tool result readable across 
 	app.failModel();
 	held.release();
 	const card = page.locator("[data-tool-call-id]");
-	await expect(card.locator("summary")).toHaveText("inspect");
+	await expect(card.locator("summary")).toHaveText("Tool Call · inspect");
+	await card.locator("summary").click();
 	await expect(card).toContainText('"error": "ordinary business field"');
 	await expect(card).toContainText('"key": "[REDACTED]"');
 	await expect(card.getByRole("status")).toHaveCount(0);
@@ -246,7 +254,8 @@ test("later model failure leaves a saved successful tool result readable across 
 	expect(history.turns[0].toolCalls[0].status).toBe("succeeded");
 	await app.restart();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	await expect(card.locator("summary")).toHaveText("inspect");
+	await expect(card.locator("summary")).toHaveText("Tool Call · inspect");
+	await card.locator("summary").click();
 	await expect(card).toContainText('"error": "ordinary business field"');
 	await expect(card).not.toContainText("zkey");
 	await copySavedContent(page, card);

@@ -121,7 +121,7 @@ test("a tool turn retains output and exposes both communications while Send stay
 		"0",
 		"1",
 		"Response 1",
-		"count_files",
+		"Tool Call · count_files",
 		"Request 2",
 		"3",
 		"Response 2",
@@ -186,6 +186,8 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	const cards = page.locator("[data-tool-call-id]");
 	await expect(cards).toHaveCount(4);
 	const inspect = cards.nth(0);
+	await expect(inspect).not.toHaveAttribute("open");
+	await inspect.locator("summary").click();
 	await expect(inspect).toHaveAttribute("open", "");
 	await expect(inspect).toContainText('"key": "[REDACTED]"');
 	await expect(inspect.getByRole("status")).toHaveCount(2);
@@ -196,7 +198,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await expect(inspect).not.toHaveAttribute("open");
 	success.release();
 	await plain.entered;
-	await expect(inspect.locator("summary")).toHaveText("inspect");
+	await expect(inspect.locator("summary")).toHaveText("Tool Call · inspect");
 	await expect(inspect).not.toHaveAttribute("open");
 	await inspect.locator("summary").click();
 	await expect(inspect).toContainText('"error": "business field"');
@@ -210,11 +212,15 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await expect(inspect).not.toContainText("zkey");
 	plain.release();
 	await empty.entered;
+	await cards.nth(1).locator("summary").click();
 	await expect(cards.nth(1)).toContainText("not JSON\nraw text");
 	empty.release();
 	await failure.entered;
 	failure.release();
-	await expect(cards.nth(3).locator("summary")).toHaveText("broken · Failed");
+	await expect(cards.nth(3).locator("summary")).toHaveText(
+		"Tool Call · broken · Failed",
+	);
+	await cards.nth(3).locator("summary").click();
 	await expect(cards.nth(3)).toContainText('"error": "[REDACTED] failure"');
 	await expect(cards.nth(3)).toContainText('"extra": 7');
 	await expect(page.getByRole("log")).toContainText("Test answer");
@@ -225,16 +231,18 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	expect(order).toEqual([
 		"Request 1",
 		"Response 1",
-		"inspect",
-		"plain",
-		"empty",
-		"broken · Failed",
+		"Tool Call · inspect",
+		"Tool Call · plain",
+		"Tool Call · empty",
+		"Tool Call · broken · Failed",
 		"Request 2",
 		"Response 2",
 	]);
 	await app.restart();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(page.locator("[data-tool-call-id]")).toHaveCount(4);
+	await page.locator("[data-tool-call-id]").nth(0).locator("summary").click();
+	await page.locator("[data-tool-call-id]").nth(2).locator("summary").click();
 	await expect(page.locator("[data-tool-call-id]").nth(0)).toContainText(
 		'"error": "business field"',
 	);

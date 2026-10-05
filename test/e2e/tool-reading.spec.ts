@@ -73,6 +73,7 @@ test("tool reading stays bounded and retained through completion, folds, chat ch
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const card = page.locator("[data-tool-call-id]");
 	const body = card.locator(".tool-body");
+	await card.locator("summary").click();
 	await expect(card.locator("pre")).toContainText("argument 79");
 	await expect(
 		card.getByRole("button", { name: "Copy", exact: true }),
@@ -97,7 +98,9 @@ test("tool reading stays bounded and retained through completion, folds, chat ch
 	await pending;
 	await expect(card.locator("pre").nth(1)).toContainText("result 99");
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(120);
-	await expect(card.locator("summary")).toHaveText("generic_inspection");
+	await expect(card.locator("summary")).toHaveText(
+		"Tool Call · generic_inspection",
+	);
 	const copy = card.getByRole("button", { name: "Copy", exact: true });
 	await copy.click();
 	const displayed = await card.locator(".communication-text").textContent();
@@ -125,6 +128,9 @@ test("tool reading stays bounded and retained through completion, folds, chat ch
 	await expect.poll(() => body.evaluate((el) => el.clientHeight)).toBe(400);
 	await card.locator("summary").click();
 	await page.reload();
+	await expect(card).not.toHaveAttribute("open");
+	expect(reads).toBe(beforeSwitch);
+	await card.locator("summary").click();
 	await expect(card).toHaveAttribute("open", "");
 	await expect(card.locator("pre").nth(1)).toContainText("result 99");
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(0);
@@ -174,12 +180,17 @@ test("all terminal kinds copy complete generic display including absent and empt
 	const cards = page.locator("[data-tool-call-id]");
 	await expect(cards).toHaveCount(4);
 	for (const [index, label] of [
-		"generic_inspection",
-		"arbitrary_1 · Failed",
-		"arbitrary_2 · Not executed",
-		"arbitrary_3 · Interrupted",
+		"Tool Call · generic_inspection",
+		"Tool Call · arbitrary_1 · Failed",
+		"Tool Call · arbitrary_2 · Not executed",
+		"Tool Call · arbitrary_3 · Interrupted",
 	].entries()) {
 		const card = cards.nth(index);
+		await expect(card).not.toHaveAttribute("open");
+		await expect(
+			card.getByRole("button", { name: "Copy", exact: true }),
+		).toHaveCount(0);
+		await card.locator("summary").click();
 		await expect(
 			card.getByRole("button", { name: "Copy", exact: true }),
 		).toBeVisible();
@@ -207,7 +218,7 @@ test("all terminal kinds copy complete generic display including absent and empt
 		data: { language: "zh-CN" },
 	});
 	await expect(cards.nth(3).locator("summary")).toHaveText(
-		"arbitrary_3 · 执行中断",
+		"工具调用 · arbitrary_3 · 执行中断",
 	);
 	await cards.nth(3).getByRole("button", { name: "复制", exact: true }).click();
 	await expect
@@ -235,6 +246,7 @@ test("failed refresh retains downloaded text and retries reading without executi
 	await tool.entered;
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const card = page.locator("[data-tool-call-id]");
+	await card.locator("summary").click();
 	await expect(card.locator("pre")).toContainText("[REDACTED]");
 	let reads = 0;
 	await page.route("**/tools?toolId=*", async (route) => {
@@ -312,8 +324,9 @@ test("unread and stale downloads cannot enable Copy or replace newer terminal da
 		} else await route.continue();
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	await entered;
 	const card = page.locator("[data-tool-call-id]");
+	await card.locator("summary").click();
+	await entered;
 	await expect(
 		card.getByRole("button", { name: "Copy", exact: true }),
 	).toHaveCount(0);
@@ -323,7 +336,9 @@ test("unread and stale downloads cannot enable Copy or replace newer terminal da
 	tool.release();
 	await pending;
 	// Collapsed unread cards stay lazy, and the stale running read is invalidated.
-	await expect(card.locator("summary")).toHaveText("generic_inspection");
+	await expect(card.locator("summary")).toHaveText(
+		"Tool Call · generic_inspection",
+	);
 	await expect(
 		card.getByRole("button", { name: "Copy", exact: true }),
 	).toHaveCount(0);
@@ -369,6 +384,8 @@ test("two pages reconnect to stable tool identities while each call retains inde
 	const otherCards = other.locator("[data-tool-call-id]");
 	await expect(cards).toHaveCount(2);
 	await expect(otherCards).toHaveCount(2);
+	for (const view of [cards, otherCards])
+		for (const card of await view.all()) await card.locator("summary").click();
 	await expect(cards.nth(0).locator("pre")).toContainText("call 0 line 79");
 	await expect(cards.nth(1).locator("pre")).toContainText("call 1 line 79");
 	const ids = await cards.evaluateAll((elements) =>
@@ -403,10 +420,10 @@ test("two pages reconnect to stable tool identities while each call retains inde
 			view.nth(1).getByRole("button", { name: "Copy", exact: true }),
 		).toBeVisible();
 		await expect(view.nth(0).locator("summary")).toHaveText(
-			"generic_inspection",
+			"Tool Call · generic_inspection",
 		);
 		await expect(view.nth(1).locator("summary")).toHaveText(
-			"generic_inspection",
+			"Tool Call · generic_inspection",
 		);
 		await expect(view.nth(0).locator("pre").nth(1)).toHaveText("first result");
 		await expect(view.nth(1).locator("pre").nth(1)).toHaveText("second result");
@@ -440,4 +457,96 @@ test("two pages reconnect to stable tool identities while each call retains inde
 		),
 	).toEqual(ids);
 	await other.close();
+});
+
+test("tool cards stay collapsed and unread until opened, with localized titles and retained choices", async ({
+	page,
+	app,
+}) => {
+	const chat = await chats(page, app.url);
+	let reads = 0;
+	page.on("request", (request) => {
+		if (request.url().includes("/tools?")) reads++;
+	});
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const stream = app.rawStreamModel();
+	const first = app.holdTool({ status: "succeeded", result: "first result" });
+	const second = app.holdTool({ status: "succeeded", result: "second result" });
+	const pending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { modelId: "test", prompt: "Inspect twice" },
+	});
+	stream.push(
+		completedBody({
+			status: "completed",
+			output: [
+				{ ...output()[0], name: "count_files" },
+				{ ...output()[0], id: "other", call_id: "other" },
+			],
+		}),
+	);
+	stream.end();
+	await first.entered;
+	const cards = page.locator("[data-tool-call-id]");
+	await expect(cards).toHaveCount(2);
+	await expect(cards.nth(0)).not.toHaveAttribute("open");
+	await expect(cards.nth(1)).not.toHaveAttribute("open");
+	await expect(cards.nth(0).locator("summary")).toContainText(
+		"Tool Call · count_files",
+	);
+	await expect(cards.nth(0).locator("summary").getByRole("status")).toHaveCount(
+		1,
+	);
+	await expect(cards.nth(1).locator("summary")).toHaveText(
+		"Tool Call · generic_inspection · Waiting",
+	);
+	expect(reads).toBe(0);
+	first.release();
+	await second.entered;
+	await expect(cards.nth(0).locator("summary")).toHaveText(
+		"Tool Call · count_files",
+	);
+	await expect(
+		cards.getByRole("button", { name: "Copy", exact: true }),
+	).toHaveCount(0);
+	expect(reads).toBe(0);
+	await cards.nth(0).locator("summary").click();
+	await expect(cards.nth(0).locator("pre").nth(1)).toHaveText("first result");
+	await expect(
+		cards.nth(0).getByRole("button", { name: "Copy", exact: true }),
+	).toBeVisible();
+	expect(reads).toBe(1);
+	second.release();
+	await pending;
+	await expect(cards.nth(1).locator("summary")).toHaveText(
+		"Tool Call · generic_inspection",
+	);
+	await expect(cards.nth(1)).not.toHaveAttribute("open");
+	await page.getByRole("button", { name: "Other", exact: true }).click();
+	await page.getByRole("button", { name: "Reading", exact: true }).click();
+	await expect(cards.nth(0)).toHaveAttribute("open", "");
+	await expect(cards.nth(1)).not.toHaveAttribute("open");
+	await cards.nth(0).locator("summary").click();
+	await expect(
+		cards.nth(0).getByRole("button", { name: "Copy", exact: true }),
+	).toBeVisible();
+	await page.request.put(`${app.url}/api/language`, {
+		data: { language: "zh-CN" },
+	});
+	await expect(cards.nth(0).locator("summary")).toHaveText(
+		"工具调用 · count_files",
+	);
+	await expect(cards.nth(0)).not.toHaveAttribute("open");
+	expect(reads).toBe(1);
+	await page.request.post(`${app.url}/api/chats/${chat.id}/archive`);
+	await page.reload();
+	await expect(cards).toHaveCount(2);
+	await expect(cards.nth(0)).not.toHaveAttribute("open");
+	await expect(cards.nth(1)).not.toHaveAttribute("open");
+	await expect(
+		cards.getByRole("button", { name: "复制", exact: true }),
+	).toHaveCount(0);
+	expect(reads).toBe(1);
+	await cards.nth(1).locator("summary").click();
+	await expect(cards.nth(1).locator("pre").nth(1)).toHaveText("second result");
+	expect(reads).toBe(2);
 });

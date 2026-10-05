@@ -74,7 +74,7 @@ export function ToolCallCard({
 	let state = records.get(call.id);
 	if (!state) {
 		state = {
-			open: true,
+			open: false,
 			scrollTop: 0,
 			error: false,
 			loading: false,
@@ -168,7 +168,7 @@ export function ToolCallCard({
 			<summary className="cursor-pointer text-neutral-600 hover:text-neutral-950">
 				<span className="inline-flex w-[calc(100%-1.25rem)] items-center gap-2">
 					<span className="min-w-0 break-words">
-						{call.name}
+						{t("toolCallTitle", { name: call.name })}
 						{call.status === "waiting" && ` · ${t("toolWaiting")}`}
 						{call.status === "failed" && ` · ${t("toolFailed")}`}
 						{call.status === "not_executed" && ` · ${t("toolNotExecuted")}`}

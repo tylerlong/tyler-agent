@@ -3,6 +3,7 @@ import { initReactI18next } from "react-i18next";
 export const resources = {
 	en: {
 		translation: {
+			toolCallTitle: "Tool Call · {{name}}",
 			toolWaiting: "Waiting",
 			toolFailed: "Failed",
 			toolNotExecuted: "Not executed",
@@ -214,6 +215,7 @@ export const resources = {
 	},
 	"zh-CN": {
 		translation: {
+			toolCallTitle: "工具调用 · {{name}}",
 			toolWaiting: "等待执行",
 			toolFailed: "失败",
 			toolNotExecuted: "未执行",
