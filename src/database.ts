@@ -109,6 +109,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		);
 		db.exec(`BEGIN;
         UPDATE turns SET status='failed',error_code='modelInterrupted' WHERE status='pending';
+        UPDATE tool_calls SET status='interrupted',reason='toolRestartInterrupted' WHERE status IN ('waiting','running');
         UPDATE model_calls SET status='failed',error='Service restarted before the call completed' WHERE status='pending';
         COMMIT;`);
 		return db;

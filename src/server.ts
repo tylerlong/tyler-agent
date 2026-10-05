@@ -76,6 +76,7 @@ const errorMessages: Record<string, string> = {
 	promptRequired: "Prompt must not be empty",
 	chatBusy: "The chat is processing a request",
 	answerWriteFailed: "Could not save the answer",
+	toolWriteFailed: "Could not save the Tool Call or Tool Result",
 	chatCreateFailed: "Could not create chat",
 	notFound: "Not found",
 	languageWriteFailed: "Could not save interface language",
@@ -177,6 +178,8 @@ export function createServer(
 	const busy = new Set<number>();
 	const unsavedTurns = new Set<number>();
 	const unsavedCalls = new Set<number>();
+	const unsavedTools = new Set<number>();
+	let closed = false;
 	const callPersistenceError = (callId: unknown) =>
 		unsavedCalls.has(Number(callId))
 			? { status: "failed", errorCode: "answerWriteFailed" }
@@ -208,7 +211,15 @@ export function createServer(
 			.prepare(
 				`SELECT id,turn_id AS turnId,model_call_id AS modelCallId,call_id AS callId,name,ordinal,status,reason${content ? ",arguments,result" : ""} FROM tool_calls WHERE turn_id=? ORDER BY model_call_id,ordinal`,
 			)
-			.all(turnId);
+			.all(turnId)
+			.map((call) => ({
+				...call,
+				id: call.id,
+				...(unsavedTools.has(Number(call.id)) && {
+					status: "interrupted",
+					reason: "toolSaveFailed",
+				}),
+			}));
 	const turnPage = (
 		id: number,
 		before: number | null,
@@ -1177,7 +1188,8 @@ export function createServer(
 						input.prompt,
 						fetchModel,
 						{
-							tools: (calls) => {
+							tools: (calls, reason) => {
+								if (closed) throw new Error("Service closed");
 								if (callId === undefined)
 									throw new Error("Missing saved model call");
 								const ownerId = callId;
@@ -1187,7 +1199,7 @@ export function createServer(
 										Number(
 											database
 												.prepare(
-													"INSERT INTO tool_calls(turn_id,model_call_id,call_id,name,arguments,ordinal,status) VALUES(?,?,?,?,?,?,'waiting')",
+													"INSERT INTO tool_calls(turn_id,model_call_id,call_id,name,arguments,ordinal,status,reason) VALUES(?,?,?,?,?,?,?,?)",
 												)
 												.run(
 													turnId,
@@ -1196,30 +1208,55 @@ export function createServer(
 													redactTool(call.name),
 													redactTool(call.arguments),
 													index + 1,
+													reason ? "not_executed" : "waiting",
+													reason ?? null,
 												).lastInsertRowid,
 										),
 									);
 									database.exec("COMMIT");
-								} catch (error) {
+								} catch {
 									database.exec("ROLLBACK");
-									throw error;
+									throw new ModelError(
+										"toolWriteFailed",
+										errorMessages.toolWriteFailed,
+									);
 								}
 								notifyTurn(id, turnId);
 							},
 							toolStarted: (ordinal) => {
-								database
-									.prepare("UPDATE tool_calls SET status='running' WHERE id=?")
-									.run(savedToolIds[ordinal - 1]);
+								if (closed) throw new Error("Service closed");
+								try {
+									database
+										.prepare(
+											"UPDATE tool_calls SET status='running' WHERE id=?",
+										)
+										.run(savedToolIds[ordinal - 1]);
+								} catch {
+									throw new ModelError(
+										"toolWriteFailed",
+										errorMessages.toolWriteFailed,
+									);
+								}
 								notifyTurn(id, turnId);
 							},
 							toolFinished: (ordinal, result) => {
-								database
-									.prepare("UPDATE tool_calls SET status=?,result=? WHERE id=?")
-									.run(
-										result.status,
-										redactTool(result.result),
-										savedToolIds[ordinal - 1],
+								if (closed) throw new Error("Service closed");
+								try {
+									database
+										.prepare(
+											"UPDATE tool_calls SET status=?,result=? WHERE id=?",
+										)
+										.run(
+											result.status,
+											redactTool(result.result),
+											savedToolIds[ordinal - 1],
+										);
+								} catch {
+									throw new ModelError(
+										"toolWriteFailed",
+										errorMessages.toolWriteFailed,
 									);
+								}
 								notifyTurn(id, turnId);
 							},
 							request: (call) => {
@@ -1277,6 +1314,27 @@ export function createServer(
 				} catch (error) {
 					failure = error;
 				}
+				if (closed) return;
+				if (failure) {
+					const reason =
+						failure instanceof ModelError && failure.code === "toolWriteFailed"
+							? "toolSaveFailed"
+							: "toolExecutionStopped";
+					const unfinished = database
+						.prepare(
+							"SELECT id FROM tool_calls WHERE turn_id=? AND status IN ('waiting','running')",
+						)
+						.all(turnId);
+					try {
+						database
+							.prepare(
+								"UPDATE tool_calls SET status='interrupted',reason=? WHERE turn_id=? AND status IN ('waiting','running')",
+							)
+							.run(reason, turnId);
+					} catch {
+						for (const call of unfinished) unsavedTools.add(Number(call.id));
+					}
+				}
 				database.exec("BEGIN");
 				try {
 					const savedError = failure
@@ -1316,7 +1374,8 @@ export function createServer(
 			} finally {
 				if (locked) {
 					busy.delete(id);
-					if (acceptedTurnId !== undefined) notifyTurn(id, acceptedTurnId);
+					if (!closed && acceptedTurnId !== undefined)
+						notifyTurn(id, acceptedTurnId);
 				}
 			}
 			return;
@@ -1363,7 +1422,10 @@ export function createServer(
 			return;
 		}
 		json(response, 404, errorBody("notFound"));
-	}).on("close", () => database.close());
+	}).on("close", () => {
+		closed = true;
+		database.close();
+	});
 }
 if (import.meta.main) {
 	const { values } = parseArgs({

@@ -1005,3 +1005,234 @@ test("tool execution failures are explicit, redact actual errors, and remain sav
 		await f.close();
 	}
 });
+
+test("restart interrupts waiting and running tools without replay and preserves prior results", async () => {
+	let requests = 0;
+	let executions = 0;
+	let entered!: () => void;
+	let release!: () => void;
+	const running = new Promise<void>((r) => {
+		entered = r;
+	});
+	const gate = new Promise<void>((r) => {
+		release = r;
+	});
+	const f = await fixture(
+		async () => {
+			requests++;
+			return new Response(
+				completed([
+					tool("first", "a"),
+					tool("running", "b"),
+					tool("waiting", "c"),
+				]),
+			);
+		},
+		[],
+		async () => {
+			executions++;
+			if (executions === 2) {
+				entered();
+				await gate;
+			}
+			return { status: "succeeded", result: "saved result" };
+		},
+	);
+	try {
+		const { turnId } = await (await f.ask()).json();
+		await running;
+		await f.restart();
+		const calls = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert.deepEqual(
+			calls.map((c: { status: string }) => c.status),
+			["succeeded", "interrupted", "interrupted"],
+		);
+		assert.equal(calls[0].result, "saved result");
+		for (const call of calls.slice(1)) {
+			assert.equal(call.result, null);
+			assert.equal(call.reason, "toolRestartInterrupted");
+			assert.equal(typeof call.arguments, "string");
+		}
+		assert.equal((await f.wait(turnId)).status, "failed");
+		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, false);
+		release();
+		await new Promise<void>((r) => setImmediate(r));
+		assert.equal(requests, 1);
+		assert.equal(executions, 2);
+		assert.deepEqual(
+			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			calls,
+		);
+	} finally {
+		release();
+		await f.close();
+	}
+});
+
+for (const boundary of ["establish", "start", "result", "terminal"]) {
+	test(`tool ${boundary} save failure stops execution and exposes only committed content`, async () => {
+		let requests = 0;
+		let executions = 0;
+		let f: Awaited<ReturnType<typeof fixture>>;
+		f = await fixture(
+			async () => {
+				requests++;
+				const db = new DatabaseSync(f.databasePath);
+				const condition =
+					boundary === "establish"
+						? "BEFORE INSERT ON tool_calls"
+						: boundary === "start"
+							? "BEFORE UPDATE ON tool_calls WHEN NEW.status='running'"
+							: boundary === "result"
+								? "BEFORE UPDATE OF result ON tool_calls"
+								: "BEFORE UPDATE ON tool_calls WHEN NEW.status='succeeded'";
+				db.exec(
+					`CREATE TRIGGER fail_tool ${condition} BEGIN SELECT RAISE(FAIL,'tool-secret DB failure'); END`,
+				);
+				db.close();
+				return new Response(
+					completed([tool("tool-secret", "a"), tool("waiting", "b")]),
+				);
+			},
+			[],
+			async () => {
+				executions++;
+				return {
+					status: "succeeded",
+					result: "never committed tool-secret result",
+				};
+			},
+		);
+		try {
+			const { turnId } = await (await f.ask()).json();
+			const turn = await f.wait(turnId);
+			assert.equal(turn.status, "failed");
+			assert.equal(turn.errorCode, "toolWriteFailed");
+			assert.equal(requests, 1);
+			assert.equal(
+				executions,
+				boundary === "result" || boundary === "terminal" ? 1 : 0,
+			);
+			const calls = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+			assert.equal(calls.length, boundary === "establish" ? 0 : 2);
+			for (const call of calls) {
+				assert.equal(call.status, "interrupted");
+				assert.equal(call.reason, "toolSaveFailed");
+				assert.equal(call.result, null);
+			}
+			assert.doesNotMatch(JSON.stringify(calls), /tool-secret|never committed/);
+			assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, false);
+			const db = new DatabaseSync(f.databasePath);
+			db.exec("DROP TRIGGER fail_tool");
+			db.close();
+			await f.restart();
+			assert.deepEqual(
+				(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+				calls,
+			);
+			assert.equal(requests, 1);
+			assert.equal(
+				executions,
+				boundary === "result" || boundary === "terminal" ? 1 : 0,
+			);
+		} finally {
+			await f.close();
+		}
+	});
+}
+
+test("unwritable tool finalization reports save failure without keeping running or inventing a result", async () => {
+	let f: Awaited<ReturnType<typeof fixture>>;
+	let requests = 0;
+	let executions = 0;
+	f = await fixture(
+		async () => {
+			requests++;
+			return new Response(completed([tool("first"), tool("next", "next")]));
+		},
+		[],
+		async () => {
+			executions++;
+			const db = new DatabaseSync(f.databasePath);
+			db.exec(
+				"CREATE TRIGGER fail_all_tool_updates BEFORE UPDATE ON tool_calls BEGIN SELECT RAISE(FAIL,'blocked'); END",
+			);
+			db.close();
+			return { status: "succeeded", result: "unsaved result" };
+		},
+	);
+	try {
+		const { turnId } = await (await f.ask()).json();
+		await f.wait(turnId);
+		const tools = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert.deepEqual(
+			tools.map((c: { status: string }) => c.status),
+			["interrupted", "interrupted"],
+		);
+		assert(
+			tools.every(
+				(c: { reason: string; result: null }) =>
+					c.reason === "toolSaveFailed" && c.result === null,
+			),
+		);
+		const history = await f.get(`/api/chats/${f.chat.id}`);
+		assert.deepEqual(
+			history.turns[0].toolCalls.map((c: { status: string }) => c.status),
+			["interrupted", "interrupted"],
+		);
+		const db = new DatabaseSync(f.databasePath);
+		assert.deepEqual(
+			db
+				.prepare("SELECT status FROM tool_calls ORDER BY id")
+				.all()
+				.map((c) => c.status),
+			["running", "waiting"],
+		);
+		db.exec("DROP TRIGGER fail_all_tool_updates");
+		db.close();
+		await f.restart();
+		const restarted = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert(
+			restarted.every(
+				(c: { status: string; reason: string; result: null }) =>
+					c.status === "interrupted" &&
+					c.reason === "toolRestartInterrupted" &&
+					c.result === null,
+			),
+		);
+		assert.equal(requests, 1);
+		assert.equal(executions, 1);
+	} finally {
+		await f.close();
+	}
+});
+
+test("fifth response records unexecuted requests and no fabricated Tool Result", async () => {
+	let requests = 0;
+	let executions = 0;
+	const f = await fixture(
+		async () => {
+			requests++;
+			return new Response(completed([tool(`round-${requests}`)]));
+		},
+		[],
+		async () => {
+			executions++;
+			return { status: "succeeded", result: "" };
+		},
+	);
+	try {
+		const { turnId } = await (await f.ask()).json();
+		assert.equal((await f.wait(turnId)).errorCode, "modelCallLimit");
+		const tools = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert.equal(tools.length, 5);
+		assert.equal(tools[4].status, "not_executed");
+		assert.equal(tools[4].reason, "modelCallLimit");
+		assert.equal(tools[4].result, null);
+		assert.equal(JSON.parse(tools[4].arguments).path, "round-5");
+		assert.equal(requests, 5);
+		assert.equal(executions, 4);
+	} finally {
+		await f.close();
+	}
+});

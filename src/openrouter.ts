@@ -85,7 +85,7 @@ export type ToolRequest = { name: string; arguments: string; call_id: string };
 type Recorder = {
 	request: (request: CallRequest) => void;
 	result: (result: CallResult, output: OutputItem[]) => void;
-	tools?: (calls: ToolRequest[]) => void;
+	tools?: (calls: ToolRequest[], reason?: string) => void;
 	toolStarted?: (ordinal: number) => void;
 	toolFinished?: (ordinal: number, result: ToolExecution) => void;
 };
@@ -123,7 +123,7 @@ export async function requestModel(
 		);
 		previous = [...previous, ...current];
 		if (!response.tools.length) return answerText(previous);
-		record?.tools?.(response.tools);
+		record?.tools?.(response.tools, round === 4 ? "modelCallLimit" : undefined);
 		if (round === 4)
 			throw new ModelError(
 				"modelCallLimit",
