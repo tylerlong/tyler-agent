@@ -5,6 +5,13 @@ export const resources = {
 		translation: {
 			toolWaiting: "Waiting",
 			toolFailed: "Failed",
+			toolNotExecuted: "Not executed",
+			toolInterrupted: "Interrupted",
+			toolRestartInterrupted: "Service restarted before this tool completed.",
+			toolSaveFailed:
+				"Tool record could not be saved. Execution stopped; no automatic retry.",
+			toolExecutionStopped: "Tool execution stopped unexpectedly.",
+			toolWriteFailed: "Could not save tool execution. No automatic retry.",
 			toolArguments: "Arguments",
 			toolResult: "Result",
 			toolReadFailed: "Could not read tool record",
@@ -209,6 +216,12 @@ export const resources = {
 		translation: {
 			toolWaiting: "等待执行",
 			toolFailed: "失败",
+			toolNotExecuted: "未执行",
+			toolInterrupted: "执行中断",
+			toolRestartInterrupted: "服务重启前工具尚未完成。",
+			toolSaveFailed: "工具记录保存失败，执行已停止，不会自动重试。",
+			toolExecutionStopped: "工具执行意外停止。",
+			toolWriteFailed: "无法保存工具执行，不会自动重试。",
 			toolArguments: "参数",
 			toolResult: "结果",
 			toolReadFailed: "无法读取工具记录",
