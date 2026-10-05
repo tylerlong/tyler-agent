@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as base, expect } from "@playwright/test";
+import { executeTool, type ToolExecution } from "../../src/count-files.ts";
 import { openDatabase } from "../../src/database.ts";
 import { createServer } from "../../src/server.ts";
 
@@ -19,6 +20,10 @@ export const test = base.extend<{
 		failModel: (kind?: "http" | "network", body?: string) => void;
 		disconnectClients: () => void;
 		restart: () => Promise<void>;
+		holdTool: (result: ToolExecution) => {
+			entered: Promise<void>;
+			release: () => void;
+		};
 		holdModel: () => { entered: Promise<void>; release: () => void };
 		rawStreamModel: () => { push: (text: string) => void; end: () => void };
 		streamModel: () => { entered: Promise<void>; release: () => void };
@@ -70,6 +75,19 @@ export const test = base.extend<{
 			streamGate = gate;
 			gate = undefined;
 			return held;
+		}
+		const toolQueue: {
+			result: ToolExecution;
+			entered: () => void;
+			wait: Promise<void>;
+		}[] = [];
+		function holdTool(result: ToolExecution) {
+			let entered!: () => void;
+			let release!: () => void;
+			const started = new Promise<void>((resolve) => (entered = resolve));
+			const wait = new Promise<void>((resolve) => (release = resolve));
+			toolQueue.push({ result, entered, wait });
+			return { entered: started, release };
 		}
 		let rawStream: ReadableStream<Uint8Array> | undefined;
 		function rawStreamModel() {
@@ -173,6 +191,13 @@ export const test = base.extend<{
 							architecture: { output_modalities: ["text"] },
 						})),
 					}),
+				async (name, args, roots) => {
+					const next = toolQueue.shift();
+					if (!next) return executeTool(name, args, roots);
+					next.entered();
+					await next.wait;
+					return next.result;
+				},
 			).listen(0, "127.0.0.1");
 		let server = start();
 		if (originalHome === undefined) delete process.env.HOME;
@@ -189,6 +214,7 @@ export const test = base.extend<{
 				},
 				folder,
 				holdModel,
+				holdTool,
 				streamModel,
 				rawStreamModel,
 				failModel,

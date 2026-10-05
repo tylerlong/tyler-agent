@@ -13,6 +13,7 @@ import type { ModelSettings } from "./database.ts";
 import i18n from "./i18n.ts";
 import { ModelConfiguration } from "./model-configuration.tsx";
 import { createSettingState } from "./setting-state.ts";
+import { type ToolCall, ToolCallCard } from "./tool-calls.tsx";
 import { TurnCalls } from "./turn-calls.tsx";
 import {
 	normalizeTurnOptions,
@@ -267,6 +268,7 @@ function App() {
 			id: number;
 			status: string;
 			calls: { id: number; ordinal: number; status: string }[];
+			toolCalls: ToolCall[];
 			output: ReaderItem[];
 		}[];
 		messages: {
@@ -1505,6 +1507,22 @@ function App() {
 																	status={call.status}
 																	revision={message.revision ?? 0}
 																/>
+																{chatState.turns
+																	.find(
+																		(turn) =>
+																			turn.id ===
+																			Number(message.id.split("-")[0]),
+																	)
+																	?.toolCalls.filter(
+																		(tool) => tool.modelCallId === call.id,
+																	)
+																	.map((tool) => (
+																		<ToolCallCard
+																			key={tool.id}
+																			call={tool}
+																			onLayoutChange={restoreReadingPosition}
+																		/>
+																	))}
 															</div>
 														))
 												: message.content}

@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { executeTool, type ToolExecutor } from "./count-files.ts";
 import {
 	listProjects,
 	type ManagedModel,
@@ -166,6 +167,7 @@ export function createServer(
 	fetchModel: typeof fetch = fetch,
 	databasePath?: string,
 	fetchCatalog: typeof fetch = fetch,
+	runTool: ToolExecutor = executeTool,
 ) {
 	const database = openDatabase(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
@@ -201,6 +203,12 @@ export function createServer(
 				...callPersistenceError(call.id),
 				ordinal: index + 1,
 			}));
+	const toolCalls = (turnId: number, content = false) =>
+		database
+			.prepare(
+				`SELECT id,turn_id AS turnId,model_call_id AS modelCallId,call_id AS callId,name,ordinal,status,reason${content ? ",arguments,result" : ""} FROM tool_calls WHERE turn_id=? ORDER BY model_call_id,ordinal`,
+			)
+			.all(turnId);
 	const turnPage = (
 		id: number,
 		before: number | null,
@@ -223,6 +231,7 @@ export function createServer(
 			...persistenceError(row.id),
 			output: outputSummary(JSON.parse(String(row.output))),
 			calls: callMetadata(Number(row.id)),
+			toolCalls: toolCalls(Number(row.id)),
 		}));
 		if (after === null) page.reverse();
 		return {
@@ -914,6 +923,7 @@ export function createServer(
 					...persistenceError(row.id),
 					output: outputSummary(JSON.parse(String(row.output))),
 					calls: callMetadata(Number(row.id)),
+					toolCalls: toolCalls(Number(row.id)),
 				},
 			];
 			json(response, 200, {
@@ -922,6 +932,33 @@ export function createServer(
 				busy: busy.has(Number(row.chatId)),
 				hasMore: false,
 			});
+			return;
+		}
+		const toolsRoute = path.match(/^\/api\/turns\/(\d+)\/tools$/);
+		if (toolsRoute && request.method === "GET") {
+			const turnId = Number(toolsRoute[1]);
+			const toolId = url.searchParams.get("toolId");
+			if (
+				toolId !== null &&
+				(!/^\d+$/.test(toolId) ||
+					!Number.isSafeInteger(Number(toolId)) ||
+					Number(toolId) <= 0)
+			) {
+				json(response, 400, errorBody("invalidInput"));
+				return;
+			}
+			if (!database.prepare("SELECT id FROM turns WHERE id=?").get(turnId)) {
+				json(response, 404, errorBody("notFound"));
+				return;
+			}
+			const calls = toolCalls(turnId, true).filter(
+				(call) => toolId === null || call.id === Number(toolId),
+			);
+			if (toolId !== null && !calls.length) {
+				json(response, 404, errorBody("notFound"));
+				return;
+			}
+			json(response, 200, { toolCalls: calls });
 			return;
 		}
 		const callRoute = path.match(/^\/api\/turns\/(\d+)\/calls$/);
@@ -1122,12 +1159,69 @@ export function createServer(
 				let answer: string | undefined;
 				let failure: unknown;
 				let callId: number | undefined;
+				let savedToolIds: number[] = [];
+				const secrets = [
+					...new Set([
+						turnConfig.apiKey,
+						JSON.stringify(turnConfig.apiKey).slice(1, -1),
+					]),
+				];
+				const redactTool = (text: string) =>
+					secrets.reduce(
+						(value, secret) => value.replaceAll(secret, "[REDACTED]"),
+						text,
+					);
 				try {
 					answer = await requestModel(
 						messages(id, true).map(({ role, content }) => ({ role, content })),
 						input.prompt,
 						fetchModel,
 						{
+							tools: (calls) => {
+								if (callId === undefined)
+									throw new Error("Missing saved model call");
+								const ownerId = callId;
+								database.exec("BEGIN");
+								try {
+									savedToolIds = calls.map((call, index) =>
+										Number(
+											database
+												.prepare(
+													"INSERT INTO tool_calls(turn_id,model_call_id,call_id,name,arguments,ordinal,status) VALUES(?,?,?,?,?,?,'waiting')",
+												)
+												.run(
+													turnId,
+													ownerId,
+													redactTool(call.call_id),
+													redactTool(call.name),
+													redactTool(call.arguments),
+													index + 1,
+												).lastInsertRowid,
+										),
+									);
+									database.exec("COMMIT");
+								} catch (error) {
+									database.exec("ROLLBACK");
+									throw error;
+								}
+								notifyTurn(id, turnId);
+							},
+							toolStarted: (ordinal) => {
+								database
+									.prepare("UPDATE tool_calls SET status='running' WHERE id=?")
+									.run(savedToolIds[ordinal - 1]);
+								notifyTurn(id, turnId);
+							},
+							toolFinished: (ordinal, result) => {
+								database
+									.prepare("UPDATE tool_calls SET status=?,result=? WHERE id=?")
+									.run(
+										result.status,
+										redactTool(result.result),
+										savedToolIds[ordinal - 1],
+									);
+								notifyTurn(id, turnId);
+							},
 							request: (call) => {
 								callId = Number(
 									database
@@ -1178,6 +1272,7 @@ export function createServer(
 							},
 						},
 						turnConfig,
+						runTool,
 					);
 				} catch (error) {
 					failure = error;

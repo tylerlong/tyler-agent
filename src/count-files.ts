@@ -38,7 +38,7 @@ const failure = (
 	message: string,
 ): ToolResult => ({ error: { kind, message: message.slice(0, 4096) } });
 
-export async function executeTool(
+async function countFiles(
 	name: string,
 	argumentsText: string,
 	roots: string[],
@@ -173,3 +173,18 @@ export async function executeTool(
 		});
 	});
 }
+
+// Execution owns the success/error semantics; the record and UI never inspect result fields.
+export type ToolExecution = { status: "succeeded" | "failed"; result: string };
+export type ToolExecutor = (
+	name: string,
+	argumentsText: string,
+	roots: string[],
+) => Promise<ToolExecution>;
+export const executeTool: ToolExecutor = async (name, argumentsText, roots) => {
+	const result = await countFiles(name, argumentsText, roots);
+	return {
+		status: "error" in result ? "failed" : "succeeded",
+		result: JSON.stringify(result),
+	};
+};

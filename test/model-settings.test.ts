@@ -190,37 +190,27 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 	}
 });
 
-test("known v8 database upgrades without losing history or unrelated settings; no environment fallback", async () => {
+test("fresh database has empty model settings with no environment fallback", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-migrate-"));
 	const path = join(directory, "db.sqlite");
 	try {
 		const db = openDatabase(path, false);
 		db.exec(
-			"INSERT INTO projects(id,name,created_at) VALUES(1,'Preserved',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1); INSERT INTO turns(id,chat_id,user_content,status,created_at) VALUES(1,1,'Question','succeeded',1); UPDATE settings SET language='zh-CN',sidebar_width=500; ALTER TABLE settings DROP COLUMN enter_behavior; ALTER TABLE settings DROP COLUMN default_model_id; ALTER TABLE settings DROP COLUMN api_key; DROP TABLE managed_models; PRAGMA user_version=8;",
+			"INSERT INTO projects(id,name,created_at) VALUES(1,'Project',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1)",
 		);
-		db.close();
-		const upgraded = openDatabase(path, false);
-		assert.equal(
-			upgraded.prepare("PRAGMA user_version").get()?.user_version,
-			10,
-		);
-		assert.equal(
-			upgraded.prepare("SELECT user_content FROM turns WHERE id=1").get()
-				?.user_content,
-			"Question",
-		);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 11);
 		assert.deepEqual(
-			{ ...upgraded.prepare("SELECT * FROM settings").get() },
+			{ ...db.prepare("SELECT * FROM settings").get() },
 			{
 				id: 1,
-				sidebar_width: 500,
-				language: "zh-CN",
+				sidebar_width: 320,
+				language: "en",
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
 			},
 		);
-		upgraded.close();
+		db.close();
 		const oldKey = process.env.OPENROUTER_API_KEY;
 		const oldModel = process.env.OPENROUTER_MODEL;
 		process.env.OPENROUTER_API_KEY = "must-not-import";

@@ -35,9 +35,11 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
                 CREATE TABLE chats (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, last_question_at INTEGER, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)));
                 CREATE TABLE turns (id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL REFERENCES chats(id), user_content TEXT NOT NULL, assistant_content TEXT, status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')), created_at INTEGER NOT NULL, error_code TEXT, error_details TEXT, output_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(output_json) AND json_type(output_json)='array'));
                 CREATE TABLE model_calls (id INTEGER PRIMARY KEY, turn_id INTEGER NOT NULL REFERENCES turns(id), url TEXT NOT NULL, method TEXT NOT NULL, requested_at TEXT NOT NULL, request_body TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')), http_status INTEGER, response_body TEXT, duration_ms INTEGER, error TEXT);
-                CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')));
+                CREATE TABLE managed_models (id TEXT PRIMARY KEY CHECK(length(trim(id))>0), name TEXT NOT NULL, metadata TEXT NOT NULL CHECK(json_valid(metadata)));
+                CREATE TABLE tool_calls (id INTEGER PRIMARY KEY, turn_id INTEGER NOT NULL REFERENCES turns(id), model_call_id INTEGER NOT NULL REFERENCES model_calls(id), call_id TEXT NOT NULL, name TEXT NOT NULL, arguments TEXT NOT NULL, ordinal INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('waiting','running','succeeded','failed','not_executed','interrupted')), result TEXT, reason TEXT, UNIQUE(model_call_id,ordinal));
+                CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')), api_key TEXT, default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline')));
                 INSERT INTO settings(id) VALUES(1);
-                PRAGMA user_version=8;
+                PRAGMA user_version=11;
                 COMMIT;
             `);
 			} catch (error) {
@@ -45,11 +47,9 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			![8, 9, 10].includes(Number(version)) ||
+			version !== 11 ||
 			tables.join(",") !==
-				(Number(version) >= 9
-					? "chats,folders,managed_models,model_calls,projects,settings,turns"
-					: "chats,folders,model_calls,projects,settings,turns")
+				"chats,folders,managed_models,model_calls,projects,settings,tool_calls,turns"
 		) {
 			throw new Error("Unknown database schema");
 		}
@@ -68,10 +68,10 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			model_calls:
 				"id,turn_id,url,method,requested_at,request_body,status,http_status,response_body,duration_ms,error",
 			settings:
-				Number(version) >= 9
-					? `id,sidebar_width,language,api_key,default_model_id${version === 10 ? ",enter_behavior" : ""}`
-					: "id,sidebar_width,language",
-			...(Number(version) >= 9 ? { managed_models: "id,name,metadata" } : {}),
+				"id,sidebar_width,language,api_key,default_model_id,enter_behavior",
+			managed_models: "id,name,metadata",
+			tool_calls:
+				"id,turn_id,model_call_id,call_id,name,arguments,ordinal,status,result,reason",
 		})) {
 			if (columns(table) !== expected)
 				throw new Error("Invalid database schema");
@@ -89,20 +89,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			)
 		)
 			throw new Error("Corrupt database");
-		if (Number(version) < 9) {
-			db.exec(`BEGIN;
-                CREATE TABLE managed_models (id TEXT PRIMARY KEY CHECK(length(trim(id))>0), name TEXT NOT NULL, metadata TEXT NOT NULL CHECK(json_valid(metadata)));
-                ALTER TABLE settings ADD COLUMN api_key TEXT;
-                ALTER TABLE settings ADD COLUMN default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL;
-                PRAGMA user_version=9;
-                COMMIT;`);
-		}
-		if (Number(version) < 10) {
-			db.exec(`BEGIN;
-                ALTER TABLE settings ADD COLUMN enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline'));
-                PRAGMA user_version=10;
-                COMMIT;`);
-		}
+
 		if (
 			!["send", "newline"].includes(
 				String(

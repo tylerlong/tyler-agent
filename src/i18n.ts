@@ -3,6 +3,11 @@ import { initReactI18next } from "react-i18next";
 export const resources = {
 	en: {
 		translation: {
+			toolWaiting: "Waiting",
+			toolFailed: "Failed",
+			toolArguments: "Arguments",
+			toolResult: "Result",
+			toolReadFailed: "Could not read tool record",
 			loadingProjects: "Loading projects…",
 			loadingHistory: "Loading chat history…",
 			welcome: "Welcome to Tyler Agent",
@@ -202,6 +207,11 @@ export const resources = {
 	},
 	"zh-CN": {
 		translation: {
+			toolWaiting: "等待执行",
+			toolFailed: "失败",
+			toolArguments: "参数",
+			toolResult: "结果",
+			toolReadFailed: "无法读取工具记录",
 			loadingProjects: "正在加载项目…",
 			loadingHistory: "正在加载对话历史…",
 			welcome: "欢迎使用 Tyler Agent",

@@ -1,4 +1,9 @@
-import { countFilesTool, executeTool } from "./count-files.ts";
+import {
+	countFilesTool,
+	executeTool,
+	type ToolExecution,
+	type ToolExecutor,
+} from "./count-files.ts";
 
 type Message = { role: "user" | "assistant"; content: string };
 export type OutputPart = { index: number; type: string; text: string };
@@ -76,9 +81,13 @@ export type ModelConfig = {
 	reasoningEffort?: string | null;
 	targetFolders?: string[];
 };
+export type ToolRequest = { name: string; arguments: string; call_id: string };
 type Recorder = {
 	request: (request: CallRequest) => void;
 	result: (result: CallResult, output: OutputItem[]) => void;
+	tools?: (calls: ToolRequest[]) => void;
+	toolStarted?: (ordinal: number) => void;
+	toolFinished?: (ordinal: number, result: ToolExecution) => void;
 };
 export async function requestModel(
 	messages: Message[],
@@ -86,6 +95,7 @@ export async function requestModel(
 	fetchModel: typeof fetch,
 	record?: Recorder,
 	config?: ModelConfig,
+	execute: ToolExecutor = executeTool,
 ) {
 	const input: unknown[] = [...messages, { role: "user", content: prompt }];
 	let previous: OutputItem[] = [];
@@ -113,22 +123,25 @@ export async function requestModel(
 		);
 		previous = [...previous, ...current];
 		if (!response.tools.length) return answerText(previous);
+		record?.tools?.(response.tools);
 		if (round === 4)
 			throw new ModelError(
 				"modelCallLimit",
 				"Turn reached the five model request limit",
 			);
 		input.push(...response.protocol);
-		for (const call of response.tools) {
-			const result = await executeTool(
+		for (const [index, call] of response.tools.entries()) {
+			record?.toolStarted?.(index + 1);
+			const result = await execute(
 				call.name,
 				call.arguments,
 				config?.targetFolders ?? [],
 			);
+			record?.toolFinished?.(index + 1, result);
 			input.push({
 				type: "function_call_output",
 				call_id: call.call_id,
-				output: JSON.stringify(result),
+				output: result.result,
 			});
 		}
 	}

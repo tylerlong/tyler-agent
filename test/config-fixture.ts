@@ -1,3 +1,4 @@
+import type { ToolExecutor } from "../src/count-files.ts";
 import { openDatabase } from "../src/database.ts";
 import { createServer } from "../src/server.ts";
 
@@ -29,7 +30,8 @@ export function createTestServer(
 	path: string,
 	apiKey = "test",
 	model = "test",
+	execute?: ToolExecutor,
 ) {
 	configureDatabase(path, apiKey, model);
-	return createServer(fetchModel, path);
+	return createServer(fetchModel, path, undefined, execute);
 }

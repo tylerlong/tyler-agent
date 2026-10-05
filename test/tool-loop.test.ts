@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import type { ToolExecutor } from "../src/count-files.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
 import { waitForIdle, waitForTurn } from "./turn-fixture.ts";
@@ -30,7 +31,11 @@ const tool = (path: string, call_id = "count-1") => ({
 });
 const completed = (output: unknown[]) =>
 	completedBody({ status: "completed", output });
-async function fixture(fake: typeof fetch, roots: string[]) {
+async function fixture(
+	fake: typeof fetch,
+	roots: string[],
+	execute?: ToolExecutor,
+) {
 	const directory = await mkdtemp(join(tmpdir(), "tool-db-"));
 	const databasePath = join(directory, "db.sqlite");
 	let server = createTestServer(
@@ -38,6 +43,7 @@ async function fixture(fake: typeof fetch, roots: string[]) {
 		databasePath,
 		"tool-secret",
 		"tool-model",
+		execute,
 	).listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => server.once("listening", resolve));
 	const address = server.address();
@@ -62,6 +68,7 @@ async function fixture(fake: typeof fetch, roots: string[]) {
 				databasePath,
 				"tool-secret",
 				"tool-model",
+				execute,
 			).listen(0, "127.0.0.1");
 			await new Promise<void>((r) => server.once("listening", r));
 			const address = server.address();
@@ -817,6 +824,183 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			"notFound",
 		);
 		assert.equal(requests, 3);
+	} finally {
+		await f.close();
+	}
+});
+
+test("independent tool records expose ordered waiting/running calls, preserve results and scope repeated identity", async () => {
+	let release!: () => void;
+	let entered!: () => void;
+	const gate = new Promise<void>((resolve) => (release = resolve));
+	const running = new Promise<void>((resolve) => (entered = resolve));
+	let execution = 0;
+	let requests = 0;
+	const result =
+		'{"error":"business data","nested":{"items":[null,true,42]},"path":"tool-secret"}';
+	const f = await fixture(
+		async (_url, init) => {
+			requests++;
+			if (requests === 1)
+				return new Response(
+					completed([
+						{ ...tool("tool-secret"), name: "inspect_tool-secret" },
+						{ ...tool("second", "count-2"), name: "other" },
+					]),
+				);
+			const input = JSON.parse(String(init?.body)).input;
+			if (requests === 2) {
+				assert.equal(input.at(-2).output, result);
+				assert.equal(input.at(-1).output, "plain text\nnot JSON");
+				return new Response(
+					completed([{ ...tool("third"), name: "inspect_tool-secret" }]),
+				);
+			}
+			assert.equal(input.at(-1).output, "");
+			return new Response(completed([message("done")]));
+		},
+		[],
+		async (name, args) => {
+			execution++;
+			assert.equal(name, execution === 2 ? "other" : "inspect_tool-secret");
+			if (execution === 1) {
+				assert.equal(JSON.parse(args).path, "tool-secret");
+				entered();
+				await gate;
+			}
+			return {
+				status: "succeeded",
+				result:
+					execution === 1
+						? result
+						: execution === 2
+							? "plain text\nnot JSON"
+							: "",
+			};
+		},
+	);
+	try {
+		const { turnId } = await (await f.ask()).json();
+		await running;
+		const turn = (await f.get(`/api/turns/${turnId}`)).turns[0];
+		assert.equal(turn.status, "pending");
+		assert.deepEqual(
+			turn.toolCalls.map((call: { status: string }) => call.status),
+			["running", "waiting"],
+		);
+		assert.equal(execution, 1);
+		assert.equal(requests, 1);
+		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
+		assert.equal((await f.ask()).status, 409);
+		assert(
+			turn.toolCalls.every(
+				(call: object) => !("arguments" in call) && !("result" in call),
+			),
+		);
+		const pending = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert.equal(pending[0].name, "inspect_[REDACTED]");
+		assert.equal(JSON.parse(pending[0].arguments).path, "[REDACTED]");
+		assert.equal(pending[0].result, null);
+		assert.deepEqual(
+			pending.map((call: { ordinal: number }) => call.ordinal),
+			[1, 2],
+		);
+		release();
+		assert.equal((await f.wait(turnId)).status, "succeeded");
+		const saved = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert.equal(saved.length, 3);
+		assert.equal(new Set(saved.map((call: { id: number }) => call.id)).size, 3);
+		assert.equal(saved[0].callId, saved[2].callId);
+		assert.notEqual(saved[0].modelCallId, saved[2].modelCallId);
+		assert.deepEqual(
+			saved.map((call: { status: string }) => call.status),
+			["succeeded", "succeeded", "succeeded"],
+		);
+		assert.equal(
+			saved[0].result,
+			result.replaceAll("tool-secret", "[REDACTED]"),
+		);
+		assert.equal(saved[1].result, "plain text\nnot JSON");
+		assert.equal(saved[2].result, "");
+		const db = new DatabaseSync(f.databasePath);
+		assert.doesNotMatch(
+			JSON.stringify(db.prepare("SELECT * FROM tool_calls").all()),
+			/tool-secret/,
+		);
+		db.close();
+		assert.deepEqual(
+			(await f.get(`/api/turns/${turnId}/tools?toolId=${saved[1].id}`))
+				.toolCalls,
+			[saved[1]],
+		);
+		for (const toolId of ["0", "bogus", "-1", "1.5", "9007199254740992"])
+			assert.equal(
+				(await f.get(`/api/turns/${turnId}/tools?toolId=${toolId}`)).code,
+				"invalidInput",
+			);
+		assert.equal(
+			(await f.get(`/api/turns/${turnId}/tools?toolId=999999`)).code,
+			"notFound",
+		);
+		assert.equal((await f.get("/api/turns/999999/tools")).code, "notFound");
+		assert.equal(
+			(
+				await f.send(
+					`/api/chats/${f.chat.id}/archive`,
+					{ archived: true },
+					"PUT",
+				)
+			).status,
+			200,
+		);
+		assert.deepEqual(
+			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			saved,
+		);
+		await f.restart();
+		assert.deepEqual(
+			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			saved,
+		);
+		assert.equal(execution, 3);
+		assert.equal(requests, 3);
+	} finally {
+		release();
+		await f.close();
+	}
+});
+
+test("tool execution failures are explicit, redact actual errors, and remain saved after continuation failure", async () => {
+	let requests = 0;
+	const f = await fixture(
+		async () => {
+			requests++;
+			return requests === 1
+				? new Response(completed([tool("/tmp")]))
+				: new Response("failed model", { status: 500 });
+		},
+		[],
+		async () => ({
+			status: "failed",
+			result: '{"error":{"message":"tool-secret failed"},"details":[1,2]}',
+		}),
+	);
+	try {
+		const { turnId } = await (await f.ask()).json();
+		const turn = await f.wait(turnId);
+		assert.equal(turn.status, "failed");
+		assert.equal(turn.toolCalls[0].status, "failed");
+		const saved = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert.equal(
+			saved[0].result,
+			'{"error":{"message":"[REDACTED] failed"},"details":[1,2]}',
+		);
+		assert.equal(requests, 2);
+		await f.restart();
+		assert.deepEqual(
+			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			saved,
+		);
 	} finally {
 		await f.close();
 	}
