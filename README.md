@@ -25,7 +25,7 @@ pnpm start --port 3001
 pnpm start --db /path/to/chat.sqlite
 ```
 
-相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v12 空数据库结构，不读取或迁移旧数据库。升级此功能时，交付协调者按用户授权一次性停服，删除当前开发数据库 `data/tyler-agent.sqlite` 及其 `-wal`、`-shm`、`-journal` 附属文件，再启动服务重建；旧项目、对话、设置和凭据随之丢弃。该操作只在交付时执行一次，应用启动不会自动清库。测试始终使用隔离临时数据库。
+相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v13 空数据库结构，不读取或迁移旧数据库。升级时请使用明确指定的新数据库路径；删除或重建实际开发库需要单独授权，应用启动不会自动清库。测试始终使用隔离临时数据库。
 
 ## 项目与对话
 
@@ -110,7 +110,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖本地计数、隐藏和特殊文件名、路径范围、工具错误修正、完成协议、五次调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE 注释在保存前移除（含不同换行、跨分块和仅有注释的响应）、未知事件与有效尾部保留、普通文本不误删、完整格式化 SSE/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败部分内容不进入模型上下文。
+自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖本地计数、隐藏和特殊文件名、路径范围、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE 注释在保存前移除（含不同换行、跨分块和仅有注释的响应）、未知事件与有效尾部保留、普通文本不误删、完整格式化 SSE/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败部分内容不进入模型上下文。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。
 
@@ -169,7 +169,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 模型路径作为参数传递，不拼接 shell 命令；非法工具名、JSON、参数类型、额外参数和范围外路径返回工具错误。解析后按目录边界检查，阻止共享前缀邻接目录及逃逸符号链接。检查是针对这个窄工具的尽力保护，不是防止并发文件系统变更的硬化沙盒。执行错误在可用时附真实退出状态及有限 stdout/stderr，说明超时或截断；未运行命令不虚构退出状态。
 
-只有完整有效的 completed 响应才触发工具，先组装参数，再按输出顺序执行；工具-only 或混合文本响应都可继续。后续请求携带完整 output items（含推理元数据）与对应 `call_id` 的 `function_call_output`，模型可修正工具错误并重新调用。每 Agent 最多五次实际模型请求，初次计入；第五次可用最终回答成功，若仍请求工具则停止，不执行无法回传的工具或发出第六次请求。远程请求、协议或持久化失败立即停止，不自动重试付费调用。
+只有完整有效的 completed 响应才触发工具，先组装参数，再按输出顺序执行；工具-only 或混合文本响应都可继续。后续请求携带完整 output items（含推理元数据）与对应 `call_id` 的 `function_call_output`，模型可修正工具错误并重新调用。每 Agent 默认最多 16 次实际模型请求，初次、失败及子任务终态通知触发的调用均计入。最后允许的调用可用最终回答成功；若仍请求工具则保存为未执行，不发起超限请求。远程请求、协议或持久化失败立即停止，不自动重试付费调用。
 
 整个循环期间 Send 保持禁用。后续失败、上限或重启中断仍保留已保存的思考、回答和通信，不恢复执行。后续 Agent 使用完整成功问答历史，不要求重放旧工具轨迹；失败 Agent 不进入后续上下文。
 
@@ -183,7 +183,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 工具卡片默认折叠，第一次展开才下载该调用的参数与结果；折叠期间通过元数据更新标题中的等待、运行与异常状态。完成不改变手动选择，已经读取的缓存继续随状态更新。参数和结果共用最大高度 `min(400px, 50vh)` 的内部滚动区，短内容自然收缩，长行换行，标题与操作按钮保持在正文外。JSON 仅缩进原始 token，保留大数字、重复字段与嵌套数据；普通文本、非法 JSON 和空结果原样显示。终态且成功读取当前记录后才显示 Copy，复制标题下全部格式化正文（参数、结果、真实错误及原因），排除标题、控件和临时读取/运行反馈；折叠已缓存卡片仍可复制。复制失败可重试，读取失败保留缓存并提供读取重试，两者都不重新执行工具或模型。页面内切换 Chat 保留每次调用独立的折叠、下载和滚动位置，状态增量不自动滚动；刷新清除页面缓存，恢复默认折叠，首次展开才重新读取已保存内容；终态但尚未读取的卡片没有 Copy。Chromium 覆盖默认折叠与首次展开读取、中英文类型标题、终态资格、脱敏与完整复制、剪贴板反馈、通用数据、限高与换行、折叠/切换/刷新、阅读位置、读取重试及旧下载保护。
 
-服务重启把已保存但仍等待/运行的 Tool Call 标记为执行中断，保留参数、已经保存的结果及终态；不恢复或重执行工具/模型。第五次 Model Call 仍请求工具时保留请求并显示未执行原因，不产生 Tool Result，也不发出第六次请求。工具失败只表示本地执行失败，模型可继续修正；后续模型通信失败不改写已保存工具结果。调用建立或开始状态保存失败时停止后续执行，工具尚未启动；结果/终态保存失败停止后续模型调用，显示保存失败而不伪造工具错误或已保存结果。保留已提交记录，无法持久化终态时通过读取/通知显示中断和保存失败说明，避免永久 loading；重启后未结束记录按中断处理。测试使用临时数据库与 SQLite 写入失败注入覆盖这些边界，不再次删除实际开发数据库。
+服务重启把已保存但仍等待/运行的 Tool Call 标记为执行中断，保留参数、已经保存的结果及终态；不恢复或重执行工具/模型。最后允许的 Model Call 仍请求工具时保留请求并显示未执行原因，不产生 Tool Result，也不发出超限请求。工具失败只表示本地执行失败，模型可继续修正；后续模型通信失败不改写已保存工具结果。调用建立或开始状态保存失败时停止后续执行，工具尚未启动；结果/终态保存失败停止后续模型调用，显示保存失败而不伪造工具错误或已保存结果。保留已提交记录，无法持久化终态时通过读取/通知显示中断和保存失败说明，避免永久 loading；重启后未结束记录按中断处理。测试使用临时数据库与 SQLite 写入失败注入覆盖这些边界，不再次删除实际开发数据库。
 
 
 ## 保存Agent与模型通信
@@ -220,6 +220,17 @@ Writable Chats keep the lower-right Send button visible at a fixed size, includi
 
 Agent identity: each accepted prompt creates an Agent in its Chat. Model Calls reference `agents` via `agent_id`; Tool Calls store only `model_call_id` and derive task ownership through that call. Chat and Project activity derives from Agent acceptance times, with creation-time fallback and descending ID ties; finishing answers, editing names or options, reading, archiving and restoring do not change activity.
 
-The new schema requires a fresh database. Old schemas are rejected without migration or automatic deletion. Verification uses isolated temporary databases and fake model responses; the authorized development database rebuild is performed once at final delivery.
+The new schema requires a fresh database. Old schemas are rejected without migration or automatic deletion. Verification uses isolated temporary databases and fake model responses; development database deletion or rebuilding requires separate authorization.
 
 Model Call 保存可读输出、调用错误码与错误文本；Agent 仅保存 prompt、生命周期和任务自身错误码，失败摘要从所属失败调用派生。调用次数上限不会改写已成功的 Model Call。按需思考读取使用 `GET /api/agents/:id/reasoning?callId=<local-model-call-id>` 并校验所属 Agent；阅读缓存、界面 key 和滚动锚点使用稳定本地调用 ID，服务方 ID 与显示编号不确定归属。刷新、重启和分页保留已保存的部分输出及 Tool Result，不重试模型或重放工具。
+
+
+### 子 Agent 委派
+
+模型可调用 `create_sub_agent({prompt, context?})` 并行创建子任务，子任务可递归创建。prompt 必须为非空文本，context 默认空字符串；没有隐式祖先对话继承。子任务默认继承根 Chat 的当前模型、思考强度及 Project 当前文件范围。创建立即返回 `{agent_id, status: "pending"}`，只表示已启动。
+
+每个子任务成功或失败后，运行服务将 Agent ID、真实状态、全部已有可读输出及实际错误作为普通输入自动交给直接父模型，包括失败时的部分输出。没有等待或轮询工具，也不因流式文字触发父模型调用。父任务在子任务仍运行时保持 pending 和 Chat busy；父自身失败或达到上限仍等待后代结束，通知不会重启已失败的循环。子任务失败不自动取消兄弟或使父任务失败。
+
+八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 持久化默认每 Agent 16 次 Model Calls、每根树累计 32 个后代；终态不退名额，无效参数或配置不创建子任务。模型覆盖、修改上限入口、主动取消和任务树界面由后续子票交付。
+
+此 schema 更新仍要求新的临时或明确指定数据库；普通启动不会迁移或删除旧数据。重启保留部分记录并标记未结束工作为失败/中断，不重放模型、工具或通知。

@@ -703,7 +703,8 @@ function App() {
 		events.onopen = sync;
 		events.onmessage = sync;
 		events.addEventListener("agent", (event) => {
-			const { chatId, agentId } = JSON.parse(event.data);
+			const { chatId, agentId, parentAgentId } = JSON.parse(event.data);
+			if (parentAgentId != null) return;
 			void refreshAgent(chatId, agentId);
 		});
 		events.onerror = () => {

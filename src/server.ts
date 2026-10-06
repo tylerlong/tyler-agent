@@ -87,7 +87,7 @@ const errorMessages: Record<string, string> = {
 	invalidReasoning: "Choose a supported reasoning level",
 	invalidApiKey: "Invalid API key",
 	modelConfigMissing: "OpenRouter configuration is missing",
-	modelCallLimit: "Agent reached the five model request limit",
+	modelCallLimit: "Agent reached the model request limit",
 };
 class InputError extends Error {
 	code: string;
@@ -234,6 +234,81 @@ export function createServer(
 					callId: Number(call.id),
 				})),
 			);
+	const agentSource = (
+		agentId: number,
+	): {
+		chatId: number;
+		rootAgentId: number;
+		parentAgentId: number | null;
+		createdByToolCallId: number | null;
+		question: string;
+		context: string;
+	} => {
+		const row = database
+			.prepare(
+				"SELECT chat_id,prompt,created_by_tool_call_id FROM agents WHERE id=?",
+			)
+			.get(agentId);
+		if (!row) throw new InputError("notFound");
+		if (row.chat_id !== null)
+			return {
+				chatId: Number(row.chat_id),
+				rootAgentId: agentId,
+				parentAgentId: null,
+				createdByToolCallId: null,
+				question: String(row.prompt),
+				context: "",
+			};
+		const creator = database
+			.prepare(
+				"SELECT model_calls.agent_id,tool_calls.arguments FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE tool_calls.id=?",
+			)
+			.get(row.created_by_tool_call_id);
+		if (!creator) throw new InputError("notFound");
+		const source = agentSource(Number(creator.agent_id));
+		const args = JSON.parse(String(creator.arguments));
+		return {
+			...source,
+			parentAgentId: Number(creator.agent_id),
+			createdByToolCallId: Number(row.created_by_tool_call_id),
+			question: args.prompt,
+			context: args.context ?? "",
+		};
+	};
+	const children = (agentId: number) =>
+		database
+			.prepare(
+				"SELECT agents.id,agents.status FROM agents JOIN tool_calls ON tool_calls.id=agents.created_by_tool_call_id JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=? ORDER BY agents.id",
+			)
+			.all(agentId);
+	const descendants = (agentId: number): number[] =>
+		children(agentId).flatMap((child) => [
+			Number(child.id),
+			...descendants(Number(child.id)),
+		]);
+	const running = new Map<
+		number,
+		{ events: unknown[]; wake?: () => void; done: Promise<void> }
+	>();
+	const terminalResult = (agentId: number) => {
+		const row = database
+			.prepare(
+				"SELECT id,status,error_code AS errorCode FROM agents WHERE id=?",
+			)
+			.get(agentId);
+		if (!row) throw new InputError("notFound");
+		const result = agentResult(row);
+		return {
+			agent_id: agentId,
+			status: result.status,
+			output: agentOutput(agentId).map((item) => ({
+				...item,
+				content: readableParts(item),
+			})),
+			error: result.errorDetails ?? result.errorCode ?? null,
+		};
+	};
+
 	const agentResult = (row: Record<string, unknown>) => {
 		const output = agentOutput(Number(row.id));
 		const failedCall = database
@@ -246,6 +321,7 @@ export function createServer(
 			);
 		return {
 			...row,
+			...agentSource(Number(row.id)),
 			answer: answerText(output) || null,
 			output: outputSummary(output),
 			errorCode:
@@ -291,6 +367,14 @@ export function createServer(
 				"SELECT model_id AS modelId,reasoning_effort AS reasoningEffort FROM chats WHERE id=?",
 			)
 			.get(id) as { modelId: string | null; reasoningEffort: string | null };
+	const currentFolders = (id: number) =>
+		database
+			.prepare(
+				"SELECT folders.path FROM folders JOIN chats ON chats.project_id=folders.project_id WHERE chats.id=? ORDER BY folders.rowid",
+			)
+			.all(id)
+			.map((row) => String(row.path));
+
 	const currentConfig = (id: number) => {
 		const options = chatOptions(id);
 		const apiKey = String(
@@ -311,12 +395,7 @@ export function createServer(
 			apiKey,
 			model: model.id,
 			reasoningEffort: options.reasoningEffort,
-			targetFolders: database
-				.prepare(
-					"SELECT folders.path FROM folders JOIN chats ON chats.project_id=folders.project_id WHERE chats.id=? ORDER BY folders.rowid",
-				)
-				.all(id)
-				.map((row) => String(row.path)),
+			targetFolders: currentFolders(id),
 		};
 	};
 
@@ -362,12 +441,350 @@ export function createServer(
 	const notifyAgent = (chatId: number, agentId: number) => {
 		for (const subscriber of subscribers)
 			subscriber.write(
-				`event: agent\ndata: ${JSON.stringify({ chatId, agentId })}\n\n`,
+				`event: agent\ndata: ${JSON.stringify({ chatId, agentId, parentAgentId: agentSource(agentId).parentAgentId })}\n\n`,
 			);
 	};
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
 	};
+	const startAgent = (agentId: number) => {
+		const state = {
+			events: [] as unknown[],
+			wake: undefined as (() => void) | undefined,
+			done: Promise.resolve(),
+		};
+		running.set(agentId, state);
+		const source = agentSource(agentId);
+		state.done = runAgent(agentId, state)
+			.catch((error) => {
+				if (!closed) {
+					unsavedAgents.add(agentId);
+					console.error("Accepted Agent persistence failed", error);
+				}
+			})
+			.finally(() => {
+				running.delete(agentId);
+				if (closed) return;
+				if (source.parentAgentId === null) busy.delete(source.chatId);
+				else {
+					const parent = running.get(source.parentAgentId);
+					if (parent) {
+						parent.events.push({
+							role: "user",
+							content: `[Runtime service: sub-agent terminal result] ${JSON.stringify(terminalResult(agentId))}`,
+						});
+						parent.wake?.();
+						parent.wake = undefined;
+					}
+				}
+				notifyAgent(source.chatId, agentId);
+			});
+		return state.done;
+	};
+	const runAgent = async (
+		agentId: number,
+		state: { events: unknown[]; wake?: () => void },
+	) => {
+		const id = agentSource(agentId).chatId;
+		const config = currentConfig(id);
+
+		let failure: unknown;
+		let callId: number | undefined;
+		let savedToolIds: number[] = [];
+		const secrets = [
+			...new Set([config.apiKey, JSON.stringify(config.apiKey).slice(1, -1)]),
+		];
+		const rememberKey = (key: string) => {
+			for (const secret of [key, JSON.stringify(key).slice(1, -1)])
+				if (secret && !secrets.includes(secret)) secrets.push(secret);
+		};
+		const redactTool = (text: string) =>
+			secrets.reduce(
+				(value, secret) => value.replaceAll(secret, "[REDACTED]"),
+				text,
+			);
+		try {
+			await requestModel(
+				agentSource(agentId).parentAgentId === null
+					? successfulMessages(id, agentId)
+					: agentSource(agentId).context
+						? [{ role: "user", content: agentSource(agentId).context }]
+						: [],
+				agentSource(agentId).question,
+				fetchModel,
+				{
+					tools: (calls, reason) => {
+						if (closed) throw new Error("Service closed");
+						if (callId === undefined)
+							throw new Error("Missing saved model call");
+						const ownerId = callId;
+						database.exec("BEGIN");
+						try {
+							savedToolIds = calls.map((call, index) =>
+								Number(
+									database
+										.prepare(
+											"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status,reason) VALUES(?,?,?,?,?,?,?)",
+										)
+										.run(
+											ownerId,
+											redactTool(call.call_id),
+											redactTool(call.name),
+											redactTool(call.arguments),
+											index + 1,
+											reason ? "not_executed" : "waiting",
+											reason ?? null,
+										).lastInsertRowid,
+								),
+							);
+							database.exec("COMMIT");
+						} catch {
+							database.exec("ROLLBACK");
+							throw new ModelError(
+								"toolWriteFailed",
+								errorMessages.toolWriteFailed,
+							);
+						}
+						notifyAgent(id, agentId);
+					},
+					toolStarted: (ordinal) => {
+						if (closed) throw new Error("Service closed");
+						try {
+							database
+								.prepare("UPDATE tool_calls SET status='running' WHERE id=?")
+								.run(savedToolIds[ordinal - 1]);
+						} catch {
+							throw new ModelError(
+								"toolWriteFailed",
+								errorMessages.toolWriteFailed,
+							);
+						}
+						notifyAgent(id, agentId);
+					},
+					toolFinished: (ordinal, result) => {
+						if (closed) throw new Error("Service closed");
+						try {
+							database
+								.prepare("UPDATE tool_calls SET status=?,result=? WHERE id=?")
+								.run(
+									result.status,
+									redactTool(result.result),
+									savedToolIds[ordinal - 1],
+								);
+						} catch {
+							throw new ModelError(
+								"toolWriteFailed",
+								errorMessages.toolWriteFailed,
+							);
+						}
+						notifyAgent(id, agentId);
+					},
+					request: (call) => {
+						callId = Number(
+							database
+								.prepare(
+									"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status) VALUES (?,?,?,?,?,'pending')",
+								)
+								.run(
+									agentId,
+									call.url,
+									call.method,
+									call.requestedAt,
+									call.requestBody,
+								).lastInsertRowid,
+						);
+						notifyAgent(id, agentId);
+					},
+					result: (result, output) => {
+						if (callId === undefined)
+							throw new Error("Missing saved model call");
+						database.exec("BEGIN");
+						try {
+							database
+								.prepare(
+									"UPDATE model_calls SET status=?,http_status=?,response_body=?,duration_ms=?,error=?,error_code=?,output_json=? WHERE id=?",
+								)
+								.run(
+									result.status,
+									result.httpStatus,
+									result.responseBody,
+									result.durationMs,
+									result.error,
+									result.errorCode ?? null,
+									JSON.stringify(output),
+									callId,
+								);
+
+							database.exec("COMMIT");
+						} catch (error) {
+							database.exec("ROLLBACK");
+							// A failed recorder write ends this call, but its body stays at the last commit.
+							unsavedCalls.add(callId);
+							throw error;
+						}
+						notifyAgent(id, agentId);
+					},
+				},
+				() => {
+					const next = currentConfig(id);
+					rememberKey(next.apiKey);
+					return next;
+				},
+				async (name, args, roots) => {
+					if (name !== "create_sub_agent") return runTool(name, args, roots);
+					try {
+						const input: unknown = JSON.parse(args);
+						if (!input || typeof input !== "object" || Array.isArray(input))
+							throw new InputError("invalidInput");
+						const value = input as Record<string, unknown>;
+						if (
+							Object.keys(value).some(
+								(key) => !["prompt", "context"].includes(key),
+							) ||
+							typeof value.prompt !== "string" ||
+							!value.prompt.trim() ||
+							(value.context !== undefined && typeof value.context !== "string")
+						)
+							throw new InputError("invalidInput");
+						currentConfig(id);
+						const limit = Number(
+							database
+								.prepare("SELECT sub_agent_limit FROM settings WHERE id=1")
+								.get()?.sub_agent_limit,
+						);
+						if (descendants(agentSource(agentId).rootAgentId).length >= limit)
+							return {
+								status: "failed",
+								result: JSON.stringify({
+									error: {
+										code: "subAgentLimit",
+										message: "Root tree reached the sub-agent limit",
+									},
+								}),
+							};
+						const toolId = savedToolIds.find(
+							(toolId) =>
+								database
+									.prepare("SELECT status FROM tool_calls WHERE id=?")
+									.get(toolId)?.status === "running",
+						);
+						if (!toolId) throw new Error("Missing creating Tool Call");
+						const childId = Number(
+							database
+								.prepare(
+									"INSERT INTO agents(created_by_tool_call_id,status,created_at) VALUES (?,'pending',?)",
+								)
+								.run(toolId, Date.now()).lastInsertRowid,
+						);
+						startAgent(childId);
+						return {
+							status: "succeeded",
+							result: JSON.stringify({ agent_id: childId, status: "pending" }),
+						};
+					} catch (error) {
+						return {
+							status: "failed",
+							result: JSON.stringify({
+								error:
+									error instanceof InputError || error instanceof SyntaxError
+										? caughtError(
+												error instanceof InputError
+													? error
+													: new InputError("invalidInput"),
+												"invalidInput",
+											)
+										: {
+												code: "subAgentCreateFailed",
+												error: redactTool(String(error)),
+											},
+							}),
+						};
+					}
+				},
+				{
+					targetFolders: () => {
+						rememberKey(
+							String(
+								database
+									.prepare("SELECT api_key FROM settings WHERE id=1")
+									.get()?.api_key ?? "",
+							),
+						);
+						return currentFolders(id);
+					},
+					limit: () =>
+						Number(
+							database
+								.prepare("SELECT model_call_limit FROM settings WHERE id=1")
+								.get()?.model_call_limit,
+						),
+					pending: () =>
+						children(agentId).some((child) => running.has(Number(child.id))),
+					events: () => state.events.splice(0),
+					wait: () =>
+						state.events.length ||
+						!children(agentId).some((child) => running.has(Number(child.id)))
+							? Promise.resolve()
+							: new Promise<void>((resolve) => {
+									state.wake = resolve;
+								}),
+				},
+			);
+		} catch (error) {
+			failure = error;
+		}
+		if (closed) return;
+		while (children(agentId).some((child) => running.has(Number(child.id)))) {
+			await new Promise<void>((resolve) => {
+				state.wake = resolve;
+			});
+			if (closed) return;
+		}
+		if (failure) {
+			const reason =
+				failure instanceof ModelError && failure.code === "toolWriteFailed"
+					? "toolSaveFailed"
+					: "toolExecutionStopped";
+			const unfinished = database
+				.prepare(
+					"SELECT id FROM tool_calls WHERE model_call_id IN (SELECT id FROM model_calls WHERE agent_id=?) AND status IN ('waiting','running')",
+				)
+				.all(agentId);
+			try {
+				database
+					.prepare(
+						"UPDATE tool_calls SET status='interrupted',reason=? WHERE model_call_id IN (SELECT id FROM model_calls WHERE agent_id=?) AND status IN ('waiting','running')",
+					)
+					.run(reason, agentId);
+			} catch {
+				for (const call of unfinished) unsavedTools.add(Number(call.id));
+			}
+		}
+		database.exec("BEGIN");
+		try {
+			const savedError = failure
+				? caughtError(failure, "answerWriteFailed")
+				: null;
+			database
+				.prepare("UPDATE agents SET status=?,error_code=? WHERE id=?")
+				.run(
+					failure ? "failed" : "succeeded",
+					(callId !== undefined &&
+						database
+							.prepare("SELECT status FROM model_calls WHERE id=?")
+							.get(callId)?.status === "failed") ||
+						(callId !== undefined && unsavedCalls.has(callId))
+						? null
+						: (savedError?.code ?? null),
+					agentId,
+				);
+			database.exec("COMMIT");
+		} catch (error) {
+			database.exec("ROLLBACK");
+			throw error;
+		}
+	};
+
 	let catalog: ManagedModel[] | undefined;
 	let catalogLoading: Promise<ManagedModel[]> | undefined;
 	const loadCatalog = (refresh = false): Promise<ManagedModel[]> => {
@@ -970,7 +1387,8 @@ export function createServer(
 			json(response, 200, {
 				agents,
 				messages: agentMessages(agents),
-				busy: busy.has(Number(row.chatId)),
+				busy: busy.has(agentSource(Number(row.id)).chatId),
+				agentBusy: row.status === "pending",
 				hasMore: false,
 			});
 			return;
@@ -1205,200 +1623,7 @@ export function createServer(
 				json(response, 202, { agentId });
 				notifyChange();
 
-				let failure: unknown;
-				let callId: number | undefined;
-				let savedToolIds: number[] = [];
-				const secrets = [
-					...new Set([
-						config.apiKey,
-						JSON.stringify(config.apiKey).slice(1, -1),
-					]),
-				];
-				const redactTool = (text: string) =>
-					secrets.reduce(
-						(value, secret) => value.replaceAll(secret, "[REDACTED]"),
-						text,
-					);
-				try {
-					await requestModel(
-						successfulMessages(id, agentId),
-						input.prompt,
-						fetchModel,
-						{
-							tools: (calls, reason) => {
-								if (closed) throw new Error("Service closed");
-								if (callId === undefined)
-									throw new Error("Missing saved model call");
-								const ownerId = callId;
-								database.exec("BEGIN");
-								try {
-									savedToolIds = calls.map((call, index) =>
-										Number(
-											database
-												.prepare(
-													"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status,reason) VALUES(?,?,?,?,?,?,?)",
-												)
-												.run(
-													ownerId,
-													redactTool(call.call_id),
-													redactTool(call.name),
-													redactTool(call.arguments),
-													index + 1,
-													reason ? "not_executed" : "waiting",
-													reason ?? null,
-												).lastInsertRowid,
-										),
-									);
-									database.exec("COMMIT");
-								} catch {
-									database.exec("ROLLBACK");
-									throw new ModelError(
-										"toolWriteFailed",
-										errorMessages.toolWriteFailed,
-									);
-								}
-								notifyAgent(id, agentId);
-							},
-							toolStarted: (ordinal) => {
-								if (closed) throw new Error("Service closed");
-								try {
-									database
-										.prepare(
-											"UPDATE tool_calls SET status='running' WHERE id=?",
-										)
-										.run(savedToolIds[ordinal - 1]);
-								} catch {
-									throw new ModelError(
-										"toolWriteFailed",
-										errorMessages.toolWriteFailed,
-									);
-								}
-								notifyAgent(id, agentId);
-							},
-							toolFinished: (ordinal, result) => {
-								if (closed) throw new Error("Service closed");
-								try {
-									database
-										.prepare(
-											"UPDATE tool_calls SET status=?,result=? WHERE id=?",
-										)
-										.run(
-											result.status,
-											redactTool(result.result),
-											savedToolIds[ordinal - 1],
-										);
-								} catch {
-									throw new ModelError(
-										"toolWriteFailed",
-										errorMessages.toolWriteFailed,
-									);
-								}
-								notifyAgent(id, agentId);
-							},
-							request: (call) => {
-								callId = Number(
-									database
-										.prepare(
-											"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status) VALUES (?,?,?,?,?,'pending')",
-										)
-										.run(
-											agentId,
-											call.url,
-											call.method,
-											call.requestedAt,
-											call.requestBody,
-										).lastInsertRowid,
-								);
-								notifyAgent(id, agentId);
-							},
-							result: (result, output) => {
-								if (callId === undefined)
-									throw new Error("Missing saved model call");
-								database.exec("BEGIN");
-								try {
-									database
-										.prepare(
-											"UPDATE model_calls SET status=?,http_status=?,response_body=?,duration_ms=?,error=?,error_code=?,output_json=? WHERE id=?",
-										)
-										.run(
-											result.status,
-											result.httpStatus,
-											result.responseBody,
-											result.durationMs,
-											result.error,
-											result.errorCode ?? null,
-											JSON.stringify(output),
-											callId,
-										);
-
-									database.exec("COMMIT");
-								} catch (error) {
-									database.exec("ROLLBACK");
-									// A failed recorder write ends this call, but its body stays at the last commit.
-									unsavedCalls.add(callId);
-									throw error;
-								}
-								notifyAgent(id, agentId);
-							},
-						},
-						() => {
-							const next = currentConfig(id);
-							for (const secret of [
-								next.apiKey,
-								JSON.stringify(next.apiKey).slice(1, -1),
-							])
-								if (!secrets.includes(secret)) secrets.push(secret);
-							return next;
-						},
-						runTool,
-					);
-				} catch (error) {
-					failure = error;
-				}
-				if (closed) return;
-				if (failure) {
-					const reason =
-						failure instanceof ModelError && failure.code === "toolWriteFailed"
-							? "toolSaveFailed"
-							: "toolExecutionStopped";
-					const unfinished = database
-						.prepare(
-							"SELECT id FROM tool_calls WHERE model_call_id IN (SELECT id FROM model_calls WHERE agent_id=?) AND status IN ('waiting','running')",
-						)
-						.all(agentId);
-					try {
-						database
-							.prepare(
-								"UPDATE tool_calls SET status='interrupted',reason=? WHERE model_call_id IN (SELECT id FROM model_calls WHERE agent_id=?) AND status IN ('waiting','running')",
-							)
-							.run(reason, agentId);
-					} catch {
-						for (const call of unfinished) unsavedTools.add(Number(call.id));
-					}
-				}
-				database.exec("BEGIN");
-				try {
-					const savedError = failure
-						? caughtError(failure, "answerWriteFailed")
-						: null;
-					database
-						.prepare("UPDATE agents SET status=?,error_code=? WHERE id=?")
-						.run(
-							failure ? "failed" : "succeeded",
-							(callId !== undefined &&
-								database
-									.prepare("SELECT status FROM model_calls WHERE id=?")
-									.get(callId)?.status === "failed") ||
-								(callId !== undefined && unsavedCalls.has(callId))
-								? null
-								: (savedError?.code ?? null),
-							agentId,
-						);
-					database.exec("COMMIT");
-				} catch (error) {
-					database.exec("ROLLBACK");
-					throw error;
-				}
+				await startAgent(agentId);
 			} catch (error) {
 				if (acceptedAgentId !== undefined) {
 					// Keep unsaved failures visible without claiming the result was persisted.

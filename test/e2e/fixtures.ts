@@ -89,14 +89,16 @@ export const test = base.extend<{
 			toolQueue.push({ result, entered, wait });
 			return { entered: started, release };
 		}
-		let rawStream: ReadableStream<Uint8Array> | undefined;
+		const rawStreams: ReadableStream<Uint8Array>[] = [];
 		function rawStreamModel() {
 			let controller!: ReadableStreamDefaultController<Uint8Array>;
-			rawStream = new ReadableStream({
-				start(value) {
-					controller = value;
-				},
-			});
+			rawStreams.push(
+				new ReadableStream({
+					start(value) {
+						controller = value;
+					},
+				}),
+			);
 			return {
 				push: (text: string) =>
 					controller.enqueue(new TextEncoder().encode(text)),
@@ -116,9 +118,9 @@ export const test = base.extend<{
 		const start = () =>
 			createServer(
 				async () => {
+					const rawStream = rawStreams.shift();
 					if (rawStream) {
 						const body = rawStream;
-						rawStream = undefined;
 						return new Response(body, {
 							headers: { "content-type": "text/event-stream" },
 						});

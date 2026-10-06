@@ -163,7 +163,7 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 	});
 }
 
-test("fifth model response shows localized unexecuted tools without result or loading", async ({
+test("last allowed model response shows localized unexecuted tools without result or loading", async ({
 	page,
 	app,
 }) => {
@@ -179,37 +179,37 @@ test("fifth model response shows localized unexecuted tools without result or lo
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	let model = app.rawStreamModel();
-	const tools = Array.from({ length: 4 }, () =>
+	const tools = Array.from({ length: 15 }, () =>
 		app.holdTool({ status: "succeeded", result: "" }),
 	);
 	await page.getByLabel("Prompt").fill("Run");
 	await page.getByRole("button", { name: /^Send/ }).click();
-	for (let round = 0; round < 5; round++) {
+	for (let round = 0; round < 16; round++) {
 		model.push(completedBody({ status: "completed", output: output() }));
 		model.end();
-		if (round < 4) {
+		if (round < 15) {
 			await tools[round].entered;
 			model = app.rawStreamModel();
 			tools[round].release();
 		}
 	}
 	const cards = page.locator("[data-tool-call-id]");
-	await expect(cards).toHaveCount(5);
-	await expect(cards.nth(4).locator("summary")).toContainText("Not executed");
-	await cards.nth(4).locator("summary").click();
-	await expect(cards.nth(4)).toContainText("five");
-	await expect(cards.nth(4).getByRole("status")).toHaveCount(0);
-	await expect(cards.nth(4).locator("pre")).toHaveCount(1);
-	await copySavedContent(page, cards.nth(4));
+	await expect(cards).toHaveCount(16);
+	await expect(cards.nth(15).locator("summary")).toContainText("Not executed");
+	await cards.nth(15).locator("summary").click();
+	await expect(cards.nth(15)).toContainText("model request limit");
+	await expect(cards.nth(15).getByRole("status")).toHaveCount(0);
+	await expect(cards.nth(15).locator("pre")).toHaveCount(1);
+	await copySavedContent(page, cards.nth(15));
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
-	expect(history.agents[0].calls).toHaveLength(5);
-	expect(history.agents[0].toolCalls[4].status).toBe("not_executed");
+	expect(history.agents[0].calls).toHaveLength(16);
+	expect(history.agents[0].toolCalls[15].status).toBe("not_executed");
 	await page.reload();
-	await expect(cards.nth(4).locator("summary")).toContainText("Not executed");
-	await cards.nth(4).locator("summary").click();
-	await copySavedContent(page, cards.nth(4));
+	await expect(cards.nth(15).locator("summary")).toContainText("Not executed");
+	await cards.nth(15).locator("summary").click();
+	await copySavedContent(page, cards.nth(15));
 });
 
 test("later model failure leaves a saved successful tool result readable across restart", async ({

@@ -89,6 +89,25 @@ type Recorder = {
 	toolStarted?: (ordinal: number) => void;
 	toolFinished?: (ordinal: number, result: ToolExecution) => void;
 };
+export const createSubAgentTool = {
+	type: "function",
+	name: "create_sub_agent",
+	description:
+		"Create an independent sub-agent and return immediately. Its terminal result is delivered automatically. No ancestor conversation is inherited; supply any background explicitly as context.",
+	parameters: {
+		type: "object",
+		properties: { prompt: { type: "string" }, context: { type: "string" } },
+		required: ["prompt"],
+		additionalProperties: false,
+	},
+};
+export type AgentLoop = {
+	targetFolders: () => string[];
+	limit: () => number;
+	pending: () => boolean;
+	events: () => unknown[];
+	wait: () => Promise<void>;
+};
 export async function requestModel(
 	messages: Message[],
 	prompt: string,
@@ -96,11 +115,18 @@ export async function requestModel(
 	record?: Recorder,
 	config?: ModelConfig | (() => ModelConfig),
 	execute: ToolExecutor = executeTool,
+	loop?: AgentLoop,
 ) {
 	const input: unknown[] = [...messages, { role: "user", content: prompt }];
 	let previous: OutputItem[] = [];
 	const usedSecrets = new Set<string>();
-	for (let round = 0; round < 5; round++) {
+	for (let round = 0; ; round++) {
+		if (round >= (loop?.limit() ?? 16))
+			throw new ModelError(
+				"modelCallLimit",
+				"Agent reached the model request limit",
+			);
+		input.push(...(loop?.events() ?? []));
 		let current: OutputItem[] = [];
 		const currentConfig = typeof config === "function" ? config() : config;
 		if (currentConfig?.apiKey) {
@@ -121,20 +147,30 @@ export async function requestModel(
 			[...usedSecrets],
 		);
 		previous = [...previous, ...current];
-		if (!response.tools.length) return answerText(previous);
-		record?.tools?.(response.tools, round === 4 ? "modelCallLimit" : undefined);
-		if (round === 4)
+		input.push(...response.protocol);
+		if (!response.tools.length) {
+			if (loop?.pending()) await loop.wait();
+			const events = loop?.events() ?? [];
+			if (!events.length) return answerText(previous);
+			input.push(...events);
+			continue;
+		}
+		const atLimit = round + 1 >= (loop?.limit() ?? 16);
+		record?.tools?.(response.tools, atLimit ? "modelCallLimit" : undefined);
+		if (atLimit)
 			throw new ModelError(
 				"modelCallLimit",
-				"Agent reached the five model request limit",
+				"Agent reached the model request limit",
 			);
-		input.push(...response.protocol);
 		for (const [index, call] of response.tools.entries()) {
 			record?.toolStarted?.(index + 1);
 			const result = await execute(
 				call.name,
 				call.arguments,
-				(typeof config === "function" ? config() : config)?.targetFolders ?? [],
+				loop
+					? loop.targetFolders()
+					: ((typeof config === "function" ? config() : config)
+							?.targetFolders ?? []),
 			);
 			record?.toolFinished?.(index + 1, result);
 			input.push({
@@ -144,10 +180,6 @@ export async function requestModel(
 			});
 		}
 	}
-	throw new ModelError(
-		"modelCallLimit",
-		"Agent reached the five model request limit",
-	);
 }
 async function requestOnce(
 	input: unknown[],
@@ -189,7 +221,7 @@ async function requestOnce(
 	const body = JSON.stringify({
 		model,
 		input,
-		tools: [countFilesTool],
+		tools: [countFilesTool, createSubAgentTool],
 		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use count_files only for these folders or their subdirectories.`,
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),

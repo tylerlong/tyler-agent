@@ -50,6 +50,10 @@ async function fixture(
 	const address = server.address();
 	assert(address && typeof address !== "string");
 	let base = `http://127.0.0.1:${address.port}`;
+	// Exercise the existing fifth-call boundary using an explicit current limit.
+	const db = new DatabaseSync(databasePath);
+	db.prepare("UPDATE settings SET model_call_limit=5 WHERE id=1").run();
+	db.close();
 	const send = (route: string, body: unknown, method = "POST") =>
 		fetch(base + route, { method, body: JSON.stringify(body) });
 	const get = (route: string) => fetch(base + route).then((r) => r.json());

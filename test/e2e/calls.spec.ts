@@ -109,7 +109,10 @@ test("communication is lazy, formatted and copied as displayed text, retained ac
 		model: "test",
 		input: [{ role: "user", content: "question" }],
 		stream: true,
-		tools: [{ type: "function", name: "count_files" }],
+		tools: [
+			{ type: "function", name: "count_files" },
+			{ type: "function", name: "create_sub_agent" },
+		],
 	});
 	await expect(
 		response.getByRole("button", { name: "Copy", exact: true }),
