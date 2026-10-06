@@ -688,3 +688,134 @@ for (const action of ["default", "removal"] as const) {
 		});
 	}
 }
+
+for (const scenario of [
+	"independent default",
+	"multiple removals",
+	"newer default",
+	"removed default",
+	"superseded retry",
+	"addition failure",
+]) {
+	test(`Close retains or supersedes model failures: ${scenario}`, async ({
+		page,
+		app,
+	}) => {
+		app.setCatalog([
+			{ id: "second", name: "Second" },
+			{ id: "third", name: "Third" },
+			{ id: "fourth", name: "Fourth" },
+		]);
+		await page.request.post(`${app.url}/api/model-catalog`);
+		for (const id of ["second", "third"])
+			await page.request.post(`${app.url}/api/models`, { data: { id } });
+		await page.goto(app.url);
+		await page.getByRole("button", { name: "Settings", exact: true }).click();
+		const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+		await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+		const row = (name: string) =>
+			dialog
+				.getByRole("list", { name: "Enabled models" })
+				.getByRole("listitem")
+				.filter({ hasText: name });
+		let failing = true;
+		const writes: string[] = [];
+		await page.route("**/api/**", async (route) => {
+			const request = route.request();
+			const path = new URL(request.url()).pathname;
+			const mutation =
+				(path === "/api/model-settings" && request.method() === "PUT") ||
+				(path.startsWith("/api/models/") && request.method() === "DELETE") ||
+				(path === "/api/models" && request.method() === "POST");
+			if (!mutation) return route.continue();
+			const identity = path + (request.postData() ?? "");
+			writes.push(identity);
+			const fail =
+				scenario === "independent default"
+					? request.method() === "DELETE"
+					: scenario === "removed default"
+						? request.method() === "PUT"
+						: true;
+			if (
+				(failing && fail) ||
+				(scenario === "superseded retry" && request.method() === "PUT")
+			)
+				await route.fulfill({ status: 500, json: {} });
+			else await route.continue();
+		});
+		const remove = async (name: string) => {
+			await row(name)
+				.getByRole("button", { name: "Disable model", exact: true })
+				.click();
+			await expect(
+				dialog.getByRole("button", { name: "Add model", exact: true }),
+			).toBeEnabled();
+		};
+		const makeDefault = async (name: string) => {
+			await row(name)
+				.getByRole("button", { name: "Set default", exact: true })
+				.click();
+			await expect(
+				dialog.getByRole("button", { name: "Add model", exact: true }),
+			).toBeEnabled();
+		};
+		if (
+			scenario === "newer default" ||
+			scenario === "removed default" ||
+			scenario === "superseded retry"
+		)
+			await makeDefault("Second");
+		else await remove("Second");
+		await expect(dialog.getByRole("alert").first()).toHaveText(
+			"Unable to save model settings. Please retry.",
+		);
+		const first = writes[0];
+		if (scenario === "independent default") await makeDefault("Third");
+		if (scenario === "multiple removals") await remove("Third");
+		if (scenario === "newer default") await makeDefault("Third");
+		if (scenario === "removed default" || scenario === "superseded retry")
+			await remove("Second");
+		if (scenario === "addition failure") {
+			await dialog
+				.getByRole("button", { name: "Add model", exact: true })
+				.click();
+			await dialog.getByRole("combobox").fill("Fourth");
+			await dialog
+				.getByRole("option", { name: "Fourth fourth", exact: true })
+				.click();
+			await expect(dialog.getByRole("alert")).toHaveCount(2);
+		}
+		const second = writes[1];
+		failing = false;
+		await dialog.getByRole("button", { name: "Close", exact: true }).click();
+		await expect(dialog).toBeHidden();
+		if (scenario === "independent default")
+			expect(writes).toEqual([first, second, first]);
+		if (
+			scenario === "multiple removals" ||
+			scenario === "addition failure" ||
+			scenario === "superseded retry"
+		)
+			expect(writes).toEqual([first, second, first, second]);
+		if (scenario === "newer default")
+			expect(writes).toEqual([first, second, second]);
+		if (scenario === "removed default") expect(writes).toEqual([first, second]);
+		const saved = await (
+			await page.request.get(`${app.url}/api/model-settings`)
+		).json();
+		if (scenario === "independent default" || scenario === "newer default")
+			expect(saved.defaultModelId).toBe("third");
+		if (scenario !== "newer default")
+			expect(
+				saved.models.some((model: { id: string }) => model.id === "second"),
+			).toBe(false);
+		if (scenario === "multiple removals")
+			expect(
+				saved.models.some((model: { id: string }) => model.id === "third"),
+			).toBe(false);
+		if (scenario === "addition failure")
+			expect(
+				saved.models.some((model: { id: string }) => model.id === "fourth"),
+			).toBe(true);
+	});
+}

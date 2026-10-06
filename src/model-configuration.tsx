@@ -43,8 +43,15 @@ export function ModelConfiguration({
 	const section = useRef<HTMLDivElement>(null);
 	const saving = useRef(false);
 	const modelSave = useRef<Promise<boolean> | null>(null);
-	const modelFailed = useRef(false);
-	const modelRetry = useRef<(() => Promise<boolean> | null) | null>(null);
+	const modelRetries = useRef(
+		new Map<
+			string,
+			{
+				retry: () => Promise<boolean> | null;
+				defaultModelId?: string;
+			}
+		>(),
+	);
 	const additionRetry = useRef<(() => Promise<boolean> | null) | null>(null);
 	const credential = useRef({ draft: "", saved: "", loaded: false, error: "" });
 	const keyRead = useRef<Promise<boolean> | null>(null);
@@ -118,21 +125,36 @@ export function ModelConfiguration({
 		if (!response.ok) throw new Error("configurationSaveFailed");
 		return response.json();
 	}
-	function mutate(path: string, method: string, body?: unknown) {
+	function mutate(
+		path: string,
+		method: string,
+		body?: { defaultModelId: string },
+	) {
 		if (saving.current) return modelSave.current;
 		saving.current = true;
 		setPending(true);
-		setError("");
-		modelFailed.current = false;
-		modelRetry.current = null;
+		modelRetries.current.delete(path);
+		setError(modelRetries.current.size ? "configurationSaveFailed" : "");
 		const operation = (async () => {
 			try {
 				await request(path, method, body);
+				const failedDefault = modelRetries.current.get("/api/model-settings");
+				if (
+					method === "DELETE" &&
+					failedDefault?.defaultModelId &&
+					path ===
+						`/api/models/${encodeURIComponent(failedDefault.defaultModelId)}`
+				) {
+					modelRetries.current.delete("/api/model-settings");
+					setError(modelRetries.current.size ? "configurationSaveFailed" : "");
+				}
 				await refresh();
 				return true;
 			} catch {
-				modelFailed.current = true;
-				modelRetry.current = () => mutate(path, method, body);
+				modelRetries.current.set(path, {
+					retry: () => mutate(path, method, body),
+					defaultModelId: body?.defaultModelId,
+				});
 				setError("configurationSaveFailed");
 				return false;
 			} finally {
@@ -177,18 +199,24 @@ export function ModelConfiguration({
 	}
 	useLayoutEffect(() => {
 		commitRef.current = async () => {
-			const modelOperation =
-				modelSave.current ??
-				modelRetry.current?.() ??
-				additionRetry.current?.();
+			const modelOperation = modelSave.current;
+			const retries = [...modelRetries.current];
+			const retryAddition = additionRetry.current;
 			let keyOk = await saveKey();
 			while (keyOk && credential.current.draft !== credential.current.saved) {
 				keyOk = await saveKey();
 			}
-			let modelOk = modelOperation ? await modelOperation : true;
+			if (modelOperation) await modelOperation;
+			for (const [path, failed] of retries) {
+				while (modelSave.current) await modelSave.current;
+				if (modelRetries.current.get(path) === failed) await failed.retry();
+			}
+			while (modelSave.current) await modelSave.current;
+			if (retryAddition && additionRetry.current === retryAddition)
+				await retryAddition();
 			do {
 				while (modelSave.current) {
-					if (!(await modelSave.current)) modelOk = false;
+					await modelSave.current;
 				}
 				if (keyOk && credential.current.draft !== credential.current.saved) {
 					keyOk = await saveKey();
@@ -199,8 +227,7 @@ export function ModelConfiguration({
 			);
 			return (
 				keyOk &&
-				modelOk &&
-				!modelFailed.current &&
+				modelRetries.current.size === 0 &&
 				!additionRetry.current &&
 				!readFailed
 			);
