@@ -45,7 +45,7 @@ project 可以有零个或多个文件夹，无需选择目录即可创建。添
 
 提交接口在校验及保存 pending Agent的事务成功后立即返回 HTTP 202 和 `{ agentId }`，表示已接受，不包含最终回答或表示执行成功。模型/工具循环继续在 server 运行；关闭页面或断开确认连接不取消已接受任务。进度及终态通过现有 SSE 和 Agent/历史读取同步，busy 持续覆盖整个执行。接受前的拒绝属于提交错误；已接受任务的模型、工具循环或结果保存错误属于该 Agent，保存失败显示无法保存的错误，不声称未保存结果已保存。
 
-每个 chat 的提问与追问仅使用自己的成功历史。每次服务器已接受的问题成为持久化 Agent，历史显示进行中、成功或失败；失败保留问题和错误，但不会进入后续模型上下文。失败的问题保留在历史中，可手动复制后重新提交，每次重新提交产生新的 Agent。发送前写入失败不会调用模型；完成结果写入失败明确报错，不自动重发，也不声称结果已保存。busy 由 server 按 chat 保存：同 chat 请求进行中时所有页面禁止再次提交，server 返回 409；不同 chat（包括同项目）可以同时请求。侧栏使用 chat 行最右侧（操作菜单之后）的 16px 旋转圆环标记 server 已接受且尚未结束的 Agent；提交接受前不显示，成功、失败或取消后消失。所有行预留状态位置，名称与菜单不会位移。未选中、同时运行及归档中的 chat 同样显示；折叠项目不额外汇总状态。圆环不可点击，提供本地化“运行中”无障碍状态，系统减少动态效果时改为静态圆环，无需 GIF 或动画库。目录之后失效也不阻止纯文本聊天。
+每个 chat 的提问与追问仅使用自己的成功历史。每次服务器已接受的问题成为持久化 Agent，历史显示进行中、成功、失败或取消；失败保留问题和错误，但不会进入后续模型上下文。失败的问题保留在历史中，可手动复制后重新提交，每次重新提交产生新的 Agent。发送前写入失败不会调用模型；完成结果写入失败明确报错，不自动重发，也不声称结果已保存。busy 由 server 按 chat 保存：同 chat 请求进行中时所有页面禁止再次提交，server 返回 409；不同 chat（包括同项目）可以同时请求。侧栏使用 chat 行最右侧（操作菜单之后）的 16px 旋转圆环标记 server 已接受且尚未结束的 Agent；提交接受前不显示，成功、失败或取消后消失。所有行预留状态位置，名称与菜单不会位移。未选中、同时运行及归档中的 chat 同样显示；折叠项目不额外汇总状态。圆环不可点击，提供本地化“运行中”无障碍状态，系统减少动态效果时改为静态圆环，无需 GIF 或动画库。目录之后失效也不阻止纯文本聊天。
 
 Sidebar work status: a noninteractive 16px CSS ring appears after the chat actions menu while the server reports an ongoing Agent. Every row reserves the slot so names/actions stay aligned. It covers unselected, parallel and archived work and recovers through existing refresh/reconnect synchronization; there is no pre-acceptance or project aggregate indicator. Reduced-motion preference makes the localized Working status static.
 
@@ -110,7 +110,9 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖本地计数、隐藏和特殊文件名、路径范围、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE 注释在保存前移除（含不同换行、跨分块和仅有注释的响应）、未知事件与有效尾部保留、普通文本不误删、完整格式化 SSE/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败部分内容不进入模型上下文。
+自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖本地计数、隐藏和特殊文件名、路径范围、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE 注释在保存前移除（含不同换行、跨分块和仅有注释的响应）、未知事件与有效尾部保留、普通文本不误删、完整格式化 SSE/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败根任务的部分内容不进入后续 Chat 历史上下文；子任务的失败或取消部分输出如实进入父模型通知或取消工具结果。
+
+递归委派验证复用 `test/sub-agents.test.ts` 的真实 HTTP 服务与可控响应，覆盖两 blind 子请求同时开始后释放 3/7、父模型收到终态后输出 10，以及 A 部分失败后由父模型主动取消 B、等待流/工具清理并原样回传部分结果。覆盖递归终态与 busy、当前配置/祖先覆盖、16/32 及当前上限计数、八表归属、重启保留记录且不重放。Chromium 覆盖完整工具卡片、树与详情、两种语言、局部/根停止、阅读位置及刷新恢复；显示折叠不改变实际模型输入。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。
 
@@ -163,7 +165,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 ## 本地只读文件计数
 
-可提问“目标文件夹中有多少个非隐藏文件”，或指定其子目录。模型使用唯一工具 `count_files(path)`，`path` 必须是绝对目录路径，位于该项目任一目标文件夹的解析后范围内。每次仅统计所选目录；多个目标文件夹没有主次，模型可分别调用。零目标文件夹项目仍可保存并纯文本聊天，工具请求会返回范围错误。工具每次执行前读取 Project 当前目标文件夹，修改范围会影响尚未执行的工具；已经保存的结果不改变。
+可提问“目标文件夹中有多少个非隐藏文件”，或指定其子目录。模型使用文件计数工具 `count_files(path)`，`path` 必须是绝对目录路径，位于该项目任一目标文件夹的解析后范围内。每次仅统计所选目录；多个目标文件夹没有主次，模型可分别调用。零目标文件夹项目仍可保存并纯文本聊天，工具请求会返回范围错误。工具每次执行前读取 Project 当前目标文件夹，修改范围会影响尚未执行的工具；已经保存的结果不改变。
 
 服务通过固定的现成命令递归统计普通文件，只返回所选路径和整数数量，不返回文件清单，没有 100 文件上限。后代点文件和点目录不计入，不按其它系统隐藏属性筛选，不跟随后代符号链接；已配置根可以是目录符号链接，按解析后的路径检查与执行。空目录返回零，遍历失败不冒充零或部分成功。工具不创建、修改或删除用户文件及目录；正常 Agent/Model Call 数据仍保存到应用数据库。
 
@@ -218,11 +220,11 @@ Each writable Project keeps its + action. An expanded Project with no visible no
 
 Writable Chats keep the lower-right Send button visible at a fixed size, including empty drafts. Read-only Chats hide the entire composer. Whitespace, unavailable configuration or invalid options disable Send. It disables immediately on submission and throughout the whole Agent, then recomputes availability after success, failure or rejection. Prompt stays visible and temporarily disabled until submission confirmation. Acceptance clears only the originating page and Chat draft and restores editing; later execution outcomes preserve the next draft. Rejection or lost acknowledgment preserves the original text; lost acknowledgment refreshes history and busy without automatically retrying. Chat Options edits save immediately; subsequent Model Calls use the latest saved choices. Fixed footer space prevents visibility or enabled-state changes from moving the input, while multiline drafts still grow and shrink normally.
 
-Agent identity: each accepted prompt creates an Agent in its Chat. Model Calls reference `agents` via `agent_id`; Tool Calls store only `model_call_id` and derive task ownership through that call. Chat and Project activity derives from Agent acceptance times, with creation-time fallback and descending ID ties; finishing answers, editing names or options, reading, archiving and restoring do not change activity.
+Agent identity: each accepted prompt creates an Agent in its Chat. Model Calls reference `agents` via `agent_id`; Tool Calls store only `model_call_id` and derive task ownership through that call. Chat and Project activity derives from root Agent acceptance times, with creation-time fallback and descending ID ties; finishing answers, editing names or options, reading, archiving and restoring do not change activity.
 
 The new schema requires a fresh database. Old schemas are rejected without migration or automatic deletion. Verification uses isolated temporary databases and fake model responses; development database deletion or rebuilding requires separate authorization.
 
-Model Call 保存可读输出、调用错误码与错误文本；Agent 仅保存 prompt、生命周期和任务自身错误码，失败摘要从所属失败调用派生。调用次数上限不会改写已成功的 Model Call。按需思考读取使用 `GET /api/agents/:id/reasoning?callId=<local-model-call-id>` 并校验所属 Agent；阅读缓存、界面 key 和滚动锚点使用稳定本地调用 ID，服务方 ID 与显示编号不确定归属。刷新、重启和分页保留已保存的部分输出及 Tool Result，不重试模型或重放工具。
+Model Call 保存可读输出、调用错误码与错误文本；根 Agent 保存 prompt，子 Agent 仅引用创建 Tool Call；各 Agent 保存生命周期和任务自身错误码，失败摘要从所属失败调用派生。调用次数上限不会改写已成功的 Model Call。按需思考读取使用 `GET /api/agents/:id/reasoning?callId=<local-model-call-id>` 并校验所属 Agent；阅读缓存、界面 key 和滚动锚点使用稳定本地调用 ID，服务方 ID 与显示编号不确定归属。刷新、重启和分页保留已保存的部分输出及 Tool Result，不重试模型或重放工具。
 
 
 ### 子 Agent 委派

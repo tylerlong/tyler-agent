@@ -1,6 +1,8 @@
 # Agent 与调用的数据归属
 
-Chat 是持续对话的容器；每次被接纳的 prompt 创建一个执行一次任务的 Agent。Agent 取代 Turn，不再同时保留两个表达同一件事的概念。Model Call 属于 Agent，Tool Call 属于发起它的 Model Call；Tool Call 通过这条关系确定任务归属，不另存 Agent ID。当前阶段不实现 subagent，也不预设父子 Agent 字段。
+已实现的子 Agent 扩展见 [0002-sub-agent-ownership.md](0002-sub-agent-ownership.md)，其中确认的子任务归属扩展接续本记录；本记录的其余既有行为保留。
+
+Chat 是持续对话的容器；每次被接纳的 prompt 创建一个执行一次任务的 Agent。Agent 取代 Turn，不再同时保留两个表达同一件事的概念。Model Call 属于 Agent，Tool Call 属于发起它的 Model Call；Tool Call 通过这条关系确定任务归属，不另存 Agent ID。本文原始 root-only 范围已由 ADR 0002 的递归子任务创建来源扩展接续。
 
 模型和思考强度属于 Chat 的当前配置，选择修改后立即保存；目标文件夹属于 Project。每次 Model Call 开始时读取 Chat 的当前配置，每次工具执行前读取 Project 的当前目标文件夹。Agent 不复制这些配置；Model Call 的实际请求保留当次使用的选择，已经发出的请求不随配置修改而改变。
 
@@ -12,7 +14,7 @@ Chat 的模型选择允许为空。新 Chat 使用当前默认模型；每次进
 
 可读的思考和回答输出只保存在所属 Model Call 中，以该调用的稳定本地 ID 确定归属；Agent 的展示输出和后续对话使用的回答从有序 Model Call 输出派生。Agent 不再重复保存聚合输出或回答。通信记录与可读输出分别用于协议排查和内容展示，保留两者是有明确用途的表示差异。
 
-各层保留各自的执行状态：例如第五次 Model Call 成功返回工具请求时，Agent 仍可因调用次数上限而失败，Tool Call 则未执行。模型调用的错误码和错误文本由 Model Call 保存，Agent 的失败展示通过所属调用读取它们；调用次数上限、任务中断等任务本身的错误由 Agent 保存，不复制下级调用的错误。Chat 与 Project 的最近活动时间从所属 Agent 的接纳时间派生，移除 Chat 中重复保存的 `last_question_at`，保持接纳 prompt 才改变活动排序的行为。
+各层保留各自的执行状态：例如当前上限允许的最后一次 Model Call 成功返回工具请求时，Agent 仍可因调用次数上限而失败，Tool Call 则未执行。模型调用的错误码和错误文本由 Model Call 保存，Agent 的失败展示通过所属调用读取它们；调用次数上限、任务中断等任务本身的错误由 Agent 保存，不复制下级调用的错误。Chat 与 Project 的最近活动时间从所属根 Agent 的接纳时间派生，移除 Chat 中重复保存的 `last_question_at`，保持接纳 prompt 才改变活动排序的行为。
 
 活动排序保留既有创建时间兜底：没有 Agent 的 Chat 使用自己的创建时间，Project 取所属 Chat 的活动时间、没有 Chat 时使用 Project 创建时间；时间相同时沿用现有 ID 排序。接纳后失败的 Agent 同样计入活动，回答结束、名称和配置修改、归档或恢复不更新活动时间。
 
@@ -27,16 +29,16 @@ Chat 的模型选择允许为空。新 Chat 使用当前默认模型；每次进
 | `managed_models` | 用户添加的模型 ID、名称与能力元数据 | 保留；Chat 和 Settings 引用模型 ID |
 | `settings` | 单一用户的全局偏好、凭据与 `default_model_id` | 保留；模型默认值不复制到 Agent |
 | `chats` | `project_id`、名称、创建时间、归档状态及当前模型与强度 | 增加可空的 `model_id`、`reasoning_effort`；删除 `last_question_at` |
-| `agents` | `chat_id`、prompt、接纳时间、任务状态与任务自身错误码 | 取代 `turns`；输入列采用 `prompt`；删除聚合回答、聚合输出及未使用的错误详情列 |
+| `agents` | 根任务的 `chat_id`/prompt 或子任务的唯一 `created_by_tool_call_id`，接纳时间、任务状态与任务自身错误码 | 取代 `turns`；子任务输入及祖先归属从创建工具派生；不保存聚合回答或输出 |
 | `model_calls` | `agent_id`、实际通信记录、调用状态、可读输出及调用错误 | 用 `agent_id` 取代 `turn_id`；接收 `output_json` 与调用错误码 |
 | `tool_calls` | `model_call_id`、协议 call ID、名称、参数、顺序、状态、结果与未执行或中断原因 | 删除 `turn_id`，不增加 `agent_id` |
 
 本地行 ID 用于实体身份与归属；服务方的输出 item ID 和工具 call ID 用于协议处理，不替代本地外键。Model Call 按本地创建顺序读取，调用内输出保留原有 item/part 顺序；输出不再携带跨调用的 `callOrdinal`。Tool Call 保留调用内的工具顺序。Tool Result、Reasoning、Answer 是所属调用中的数据，不新增独立表或执行主体。
 
-Agent 不另存完整历史上下文：当前 prompt 属于 Agent，既有成功历史由 Chat 中更早的 Agent 派生；每次实际发送的完整输入已经包含在 Model Call 的请求记录中。接口和界面可以返回按归属关系派生的任务 ID、回答、错误或活动时间，这些读取结果不再作为重复数据库字段保存。凭据继续按现有安全规则处理，不进入通信记录。
+Agent 不另存完整历史上下文：根 prompt 属于根 Agent，子 prompt/context 属于创建 Tool Call 参数；既有成功历史仅由 Chat 中更早的成功根 Agent 派生；每次实际发送的完整输入已经包含在 Model Call 的请求记录中。接口和界面可以返回按归属关系派生的任务 ID、回答、错误或活动时间，这些读取结果不再作为重复数据库字段保存。凭据继续按现有安全规则处理，不进入通信记录。
 
-实施与验证采用统一的新 schema，不维护旧数据库迁移或旧接口兼容。验证使用临时数据库和假的模型响应；已获授权的开发数据库在交付收尾时单独重建，不调用付费模型进行验证。
+实施与验证采用统一的新 schema，不维护旧数据库迁移或旧接口兼容。验证使用临时数据库和假的模型响应；真实开发数据库未重建；删除或重建需要单独授权，不调用付费模型进行验证。
 
-统一 Agent 接口使用 `/api/agents/:id` 及其 calls、tools、reasoning 读取入口，接纳返回 HTTP 202 与 `agentId`，历史集合使用 `agents`，实时事件使用 `agent`，选项使用 `chatOptions`。Tool Call 只保存 `model_call_id`；读取时沿 Model Call 派生任务 ID。活动取最近 Agent 接纳时间，无任务的 Chat 与无 Chat 的 Project 保留创建时间兜底及 ID 排序；不因完成或编辑更新。新 schema 要求空数据库；普通启动拒绝未知 schema，不自动删除或升级。实施验证使用临时数据库，开发数据库在收尾时单独重建。
+统一 Agent 接口使用 `/api/agents/:id` 及其 calls、tools、reasoning 读取入口，接纳返回 HTTP 202 与 `agentId`，历史集合使用 `agents`，实时事件使用 `agent`，选项使用 `chatOptions`。Tool Call 只保存 `model_call_id`；读取时沿 Model Call 派生任务 ID。活动取最近根 Agent 接纳时间，无任务的 Chat 与无 Chat 的 Project 保留创建时间兜底及 ID 排序；不因完成或编辑更新。新 schema 要求空数据库；普通启动拒绝未知 schema，不自动删除或升级。实施验证使用临时数据库，真实开发数据库未重建，删除或重建需要单独授权。
 
 可读输出由 Model Call 的 output_json 保存，调用错误码与文本也由该调用保存。Agent 删除重复回答、输出与错误详情，读取按本地调用创建顺序派生消息／refusal 回答，保持调用内原始 index。按需 reasoning 必须给出所属 Agent 的稳定本地 callId；跨 Agent 的调用返回未找到，旧 callOrdinal 不再作为读取入口。任务中断使用 agentInterrupted，未完成模型调用使用 modelInterrupted；成功调用不因任务自身失败改写。
