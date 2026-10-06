@@ -417,11 +417,10 @@ export function ModelConfiguration({
 								<span className="sr-only">{t("apiKey")}</span>
 								<input
 									className={input}
-									placeholder={t(
-										settings.apiKeyConfigured ? "replaceKey" : "enterKey",
-									)}
+									placeholder={t("enterKey")}
 									type="password"
 									autoComplete="new-password"
+									aria-describedby="api-key-help"
 									value={key}
 									disabled={!keyLoaded}
 									onChange={(event) => {
@@ -434,14 +433,10 @@ export function ModelConfiguration({
 									onBlur={() => void saveKey()}
 								/>
 							</label>
-							<p className="mt-2 text-sm text-neutral-600">
-								{t(
-									settings.apiKeyConfigured
-										? "apiKeyConfigured"
-										: "apiKeyMissing",
-								)}
+							<p id="api-key-help" className="mt-2 text-sm text-neutral-600">
+								{t("apiKeyHelp")}
 							</p>
-							<div className="mt-2 min-h-10">
+							<div className="mt-2 min-h-5">
 								{(keySaving || keySaved) && (
 									<p role="status" className="text-sm text-neutral-600">
 										{t(keySaving ? "settingsSaving" : "settingsSaved")}
@@ -469,6 +464,10 @@ export function ModelConfiguration({
 						className="mt-6 border-t border-neutral-200 pt-4"
 					>
 						<h3 className="font-semibold">{t("modelConfiguration")}</h3>
+						<p className="mt-2 text-sm text-neutral-600">{t("modelsHelp")}</p>
+						{settings.models.length === 0 && (
+							<p className="mt-4 text-neutral-600">{t("noConfiguredModels")}</p>
+						)}
 						<ul aria-label={t("enabledModels")} className="mt-4 space-y-2">
 							{settings.models.map((model) => (
 								<li
@@ -502,7 +501,7 @@ export function ModelConfiguration({
 										className={button}
 										disabled={pending}
 										aria-label={t("disableModel")}
-										title={t("disableModel")}
+										title={t("removeModel", { name: model.name })}
 										onClick={() =>
 											void mutate(
 												`/api/models/${encodeURIComponent(model.id)}`,

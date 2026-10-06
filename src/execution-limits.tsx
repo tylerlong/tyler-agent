@@ -126,7 +126,7 @@ export function ExecutionLimits({
 				{t("executionLimitsHelp")}
 			</p>
 			{keys.map((key) => (
-				<div key={key} className="mt-2">
+				<div key={key} className="mt-4">
 					<label>
 						<span>
 							{t(
@@ -147,7 +147,7 @@ export function ExecutionLimits({
 								feedback[key] === "invalidExecutionLimit" ||
 								feedback[key] === "executionLimitsFailed"
 							}
-							aria-describedby={`execution-${key}-feedback`}
+							aria-describedby={`execution-${key}-help execution-${key}-feedback`}
 							onChange={(event) => {
 								draftRef.current = {
 									...draftRef.current,
@@ -159,6 +159,16 @@ export function ExecutionLimits({
 							onBlur={() => void commit(key)}
 						/>
 					</label>
+					<p
+						id={`execution-${key}-help`}
+						className="mt-2 text-sm text-neutral-600"
+					>
+						{t(
+							key === "modelCallLimit"
+								? "modelCallLimitHelp"
+								: "subAgentLimitHelp",
+						)}
+					</p>
 					<p
 						id={`execution-${key}-feedback`}
 						role={

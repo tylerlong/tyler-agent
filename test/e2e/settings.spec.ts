@@ -10,7 +10,6 @@ for (const chinese of [false, true]) {
 				saving: "保存中…",
 				saved: "已保存",
 				configured: "已配置",
-				missing: "未配置",
 				remove: "移除 API 密钥",
 				close: "关闭",
 				language: "语言",
@@ -26,7 +25,6 @@ for (const chinese of [false, true]) {
 				saving: "Saving…",
 				saved: "Saved",
 				configured: "Configured",
-				missing: "Not configured",
 				remove: "Remove API key",
 				close: "Close",
 				language: "Language",
@@ -60,6 +58,15 @@ for (const chinese of [false, true]) {
 		await expect(key).toHaveAttribute("type", "password");
 		await expect(key).toHaveValue("zkey");
 		await expect(
+			credentials.getByText(words.configured, { exact: true }),
+		).toHaveCount(0);
+		const inputBox = await key.boundingBox();
+		const modelsBox = await dialog
+			.getByRole("heading", { name: words.models, exact: true })
+			.boundingBox();
+		if (!inputBox || !modelsBox) throw new Error("Missing settings fields");
+		expect(modelsBox.y - inputBox.y - inputBox.height).toBeLessThan(100);
+		await expect(
 			dialog.getByRole("button", { name: words.save, exact: true }),
 		).toHaveCount(0);
 		await expect(
@@ -82,6 +89,13 @@ for (const chinese of [false, true]) {
 			.click();
 		await expect(credentials.getByRole("status")).toHaveText(words.saved);
 		await expect(key).toHaveValue("replacement-secret");
+		expect(
+			(
+				await dialog
+					.getByRole("heading", { name: words.models, exact: true })
+					.boundingBox()
+			)?.y,
+		).toBe(modelsBox.y);
 		expect(writes).toBe(1);
 		if (process.env.SETTINGS_SCREENSHOTS) {
 			await mkdir("/tmp/tyler-agent-122-evidence", { recursive: true });
@@ -110,9 +124,7 @@ for (const chinese of [false, true]) {
 		await dialog
 			.getByRole("heading", { name: words.models, exact: true })
 			.click();
-		await expect(
-			credentials.getByText(words.missing, { exact: true }),
-		).toBeVisible();
+		await expect(credentials.getByRole("status")).toHaveText(words.saved);
 		await expect(key).toHaveValue("");
 		expect(writes).toBe(2);
 	});

@@ -181,14 +181,16 @@ export const resources = {
 			modelConfiguration: "Models",
 			apiKey: "OpenRouter API key",
 			credentials: "Credentials",
-			apiKeyConfigured: "Configured",
-			apiKeyMissing: "Not configured",
-			replaceKey: "Enter a replacement API key",
 			enterKey: "Enter a new API key",
+			apiKeyHelp:
+				"Saves when you leave this field. Clear it to remove the key.",
+			modelsHelp:
+				"Add models to make them available in chats. The default is used for new chats and chats without a model.",
+			settingsAutosave: "Changes save automatically.",
 			settingsSaving: "Saving…",
 			settingsSaved: "Saved",
 			credentialReadFailed: "Unable to read API key. Please retry.",
-			invalidExecutionLimit: "Enter a positive safe integer.",
+			invalidExecutionLimit: "Enter a whole number of 1 or more.",
 			credentialSaveFailed: "Unable to save API key. Please retry.",
 			setupKeyRequired: "An API key is required to use this chat.",
 			setupModelsRequired: "Enable at least one model to use this chat.",
@@ -218,9 +220,13 @@ export const resources = {
 
 			executionLimits: "Execution limits",
 			modelCallLimitSetting: "Model Calls per Agent",
-			subAgentLimitSetting: "Descendants per root Agent",
+			subAgentLimitSetting: "Sub-agents per root Agent",
 			executionLimitsHelp:
-				"Positive integers. Changes apply to the next request or creation; running work continues. Completed descendants still count.",
+				"Limits are checked before each model request or sub-agent creation. Changes affect ongoing tasks, but work already started continues.",
+			modelCallLimitHelp:
+				"Maximum requests to the model for each Agent, including failed requests. Each sub-agent has its own limit.",
+			subAgentLimitHelp:
+				"A root Agent starts when you send a message. This limit counts all its sub-agents, including nested ones. Completed, failed, and cancelled sub-agents still count; the root Agent does not.",
 			invalidExecutionLimits: "Execution limits must be positive integers.",
 			executionLimitsFailed:
 				"Unable to read or save execution limits. Please retry.",
@@ -418,14 +424,15 @@ export const resources = {
 			modelConfiguration: "模型",
 			apiKey: "OpenRouter API 密钥",
 			credentials: "凭据",
-			apiKeyConfigured: "已配置",
-			apiKeyMissing: "未配置",
-			replaceKey: "输入替换用的 API 密钥",
 			enterKey: "输入新的 API 密钥",
+			apiKeyHelp: "离开此输入框时自动保存。清空可移除密钥。",
+			modelsHelp:
+				"添加的模型可在对话中选择。默认模型用于新对话，以及尚未选择模型的对话。",
+			settingsAutosave: "修改会自动保存。",
 			settingsSaving: "保存中…",
 			settingsSaved: "已保存",
 			credentialReadFailed: "读取 API 密钥失败，请重试。",
-			invalidExecutionLimit: "请输入正安全整数。",
+			invalidExecutionLimit: "请输入大于或等于 1 的整数。",
 			credentialSaveFailed: "保存 API 密钥失败，请重试。",
 			setupKeyRequired: "使用此对话需要配置 API 密钥。",
 			setupModelsRequired: "使用此对话需要至少启用一个模型。",
@@ -453,9 +460,13 @@ export const resources = {
 
 			executionLimits: "执行上限",
 			modelCallLimitSetting: "每个 Agent 的模型调用上限",
-			subAgentLimitSetting: "每个根 Agent 的累计后代上限",
+			subAgentLimitSetting: "每个根 Agent 的子 Agent 总量上限",
 			executionLimitsHelp:
-				"请输入正整数。修改影响下一次请求或创建，已开始的工作继续执行；已结束的后代仍计入累计数量。",
+				"每次请求模型或创建子 Agent 前都会检查上限。修改会影响进行中的任务，但已经开始的工作会继续执行。",
+			modelCallLimitHelp:
+				"每个 Agent 可请求模型的最大次数，失败的请求也计入。每个子 Agent 分别计算自己的调用次数。",
+			subAgentLimitHelp:
+				"发送消息会启动一个根 Agent。此上限累计计算它创建的所有子 Agent，包括嵌套创建的子 Agent；已完成、失败或取消的子 Agent 仍计入，根 Agent 本身不计入。",
 			invalidExecutionLimits: "执行上限必须为正整数。",
 			executionLimitsFailed: "读取或保存执行上限失败，请重试。",
 			settingsLanguage: "语言",

@@ -112,7 +112,7 @@ test("settings populate credentials, synchronize clean peers and persist across 
 	await expect(
 		dialog.getByRole("button", { name: "Save API key", exact: true }),
 	).toHaveCount(0);
-	await expect(dialog.getByText("Configured", { exact: true })).toBeVisible();
+	await expect(dialog.getByText("Configured", { exact: true })).toHaveCount(0);
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await dialog
 		.getByRole("option", { name: "Second second", exact: true })
@@ -151,17 +151,21 @@ test("settings populate credentials, synchronize clean peers and persist across 
 	await expect(key).toHaveValue("replacement-secret");
 	await key.fill("");
 	await dialog.getByRole("heading", { name: "Models", exact: true }).click();
-	await expect(
-		dialog.getByText("Not configured", { exact: true }),
-	).toBeVisible();
+	await expect
+		.poll(
+			async () =>
+				(await (await page.request.get(`${app.url}/api/model-settings`)).json())
+					.apiKeyConfigured,
+		)
+		.toBe(false);
 	await app.restart();
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect(key).toHaveValue("");
-	await expect(
-		dialog.getByText("Not configured", { exact: true }),
-	).toBeVisible();
+	await expect(dialog.getByText("Not configured", { exact: true })).toHaveCount(
+		0,
+	);
 	await expect(
 		page.getByRole("list", { name: "Enabled models" }),
 	).toContainText("Default");

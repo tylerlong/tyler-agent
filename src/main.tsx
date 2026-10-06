@@ -2179,6 +2179,7 @@ function App() {
 							<select
 								className={control}
 								value={enterBehavior ?? ""}
+								aria-describedby="enter-behavior-help"
 								disabled={enterPending || enterBehavior === null}
 								onChange={(event) => {
 									enterDraft.current = event.target.value;
@@ -2193,7 +2194,10 @@ function App() {
 								<option value="newline">{t("enterNewline")}</option>
 							</select>
 						</label>
-						<p className="mt-2 text-sm text-neutral-600">
+						<p
+							id="enter-behavior-help"
+							className="mt-2 text-sm text-neutral-600"
+						>
 							{t("enterHelp", { shortcut: mac ? "⌘+Enter" : "Ctrl+Enter" })}
 						</p>
 						{(enterPending || enterSaved) && (
@@ -2251,7 +2255,8 @@ function App() {
 						/>
 					</fieldset>
 				</div>
-				<footer className="flex shrink-0 justify-end border-t border-neutral-200 px-6 py-4">
+				<footer className="flex shrink-0 items-center justify-between gap-3 border-t border-neutral-200 px-6 py-4">
+					<p className="text-sm text-neutral-600">{t("settingsAutosave")}</p>
 					<button
 						type="button"
 						className={button}

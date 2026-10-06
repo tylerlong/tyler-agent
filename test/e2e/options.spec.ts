@@ -338,7 +338,9 @@ test("Settings retains inputs through hide/show and becomes mandatory after ordi
 		settings.getByRole("button", { name: "Close", exact: true }),
 	).toBeEnabled();
 	await expect(
-		settings.getByText("Not configured", { exact: true }),
+		settings.getByText("An API key is required to use this chat.", {
+			exact: true,
+		}),
 	).toBeVisible();
 	await key.fill("restored-secret");
 	await settings.getByRole("heading", { name: "Models", exact: true }).click();
