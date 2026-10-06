@@ -45,6 +45,7 @@ export function ModelConfiguration({
 	const modelSave = useRef<Promise<boolean> | null>(null);
 	const modelFailed = useRef(false);
 	const modelRetry = useRef<(() => Promise<boolean> | null) | null>(null);
+	const additionRetry = useRef<(() => Promise<boolean> | null) | null>(null);
 	const credential = useRef({ draft: "", saved: "", loaded: false, error: "" });
 	const keyRead = useRef<Promise<boolean> | null>(null);
 	const keySave = useRef<Promise<boolean> | null>(null);
@@ -176,7 +177,10 @@ export function ModelConfiguration({
 	}
 	useLayoutEffect(() => {
 		commitRef.current = async () => {
-			const modelOperation = modelSave.current ?? modelRetry.current?.();
+			const modelOperation =
+				modelSave.current ??
+				modelRetry.current?.() ??
+				additionRetry.current?.();
 			let keyOk = await saveKey();
 			while (keyOk && credential.current.draft !== credential.current.saved) {
 				keyOk = await saveKey();
@@ -193,7 +197,13 @@ export function ModelConfiguration({
 				modelSave.current ||
 				(keyOk && credential.current.draft !== credential.current.saved)
 			);
-			return keyOk && modelOk && !modelFailed.current && !readFailed;
+			return (
+				keyOk &&
+				modelOk &&
+				!modelFailed.current &&
+				!additionRetry.current &&
+				!readFailed
+			);
 		};
 		return () => {
 			commitRef.current = null;
@@ -250,8 +260,7 @@ export function ModelConfiguration({
 		setAdding(false);
 		setQuery("");
 		setAdditionError("");
-		modelFailed.current = false;
-		modelRetry.current = null;
+		additionRetry.current = null;
 		setHighlighted(null);
 		returnAdditionFocus.current = true;
 	}
@@ -266,8 +275,7 @@ export function ModelConfiguration({
 		saving.current = true;
 		setPending(true);
 		setAdditionError("");
-		modelFailed.current = false;
-		modelRetry.current = null;
+		additionRetry.current = null;
 		const operation = (async () => {
 			try {
 				await request("/api/models", "POST", { id });
@@ -276,8 +284,7 @@ export function ModelConfiguration({
 				cancelAddition();
 				return true;
 			} catch {
-				modelFailed.current = true;
-				modelRetry.current = () => addModel(id);
+				additionRetry.current = () => addModel(id);
 				setAdditionError("configurationSaveFailed");
 				return false;
 			} finally {

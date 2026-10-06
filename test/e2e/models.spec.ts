@@ -605,3 +605,86 @@ test("Close waits for a failed default change and the next Close retries that ex
 			.defaultModelId,
 	).toBe("second");
 });
+
+for (const action of ["default", "removal"] as const) {
+	for (const addition of ["cancel", "success"] as const) {
+		test(`${addition} addition retains a failed ${action} action for Close retry`, async ({
+			page,
+			app,
+		}) => {
+			app.setCatalog([
+				{ id: "second", name: "Second" },
+				{ id: "third", name: "Third" },
+			]);
+			await page.request.post(`${app.url}/api/model-catalog`);
+			await page.request.post(`${app.url}/api/models`, {
+				data: { id: "second" },
+			});
+			await page.goto(app.url);
+			await page.getByRole("button", { name: "Settings", exact: true }).click();
+			const dialog = page.getByRole("dialog", {
+				name: "Settings",
+				exact: true,
+			});
+			await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+			const second = dialog
+				.getByRole("list", { name: "Enabled models" })
+				.getByRole("listitem")
+				.filter({ hasText: "Second" });
+			const path =
+				action === "default" ? "**/api/model-settings" : "**/api/models/second";
+			const method = action === "default" ? "PUT" : "DELETE";
+			let writes = 0;
+			let fail = true;
+			await page.route(path, async (route) => {
+				if (route.request().method() !== method) return route.continue();
+				writes++;
+				if (fail) await route.fulfill({ status: 500, json: {} });
+				else await route.continue();
+			});
+			await second
+				.getByRole("button", {
+					name: action === "default" ? "Set default" : "Disable model",
+					exact: true,
+				})
+				.click();
+			await expect(dialog.getByRole("alert")).toHaveText(
+				"Unable to save model settings. Please retry.",
+			);
+			await dialog
+				.getByRole("button", { name: "Add model", exact: true })
+				.click();
+			if (addition === "cancel")
+				await dialog
+					.getByRole("button", { name: "Cancel", exact: true })
+					.click();
+			else {
+				await dialog.getByRole("combobox").fill("Third");
+				await dialog
+					.getByRole("option", { name: "Third third", exact: true })
+					.click();
+				await expect(
+					dialog.getByRole("button", { name: "Add model", exact: true }),
+				).toBeVisible();
+			}
+			await dialog.getByRole("button", { name: "Close", exact: true }).click();
+			await expect.poll(() => writes).toBe(2);
+			await expect(
+				dialog.getByRole("button", { name: "Close", exact: true }),
+			).toBeEnabled();
+			await expect(dialog).toBeVisible();
+			fail = false;
+			await dialog.getByRole("button", { name: "Close", exact: true }).click();
+			await expect(dialog).toBeHidden();
+			expect(writes).toBe(3);
+			const saved = await (
+				await page.request.get(`${app.url}/api/model-settings`)
+			).json();
+			if (action === "default") expect(saved.defaultModelId).toBe("second");
+			else
+				expect(
+					saved.models.some((model: { id: string }) => model.id === "second"),
+				).toBe(false);
+		});
+	}
+}
