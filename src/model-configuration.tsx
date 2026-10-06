@@ -13,13 +13,11 @@ export function ModelConfiguration({
 	readFailed,
 	refresh,
 	open,
-	beginAddition,
 }: {
 	open: boolean;
 	settings: ModelSettings | null;
 	readFailed: boolean;
 	refresh: () => Promise<void>;
-	beginAddition: () => (modelId: string) => void;
 }) {
 	const { t } = useTranslation();
 	const [key, setKey] = useState("");
@@ -152,14 +150,12 @@ export function ModelConfiguration({
 	}, [adding, pending]);
 	async function addModel(id: string) {
 		if (saving.current || pending) return;
-		const complete = beginAddition();
 		saving.current = true;
 		setPending(true);
 		setAdditionError("");
 		try {
-			const result = await request("/api/models", "POST", { id });
+			await request("/api/models", "POST", { id });
 			await refresh();
-			if (result.firstModelAdded) complete(id);
 			saving.current = false;
 			cancelAddition();
 		} catch {

@@ -391,8 +391,11 @@ test("ranking changes preserve selected default and historical model outside top
 			data: { name: "History" },
 		})
 	).json();
+	await page.request.put(`${app.url}/api/chats/${chat.id}`, {
+		data: { modelId: "test", reasoningEffort: "high" },
+	});
 	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { prompt: "remember", modelId: "test", reasoningEffort: "high" },
+		data: { prompt: "remember" },
 	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	app.setCatalog([

@@ -32,7 +32,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				db.exec(`
                 CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)));
                 CREATE TABLE folders (project_id INTEGER NOT NULL REFERENCES projects(id), path TEXT NOT NULL, PRIMARY KEY(project_id,path));
-                CREATE TABLE chats (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)));
+                CREATE TABLE chats (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)), model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, reasoning_effort TEXT);
                 CREATE TABLE agents (id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL REFERENCES chats(id), prompt TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')), created_at INTEGER NOT NULL, error_code TEXT);
                 CREATE TABLE model_calls (id INTEGER PRIMARY KEY, agent_id INTEGER NOT NULL REFERENCES agents(id), url TEXT NOT NULL, method TEXT NOT NULL, requested_at TEXT NOT NULL, request_body TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')), http_status INTEGER, response_body TEXT, duration_ms INTEGER, error TEXT, error_code TEXT, output_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(output_json) AND json_type(output_json)='array'));
                 CREATE TABLE managed_models (id TEXT PRIMARY KEY CHECK(length(trim(id))>0), name TEXT NOT NULL, metadata TEXT NOT NULL CHECK(json_valid(metadata)));
@@ -62,7 +62,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		for (const [table, expected] of Object.entries({
 			projects: "id,name,created_at,archived",
 			folders: "project_id,path",
-			chats: "id,project_id,name,created_at,archived",
+			chats: "id,project_id,name,created_at,archived,model_id,reasoning_effort",
 			agents: "id,chat_id,prompt,status,created_at,error_code",
 			model_calls:
 				"id,agent_id,url,method,requested_at,request_body,status,http_status,response_body,duration_ms,error,error_code,output_json",

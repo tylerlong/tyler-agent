@@ -522,7 +522,7 @@ test("remote continuation failure retains saved prior and partial output without
 	}
 });
 
-test("an accepted Agent keeps its target scope and selected credentials while settings change", async () => {
+test("each tool and subsequent Model Call reads current scope and credentials", async () => {
 	const base = await mkdtemp(join(tmpdir(), "tool-capture-"));
 	const root = join(base, "initial"),
 		later = join(base, "later");
@@ -538,25 +538,37 @@ test("an accepted Agent keeps its target scope and selected credentials while se
 		async (_url, init) => {
 			requests++;
 			const body = JSON.parse(String(init?.body));
-			assert.match(body.instructions, new RegExp(root));
-			assert.doesNotMatch(body.instructions, new RegExp(later));
+			assert.match(
+				body.instructions,
+				new RegExp(requests === 1 ? root : later),
+			);
 			assert.equal(
 				new Headers(init?.headers).get("authorization"),
-				"Bearer tool-secret",
+				requests === 1 ? "Bearer tool-secret" : "Bearer changed-secret",
 			);
 			assert.equal(body.model, "tool-model");
 			if (requests === 1) {
 				entered();
 				await gate;
-				return new Response(completed([tool(root)]));
+				return new Response(
+					completed([
+						message("tool-secret first response"),
+						tool(root, "tool-secret"),
+					]),
+				);
 			}
-			assert.equal(JSON.parse(body.input.at(-1).output).count, 1);
-			return new Response(completed([message("captured")]));
+			assert.equal(JSON.parse(body.input.at(-1).output).error.kind, "scope");
+			assert.match(JSON.stringify(body.input), /tool-secret/);
+			return new Response(
+				completed([message("tool-secret changed-secret captured")]),
+			);
 		},
 		[root],
 	);
 	try {
-		const accepted = await f.ask();
+		const accepted = await f.send(`/api/chats/${f.chat.id}`, {
+			prompt: "count tool-secret files",
+		});
 		assert.equal(accepted.status, 202);
 		const { agentId } = await accepted.json();
 		await started;
@@ -580,6 +592,25 @@ test("an accepted Agent keeps its target scope and selected credentials while se
 		release();
 		assert.equal((await f.wait(agentId)).status, "succeeded");
 		assert.equal(requests, 2);
+		for (const endpoint of [
+			`/api/chats/${f.chat.id}`,
+			`/api/agents/${agentId}/calls`,
+			`/api/agents/${agentId}/tools`,
+		])
+			assert.doesNotMatch(
+				JSON.stringify(await f.get(endpoint)),
+				/tool-secret|changed-secret/,
+			);
+		const saved = new DatabaseSync(f.databasePath);
+		try {
+			for (const table of ["agents", "model_calls", "tool_calls"])
+				assert.doesNotMatch(
+					JSON.stringify(saved.prepare(`SELECT * FROM ${table}`).all()),
+					/tool-secret|changed-secret/,
+				);
+		} finally {
+			saved.close();
+		}
 	} finally {
 		release();
 		await f.close();
@@ -1383,5 +1414,60 @@ test("fifth response records unexecuted requests and no fabricated Tool Result",
 		assert.equal(executions, 4);
 	} finally {
 		await f.close();
+	}
+});
+
+test("each tool in one Model Call reads the current Project scope", async () => {
+	const base = await mkdtemp(join(tmpdir(), "tool-current-scope-"));
+	const first = join(base, "first"),
+		second = join(base, "second");
+	await mkdir(first);
+	await mkdir(second);
+	let entered!: () => void, release!: () => void;
+	const started = new Promise<void>((resolve) => (entered = resolve));
+	const held = new Promise<void>((resolve) => (release = resolve));
+	const scopes: string[][] = [];
+	let requests = 0;
+	const f = await fixture(
+		async () => {
+			requests++;
+			return new Response(
+				completed(
+					requests === 1
+						? [tool(first, "first"), tool(second, "second")]
+						: [message("done")],
+				),
+			);
+		},
+		[first],
+		async (_name, _args, roots) => {
+			scopes.push([...roots]);
+			if (scopes.length === 1) {
+				entered();
+				await held;
+			}
+			return { status: "succeeded", result: '{"count":0}' };
+		},
+	);
+	try {
+		const { agentId } = await (await f.ask()).json();
+		await started;
+		assert.equal(
+			(
+				await f.send(
+					`/api/projects/${f.project.id}`,
+					{ name: "P", folders: [second] },
+					"PUT",
+				)
+			).status,
+			200,
+		);
+		release();
+		assert.equal((await f.wait(agentId)).status, "succeeded");
+		assert.deepEqual(scopes, [[first], [second]]);
+	} finally {
+		release();
+		await f.close();
+		await rm(base, { recursive: true, force: true });
 	}
 });

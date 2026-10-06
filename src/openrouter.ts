@@ -94,13 +94,19 @@ export async function requestModel(
 	prompt: string,
 	fetchModel: typeof fetch,
 	record?: Recorder,
-	config?: ModelConfig,
+	config?: ModelConfig | (() => ModelConfig),
 	execute: ToolExecutor = executeTool,
 ) {
 	const input: unknown[] = [...messages, { role: "user", content: prompt }];
 	let previous: OutputItem[] = [];
+	const usedSecrets = new Set<string>();
 	for (let round = 0; round < 5; round++) {
 		let current: OutputItem[] = [];
+		const currentConfig = typeof config === "function" ? config() : config;
+		if (currentConfig?.apiKey) {
+			usedSecrets.add(currentConfig.apiKey);
+			usedSecrets.add(JSON.stringify(currentConfig.apiKey).slice(1, -1));
+		}
 		const response = await requestOnce(
 			input,
 			fetchModel,
@@ -111,7 +117,8 @@ export async function requestModel(
 					record?.result(result, current);
 				},
 			},
-			config,
+			currentConfig,
+			[...usedSecrets],
 		);
 		previous = [...previous, ...current];
 		if (!response.tools.length) return answerText(previous);
@@ -127,7 +134,7 @@ export async function requestModel(
 			const result = await execute(
 				call.name,
 				call.arguments,
-				config?.targetFolders ?? [],
+				(typeof config === "function" ? config() : config)?.targetFolders ?? [],
 			);
 			record?.toolFinished?.(index + 1, result);
 			input.push({
@@ -147,6 +154,7 @@ async function requestOnce(
 	fetchModel: typeof fetch,
 	record: Recorder,
 	config?: ModelConfig,
+	usedSecrets: string[] = [],
 ) {
 	const { apiKey, model, reasoningEffort } = config ?? {
 		apiKey: "",
@@ -157,7 +165,9 @@ async function requestOnce(
 			"modelConfigMissing",
 			"OpenRouter configuration is missing",
 		);
-	const secrets = [...new Set([apiKey, JSON.stringify(apiKey).slice(1, -1)])];
+	const secrets = [
+		...new Set([...usedSecrets, apiKey, JSON.stringify(apiKey).slice(1, -1)]),
+	];
 	const redact = (text: string) =>
 		secrets.reduce(
 			(text, secret) => text.replaceAll(secret, "[REDACTED]"),

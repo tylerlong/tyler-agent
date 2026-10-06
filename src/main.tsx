@@ -260,7 +260,6 @@ function App() {
 	const [projectsError, setProjectsError] = useState<ApiError | null>(null);
 	const [selected, setSelected] = useState<number | null>(urlChat);
 	const selectedRef = useRef(selected);
-	const selectionVersion = useRef(0);
 	selectedRef.current = selected;
 	type ChatState = {
 		id: number;
@@ -413,28 +412,13 @@ function App() {
 	const [chatOptions, setChatOptions] = useState<Record<number, ChatOptions>>(
 		{},
 	);
-	useEffect(() => {
-		if (
-			!modelSettings ||
-			!Object.values(chatOptions).some(
-				(options) =>
-					normalizeChatOptions(options, modelSettings.models) !== options,
-			)
-		)
-			return;
-		setChatOptions((current) => {
-			let changed = false;
-			const next = { ...current };
-			for (const [id, options] of Object.entries(current)) {
-				const normalized = normalizeChatOptions(options, modelSettings.models);
-				if (normalized !== options) {
-					next[Number(id)] = normalized;
-					changed = true;
-				}
-			}
-			return changed ? next : current;
-		});
-	}, [modelSettings, chatOptions]);
+	const optionRequests = useRef(new Set<number>());
+	const optionReads = useRef<Record<number, number>>({});
+	const [savingOptions, setSavingOptions] = useState<Set<number>>(
+		() => new Set(),
+	);
+	const normalizationAttempt = useRef("");
+
 	const [drafts, setDrafts] = useState<Record<number, string>>({});
 	const draftVersions = useRef<Record<number, number>>({});
 	const [chatErrors, setChatErrors] = useState<Record<number, ApiError | null>>(
@@ -460,7 +444,9 @@ function App() {
 				bottom: false,
 			};
 		}
-		if (previous !== id) selectionVersion.current++;
+		if (previous !== id) {
+			normalizationAttempt.current = "";
+		}
 		selectedRef.current = id;
 		setSelected(id);
 	}, []);
@@ -481,12 +467,12 @@ function App() {
 			try {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
-				if (latest.chatOptions)
-					setChatOptions((current) =>
-						current[id]
-							? current
-							: { ...current, [id]: latest.chatOptions as ChatOptions },
-					);
+				optionReads.current[id] = revision;
+				if (latest.chatOptions && !optionRequests.current.has(id))
+					setChatOptions((current) => ({
+						...current,
+						[id]: latest.chatOptions as ChatOptions,
+					}));
 				const cached = cacheRef.current[id];
 				let cursor = cached?.historyLoaded
 					? (syncedThrough.current[id] ?? 0)
@@ -599,6 +585,7 @@ function App() {
 			chatState.busy ||
 			submissionRequests.current.has(id) ||
 			reconciliationReads.current.has(id) ||
+			optionRequests.current.has(id) ||
 			!(drafts[id] ?? "").trim() ||
 			!modelSettings?.apiKeyConfigured ||
 			modelSettingsError ||
@@ -616,7 +603,6 @@ function App() {
 		try {
 			const { agentId } = await api(`/api/chats/${id}`, "POST", {
 				prompt,
-				...chatOptions[id],
 			});
 			const current = cacheRef.current[id];
 			const accepted = current?.agents.find((agent) => agent.id === agentId);
@@ -1101,10 +1087,49 @@ function App() {
 		const otherOpen = [dialog, folderDialog].some((ref) => ref.current?.open);
 		if (missingSetup && !otherOpen && !undersized) openSettings();
 	});
+	async function saveChatOptions(id: number, value: ChatOptions) {
+		if (optionRequests.current.has(id)) return;
+		optionRequests.current.add(id);
+		chatRevisions.current[id] = (chatRevisions.current[id] ?? 0) + 1;
+		setSavingOptions(new Set(optionRequests.current));
+		setChatErrors((current) => ({ ...current, [id]: null }));
+		try {
+			const saved = await api(`/api/chats/${id}`, "PUT", value);
+			setChatOptions((current) => ({ ...current, [id]: saved.chatOptions }));
+		} catch (cause) {
+			setChatErrors((current) => ({ ...current, [id]: appError(cause) }));
+		} finally {
+			optionRequests.current.delete(id);
+			setSavingOptions(new Set(optionRequests.current));
+			void refreshChat(id);
+		}
+	}
+	useEffect(() => {
+		if (
+			selected === null ||
+			!chat ||
+			readOnly ||
+			!modelSettings ||
+			!options ||
+			optionReads.current[selected] !== chatRevisions.current[selected] ||
+			settingsOpen ||
+			optionRequests.current.has(selected)
+		)
+			return;
+		let next = normalizeChatOptions(options, modelSettings.models);
+		if (next.modelId === null && modelSettings.defaultModelId)
+			next = { modelId: modelSettings.defaultModelId, reasoningEffort: null };
+		const attempt = JSON.stringify([selected, options, next]);
+		if (JSON.stringify(next) === JSON.stringify(options)) {
+			normalizationAttempt.current = "";
+			return;
+		}
+		if (normalizationAttempt.current === attempt) return;
+		normalizationAttempt.current = attempt;
+		void saveChatOptions(selected, next);
+	});
 	const changeChatOptions = (value: ChatOptions) => {
-		selectionVersion.current++;
-		if (selected !== null)
-			setChatOptions((current) => ({ ...current, [selected]: value }));
+		if (selected !== null) void saveChatOptions(selected, value);
 	};
 	const modalProject = projects.find((project) =>
 		editing?.kind === "project"
@@ -1620,6 +1645,7 @@ function App() {
 												options={options}
 												models={modelSettings?.models ?? []}
 												change={changeChatOptions}
+												saving={savingOptions.has(chat.id)}
 												disabled={readOnly || modelSettingsError}
 											/>
 										</div>
@@ -1639,7 +1665,8 @@ function App() {
 											chatState?.id !== chat.id ||
 											chatState.busy ||
 											submitting.has(chat.id) ||
-											reconciling.has(chat.id)
+											reconciling.has(chat.id) ||
+											savingOptions.has(chat.id)
 										}
 									>
 										<svg
@@ -1905,6 +1932,8 @@ function App() {
 			<dialog
 				onClose={() => {
 					setSettingsOpen(false);
+					normalizationAttempt.current = "";
+					void refreshChat();
 					setDialogChange((value) => value + 1);
 				}}
 				closedby={missingSetup ? "none" : "any"}
@@ -2018,23 +2047,6 @@ function App() {
 						</div>
 					)}
 					<ModelConfiguration
-						beginAddition={() => {
-							const id = selectedRef.current;
-							const version = selectionVersion.current;
-							return (modelId) => {
-								if (
-									id === null ||
-									selectedRef.current !== id ||
-									selectionVersion.current !== version
-								)
-									return;
-								setChatOptions((current) =>
-									!current[id]?.modelId
-										? { ...current, [id]: { modelId, reasoningEffort: null } }
-										: current,
-								);
-							};
-						}}
 						open={settingsOpen}
 						settings={modelSettings}
 						readFailed={modelSettingsError}

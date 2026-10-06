@@ -32,7 +32,7 @@ async function chats(request: APIRequestContext, url: string) {
 	return { first, second };
 }
 
-test("model and effort choices stay local while busy and restore submitted history after refresh", async ({
+test("model and effort choices save immediately while busy and persist across refresh", async ({
 	page,
 	context,
 	app,
@@ -43,7 +43,7 @@ test("model and effort choices stay local while busy and restore submitted histo
 	await peer.goto(`${app.url}/?chat=${first.id}`);
 	await expectModel(page, "test");
 	await selectEffort(page, "high");
-	await expectEffort(peer, "");
+	await expectEffort(peer, "high");
 	const submitted: Record<string, unknown>[] = [];
 	page.on("request", (request) => {
 		if (
@@ -71,10 +71,8 @@ test("model and effort choices stay local while busy and restore submitted histo
 			"Next draft",
 		);
 		await peer.reload();
-		await expectEffort(peer, "high");
-		expect(submitted).toEqual([
-			{ prompt: "First question", modelId: "test", reasoningEffort: "high" },
-		]);
+		await expectModel(peer, "second");
+		expect(submitted).toEqual([{ prompt: "First question" }]);
 	} finally {
 		hold.release();
 	}
@@ -84,8 +82,8 @@ test("model and effort choices stay local while busy and restore submitted histo
 		"Next draft",
 	);
 	await page.reload();
-	await expectModel(page, "test");
-	await expectEffort(page, "high");
+	await expectModel(page, "second");
+	await expect(chatPicker(page)).not.toContainText(" · ");
 	await page.screenshot({ path: "/tmp/tyler-agent-67-composer.png" });
 	await selectModel(page, "second");
 	await selectModel(page, "test");
@@ -115,12 +113,8 @@ test("default updates preserve initialized choices and removed selection recover
 	});
 	await expectModel(page, "test");
 	await page.request.delete(`${app.url}/api/models/test`);
-	await expectModel(page, "");
+	await expectModel(page, "second");
 	await expect(page.getByRole("dialog")).toBeHidden();
-	await expect(
-		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-	).toBeDisabled();
-	await selectModel(page, "second");
 	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
 		"Keep draft",
 	);
@@ -260,7 +254,7 @@ test("cross-page removals preserve drafts and distinguish alternative selection 
 	const peer = await context.newPage();
 	await peer.goto(app.url);
 	await peer.request.delete(`${app.url}/api/models/test`);
-	await expectModel(page, "");
+	await expectModel(page, "second");
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(settings).toBeHidden();
 	await selectModel(page, "second");
@@ -377,11 +371,14 @@ test("mandatory Settings waits for an existing management dialog to close", asyn
 	await expect(page.locator("dialog[open]")).toHaveCount(1);
 });
 
-test("restored unsupported effort silently resets to Default and model capabilities control effort choices", async ({
+test("saved unsupported effort silently resets to Default and model capabilities control effort choices", async ({
 	page,
 	app,
 }) => {
 	const { first } = await chats(page.request, app.url);
+	await page.request.put(`${app.url}/api/chats/${first.id}`, {
+		data: { modelId: "test", reasoningEffort: "high" },
+	});
 	const submitted = await page.request.post(
 		`${app.url}/api/chats/${first.id}`,
 		{
@@ -506,7 +503,7 @@ test("combined picker applies immediately, keeps focus on keyboard dismissal and
 	await expect(trigger).toHaveCount(0);
 });
 
-test("catalog capability changes normalize the current draft without rewriting submitted history", async ({
+test("catalog capability changes normalize saved Chat choices without rewriting submitted history", async ({
 	page,
 	app,
 }) => {
@@ -551,4 +548,181 @@ test("catalog capability changes normalize the current draft without rewriting s
 	} finally {
 		history.close();
 	}
+});
+
+test("unsent Chat choices persist independently through refresh, navigation and service restart", async ({
+	page,
+	app,
+}) => {
+	const { first, second } = await chats(page.request, app.url);
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	await selectEffort(page, "high");
+	await selectModel(page, "second");
+	await expect
+		.poll(
+			async () =>
+				(
+					await (
+						await page.request.get(`${app.url}/api/chats/${first.id}`)
+					).json()
+				).chatOptions,
+		)
+		.toEqual({ modelId: "second", reasoningEffort: null });
+	await page.reload();
+	await expectModel(page, "second");
+	await page.getByRole("button", { name: "Other", exact: true }).click();
+	await expectModel(page, "test");
+	await selectEffort(page, "low");
+	await expect
+		.poll(
+			async () =>
+				(
+					await (
+						await page.request.get(`${app.url}/api/chats/${second.id}`)
+					).json()
+				).chatOptions,
+		)
+		.toEqual({ modelId: "test", reasoningEffort: "low" });
+	await app.restart();
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	await expectModel(page, "second");
+	await page.goto(`${app.url}/?chat=${second.id}`);
+	await expectEffort(page, "low");
+	expect(
+		(await (await page.request.get(`${app.url}/api/chats/${first.id}`)).json())
+			.agents,
+	).toEqual([]);
+});
+
+test("pending or failed option saves cannot submit an unsaved selection", async ({
+	page,
+	app,
+}) => {
+	const { first } = await chats(page.request, app.url);
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	await page.getByLabel("Prompt", { exact: true }).fill("Keep question");
+	let release!: () => void, entered!: () => void;
+	const held = new Promise<void>((resolve) => (release = resolve));
+	const started = new Promise<void>((resolve) => (entered = resolve));
+	let posts = 0;
+	page.on("request", (request) => {
+		if (
+			request.method() === "POST" &&
+			request.url().endsWith(`/api/chats/${first.id}`)
+		)
+			posts++;
+	});
+	await page.route(`**/api/chats/${first.id}`, async (route) => {
+		if (route.request().method() !== "PUT") return route.continue();
+		entered();
+		await held;
+		return route.fulfill({
+			status: 500,
+			json: { code: "configurationSaveFailed" },
+		});
+	});
+	await selectEffort(page, "high", false);
+	await started;
+	const send = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
+	try {
+		await expect(send).toBeDisabled();
+		expect(posts).toBe(0);
+	} finally {
+		release();
+	}
+	await expect(page.getByRole("alert")).toBeVisible();
+	await expectEffort(page, "");
+	expect(
+		(await (await page.request.get(`${app.url}/api/chats/${first.id}`)).json())
+			.chatOptions,
+	).toEqual({ modelId: "test", reasoningEffort: null });
+	expect(posts).toBe(0);
+	await page.unroute(`**/api/chats/${first.id}`);
+	await selectEffort(page, "low");
+	await expect(send).toBeEnabled();
+	await send.click();
+	await expect(page.getByRole("log")).toContainText("Test answer");
+	expect(posts).toBe(1);
+	expect(
+		(await (await page.request.get(`${app.url}/api/chats/${first.id}`)).json())
+			.chatOptions,
+	).toEqual({ modelId: "test", reasoningEffort: "low" });
+});
+
+test("returning to a cached Chat waits for fresh choices before filling a deleted model", async ({
+	page,
+	app,
+}) => {
+	const { first } = await chats(page.request, app.url);
+	app.setCatalog([
+		{
+			id: "test",
+			name: "Test",
+			reasoning: { supported_efforts: ["low", "high"] },
+		},
+		{ id: "second", name: "Second" },
+		{ id: "third", name: "Third" },
+	]);
+	await page.request.post(`${app.url}/api/model-catalog`);
+	await page.request.post(`${app.url}/api/models`, { data: { id: "third" } });
+	await page.request.put(`${app.url}/api/model-settings`, {
+		data: { defaultModelId: "third" },
+	});
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	await expectModel(page, "test");
+	await page.getByRole("button", { name: "Other", exact: true }).click();
+	await expectModel(page, "test");
+	let release!: () => void, entered!: () => void;
+	const held = new Promise<void>((resolve) => (release = resolve));
+	const reading = new Promise<void>((resolve) => (entered = resolve));
+	const saves: unknown[] = [];
+	await page.route(`**/api/chats/${first.id}`, async (route) => {
+		if (route.request().method() === "PUT") {
+			saves.push(route.request().postDataJSON());
+			return route.continue();
+		}
+		if (route.request().method() !== "GET") return route.continue();
+		entered();
+		await held;
+		return route.continue();
+	});
+	try {
+		await page.request.put(`${app.url}/api/chats/${first.id}`, {
+			data: { modelId: "second" },
+		});
+		await page.request.delete(`${app.url}/api/models/test`);
+		await page.getByRole("button", { name: "First", exact: true }).click();
+		await reading;
+		const popup = await openChatPicker(page);
+		await expect(
+			popup.getByRole("radio", { name: "Test", exact: true }),
+		).toHaveCount(0);
+		await expect(
+			popup.getByRole("radio", { name: "Third", exact: true }),
+		).toHaveCount(1);
+		await page.keyboard.press("Escape");
+		// Let render effects run while the authoritative Chat read remains held.
+		await page.evaluate(
+			() =>
+				new Promise<void>((resolve) =>
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+				),
+		);
+		expect(saves).toEqual([]);
+		expect(
+			(
+				await (
+					await page.request.get(`${app.url}/api/chats/${first.id}`)
+				).json()
+			).chatOptions,
+		).toEqual({ modelId: "second", reasoningEffort: null });
+	} finally {
+		release();
+	}
+	await expectModel(page, "second");
+	expect(saves).toEqual([]);
+	expect(
+		(await (await page.request.get(`${app.url}/api/chats/${first.id}`)).json())
+			.chatOptions,
+	).toEqual({ modelId: "second", reasoningEffort: null });
 });

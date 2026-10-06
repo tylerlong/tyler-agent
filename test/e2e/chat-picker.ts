@@ -23,18 +23,20 @@ export async function openChatPicker(page: Page) {
 	await expect(popup).toBeVisible();
 	return popup;
 }
-export async function selectModel(page: Page, id: string) {
+export async function selectModel(page: Page, id: string, settle = true) {
 	const popup = await openChatPicker(page);
 	await popup
 		.getByRole("radiogroup", { name: "Model", exact: true })
 		.getByRole("radio", { name: names[id] ?? id, exact: true })
 		.click();
+	if (settle) await expect(popup.getByRole("radio").first()).toBeEnabled();
 	await page.keyboard.press("Escape");
 }
-export async function selectEffort(page: Page, effort: string) {
+export async function selectEffort(page: Page, effort: string, settle = true) {
 	const popup = await openChatPicker(page);
 	await popup
 		.getByRole("radio", { name: effort || "Default", exact: true })
 		.click();
+	if (settle) await expect(popup.getByRole("radio").first()).toBeEnabled();
 	await page.keyboard.press("Escape");
 }

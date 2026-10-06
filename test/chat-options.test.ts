@@ -8,255 +8,299 @@ import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
 
-test("history restores a same-request pair across all statuses and pages, skipping unreadable calls only", async () => {
+async function fixture(
+	fetchModel: typeof fetch = async () => completedResponse({ output: [] }),
+) {
 	const directory = await mkdtemp(join(tmpdir(), "agent-options-"));
 	const path = join(directory, "db.sqlite");
-	const server = createTestServer(
-		async () => completedResponse({ output: [] }),
-		path,
-	).listen(0, "127.0.0.1");
-	try {
+	let server = createTestServer(fetchModel, path).listen(0, "127.0.0.1");
+	let base = "";
+	const address = async () => {
 		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		const base = `http://127.0.0.1:${address.port}`;
-		const post = (route: string, body: unknown) =>
-			fetch(base + route, { method: "POST", body: JSON.stringify(body) }).then(
-				(response) => response.json(),
-			);
-		const project = await post("/api/projects", { name: "P", folders: [] });
-		const chat = await post(`/api/projects/${project.id}/chats`, { name: "C" });
-		const route = `/api/chats/${chat.id}`;
-		const options = (query = "") =>
-			fetch(base + route + query)
-				.then((response) => response.json())
-				.then((body) => body.chatOptions);
-		assert.deepEqual(await options(), {
+		const value = server.address();
+		assert(value && typeof value !== "string");
+		base = `http://127.0.0.1:${value.port}`;
+	};
+	await address();
+	const request = (route: string, method = "GET", body?: unknown) =>
+		fetch(base + route, {
+			method,
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
+		});
+	const json = async (route: string, method = "GET", body?: unknown) => {
+		const response = await request(route, method, body);
+		assert(response.ok, `${method} ${route}: ${response.status}`);
+		return response.json();
+	};
+	const project = await json("/api/projects", "POST", {
+		name: "P",
+		folders: [],
+	});
+	const chat = await json(`/api/projects/${project.id}/chats`, "POST", {
+		name: "C",
+	});
+	const db = new DatabaseSync(path);
+	return {
+		db,
+		project,
+		chat,
+		request,
+		json,
+		wait: (id: number) => waitForAgent(base, id),
+		restart: async () => {
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			server = createTestServer(fetchModel, path).listen(0, "127.0.0.1");
+			await address();
+		},
+		close: async () => {
+			db.close();
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			await rm(directory, { recursive: true, force: true });
+		},
+	};
+}
+function addModel(
+	db: DatabaseSync,
+	id: string,
+	efforts: string[] | null = ["low", "high"],
+) {
+	db.prepare("INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?)").run(
+		id,
+		id,
+		JSON.stringify({
+			supportedEfforts: efforts,
+			reasoningRequired: false,
+			catalogMissing: false,
+		}),
+	);
+}
+
+test("Chat choices persist independently across restart and never restore historical request choices", async () => {
+	const f = await fixture();
+	try {
+		const route = `/api/chats/${f.chat.id}`;
+		assert.deepEqual((await f.json(route)).chatOptions, {
 			modelId: "test",
 			reasoningEffort: null,
 		});
-		const db = new DatabaseSync(path);
-		try {
-			const agent = (status: string) =>
-				Number(
-					db
-						.prepare(
-							"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,'Q',?,0)",
-						)
-						.run(chat.id, status).lastInsertRowid,
-				);
-			const call = (id: number, body: string, status = "failed") =>
-				db
-					.prepare(
-						"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status) VALUES (?,'url','POST','now',?,?)",
-					)
-					.run(id, body, status);
-			const oldest = agent("failed");
-			call(
-				oldest,
-				JSON.stringify({ model: "old", reasoning: { effort: "high" } }),
+		addModel(f.db, "second");
+		const other = await f.json(`/api/projects/${f.project.id}/chats`, "POST", {
+			name: "Other",
+		});
+		assert.equal(
+			(
+				await f.request(route, "PUT", {
+					modelId: "second",
+					reasoningEffort: "high",
+				})
+			).status,
+			200,
+		);
+		await f.json(route, "PUT", { name: "Renamed" });
+		const agent = f.db
+			.prepare(
+				"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,'Q','failed',0)",
+			)
+			.run(f.chat.id).lastInsertRowid;
+		f.db
+			.prepare(
+				"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status) VALUES (?,'url','POST','now',?,'failed')",
+			)
+			.run(
+				agent,
+				JSON.stringify({ model: "old", reasoning: { effort: "low" } }),
 			);
-			for (let i = 0; i < 12; i++) {
-				const id = agent("failed");
-				call(id, i % 2 ? "{" : JSON.stringify({ model: " " }));
-			}
-			assert.deepEqual(await options(), {
-				modelId: "old",
+		for (const query of ["", "?before=999"])
+			assert.deepEqual((await f.json(route + query)).chatOptions, {
+				modelId: "second",
 				reasoningEffort: "high",
 			});
-			assert.deepEqual(await options(`?before=${oldest + 2}`), {
-				modelId: "old",
-				reasoningEffort: "high",
-			});
-			const pending = agent("pending");
-			call(
-				pending,
-				JSON.stringify({ model: "test", reasoning: { effort: "unsupported" } }),
-				"pending",
-			);
-			assert.deepEqual(await options(), {
-				modelId: "test",
-				reasoningEffort: "unsupported",
-			});
-			call(pending, JSON.stringify({ model: "removed" }), "pending");
-			assert.deepEqual(await options(), {
-				modelId: "removed",
-				reasoningEffort: null,
-			});
-			call(
-				agent("succeeded"),
-				JSON.stringify({ model: "test", reasoning: { effort: "low" } }),
-				"succeeded",
-			);
-			assert.deepEqual(await options(), {
-				modelId: "test",
-				reasoningEffort: "low",
-			});
-			db.prepare("UPDATE settings SET default_model_id=NULL").run();
-			assert.deepEqual(await options(), {
-				modelId: "test",
-				reasoningEffort: "low",
-			});
-		} finally {
-			db.close();
-		}
+		assert.deepEqual((await f.json(`/api/chats/${other.id}`)).chatOptions, {
+			modelId: "test",
+			reasoningEffort: null,
+		});
+		await f.restart();
+		assert.deepEqual((await f.json(route)).chatOptions, {
+			modelId: "second",
+			reasoningEffort: "high",
+		});
+		assert.equal(
+			f.db.prepare("SELECT name FROM chats WHERE id=?").get(f.chat.id)?.name,
+			"Renamed",
+		);
 	} finally {
-		server.closeAllConnections();
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		await rm(directory, { recursive: true, force: true });
+		await f.close();
 	}
 });
 
-test("chosen model/effort are validated before acceptance and immutable through busy edits, key rotation and deletion", async () => {
-	const directory = await mkdtemp(join(tmpdir(), "agent-override-"));
-	const path = join(directory, "db.sqlite");
-	const requests: { model: string; reasoning?: { effort: string } }[] = [];
-	let started: () => void = () => {};
-	const start = new Promise<void>((resolve) => {
-		started = resolve;
-	});
-	let release: () => void = () => {};
-	const hold = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	let fail = true;
-	const server = createTestServer(async (_url, init) => {
-		requests.push(JSON.parse(String(init?.body)));
-		if (requests.length === 1) {
-			assert.equal(
-				new Headers(init?.headers).get("authorization"),
-				"Bearer test",
-			);
-			started();
-			await hold;
-			return new Response("test", { status: 500 });
-		}
-		if (fail) return new Response("bad", { status: 500 });
-		return completedResponse({
-			output: [
-				{ type: "message", content: [{ type: "output_text", text: "A" }] },
-			],
-		});
-	}, path).listen(0, "127.0.0.1");
+test("Chat PUT validates choices, preserves omitted fields, clears deleted references and GET never fills them", async () => {
+	const f = await fixture();
 	try {
-		await new Promise<void>((resolve) => server.once("listening", resolve));
-		const address = server.address();
-		assert(address && typeof address !== "string");
-		const base = `http://127.0.0.1:${address.port}`;
-		const request = (route: string, method = "GET", body?: unknown) =>
-			fetch(base + route, {
-				method,
-				...(body === undefined ? {} : { body: JSON.stringify(body) }),
-			});
-		const project = await (
-			await request("/api/projects", "POST", { name: "P", folders: [] })
-		).json();
-		const chat = await (
-			await request(`/api/projects/${project.id}/chats`, "POST", { name: "C" })
-		).json();
-		const route = `/api/chats/${chat.id}`;
-		const db = new DatabaseSync(path);
-		try {
-			const add = (
-				id: string,
-				supportedEfforts?: string[] | null,
-				reasoningRequired = false,
-			) =>
-				db
-					.prepare("INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?)")
-					.run(
-						id,
-						id,
-						JSON.stringify({
-							supportedEfforts,
-							reasoningRequired,
-							catalogMissing: false,
-						}),
-					);
-			add("chosen", ["low", "high"]);
-			add("plain");
-			add("gateway", null, true);
-			for (const body of [
-				{ prompt: "Q" },
-				{ prompt: "Q", modelId: "missing" },
-				{ prompt: "Q", modelId: "chosen", reasoningEffort: "medium" },
-				{ prompt: "Q", modelId: "chosen", reasoningEffort: 4 },
-				{ prompt: "Q", modelId: "plain", reasoningEffort: "low" },
-				{ prompt: "Q", modelId: "gateway", reasoningEffort: "none" },
-			]) {
-				assert.equal((await request(route, "POST", body)).status, 400);
-			}
-			assert.equal(
-				db.prepare("SELECT COUNT(*) AS count FROM agents").get()?.count,
-				0,
-			);
-			assert.equal(requests.length, 0);
-			const pending = request(route, "POST", {
-				prompt: "Q test",
-				modelId: "chosen",
-				reasoningEffort: "high",
-			});
-			await start;
-			assert.deepEqual((await (await request(route)).json()).chatOptions, {
-				modelId: "chosen",
-				reasoningEffort: "high",
-			});
-			assert.equal(
-				(await request(route, "POST", { prompt: "next", modelId: "plain" }))
-					.status,
-				409,
-			);
-			db.prepare("UPDATE settings SET api_key='new-key'").run();
-			db.prepare("DELETE FROM managed_models WHERE id='chosen'").run();
-			release();
-			const accepted = await pending;
-			assert.equal(accepted.status, 202);
-			assert.equal(
-				(await waitForAgent(base, (await accepted.json()).agentId)).status,
-				"failed",
-			);
-			assert.deepEqual(requests[0].reasoning, { effort: "high" });
-			assert.equal(requests[0].model, "chosen");
-			const history = await (await request(route)).json();
-			assert.equal(history.agents[0].question, "Q [REDACTED]");
-			assert.deepEqual(history.chatOptions, {
-				modelId: "chosen",
-				reasoningEffort: "high",
-			});
-			assert.doesNotMatch(
-				await (
-					await request(`/api/agents/${history.agents[0].id}/calls`)
-				).text(),
-				/"test"/,
-			);
-			fail = false;
-			const plain = await request(route, "POST", {
-				prompt: "Q",
-				modelId: "plain",
+		const route = `/api/chats/${f.chat.id}`;
+		addModel(f.db, "second");
+		for (const options of [
+			{ modelId: "missing" },
+			{ modelId: 4 },
+			{ reasoningEffort: 4 },
+			{ reasoningEffort: "unsupported" },
+		])
+			assert.equal((await f.request(route, "PUT", options)).status, 400);
+		await f.json(route, "PUT", { reasoningEffort: "high" });
+		await f.json(route, "PUT", { name: "Renamed" });
+		assert.deepEqual((await f.json(route)).chatOptions, {
+			modelId: "test",
+			reasoningEffort: "high",
+		});
+		await f.json("/api/model-settings", "PUT", { defaultModelId: "second" });
+		assert.deepEqual((await f.json(route)).chatOptions, {
+			modelId: "test",
+			reasoningEffort: "high",
+		});
+		await f.json("/api/models/test", "DELETE");
+		for (let i = 0; i < 2; i++)
+			assert.deepEqual((await f.json(route)).chatOptions, {
+				modelId: null,
 				reasoningEffort: null,
 			});
-			assert.equal(plain.status, 202);
-			await waitForAgent(base, (await plain.json()).agentId);
-			assert(!("reasoning" in requests[1]));
-			const gateway = await request(route, "POST", {
-				prompt: "Q",
-				modelId: "gateway",
-				reasoningEffort: "xhigh",
+		const activity = f.db
+			.prepare("SELECT created_at FROM chats WHERE id=?")
+			.get(f.chat.id)?.created_at;
+		await f.json(route, "PUT", { modelId: "second" });
+		assert.equal(
+			f.db.prepare("SELECT created_at FROM chats WHERE id=?").get(f.chat.id)
+				?.created_at,
+			activity,
+		);
+		await f.json(route, "PUT", { reasoningEffort: "low" });
+		await f.json(route, "PUT", { modelId: null });
+		assert.deepEqual((await f.json(route)).chatOptions, {
+			modelId: null,
+			reasoningEffort: null,
+		});
+		await f.json("/api/model-settings", "PUT", { defaultModelId: null });
+		const empty = await f.json(`/api/projects/${f.project.id}/chats`, "POST", {
+			name: "Empty",
+		});
+		assert.deepEqual((await f.json(`/api/chats/${empty.id}`)).chatOptions, {
+			modelId: null,
+			reasoningEffort: null,
+		});
+		assert.equal(
+			(await f.request(`/api/chats/${empty.id}`, "POST", { prompt: "Q" }))
+				.status,
+			400,
+		);
+		await f.json(`${route}/archive`, "PUT", { archived: true });
+		assert.equal(
+			(await f.request(route, "PUT", { modelId: "second" })).status,
+			409,
+		);
+		assert.deepEqual((await f.json(route)).chatOptions, {
+			modelId: null,
+			reasoningEffort: null,
+		});
+	} finally {
+		await f.close();
+	}
+});
+
+test("prompt acceptance uses saved choices, busy edits affect the next call but never change the sent request", async () => {
+	const requests: { model: string; reasoning?: { effort: string } }[] = [];
+	let started!: () => void, release!: () => void;
+	const entered = new Promise<void>((resolve) => (started = resolve));
+	const held = new Promise<void>((resolve) => (release = resolve));
+	const f = await fixture(async (_url, init) => {
+		requests.push(JSON.parse(String(init?.body)));
+		if (requests.length === 1) {
+			started();
+			await held;
+			return completedResponse({
+				output: [
+					{
+						id: "tool",
+						type: "function_call",
+						name: "count_files",
+						call_id: "tool",
+						arguments: JSON.stringify({ path: "/tmp" }),
+					},
+				],
 			});
-			assert.equal(gateway.status, 202);
-			await waitForAgent(base, (await gateway.json()).agentId);
-			assert.deepEqual(requests[2].reasoning, { effort: "xhigh" });
-			assert.deepEqual((await (await request(route)).json()).chatOptions, {
-				modelId: "gateway",
-				reasoningEffort: "xhigh",
-			});
-		} finally {
-			db.close();
 		}
+		return completedResponse({
+			output: [
+				{ type: "message", content: [{ type: "output_text", text: "Done" }] },
+			],
+		});
+	});
+	try {
+		addModel(f.db, "second");
+		const route = `/api/chats/${f.chat.id}`;
+		await f.json(route, "PUT", { reasoningEffort: "high" });
+		const accepted = await f.json(route, "POST", {
+			prompt: "Q",
+			modelId: "missing",
+			reasoningEffort: "unsupported",
+		});
+		await entered;
+		assert.equal(
+			(await f.request(route, "POST", { prompt: "busy" })).status,
+			409,
+		);
+		await f.json(route, "PUT", { modelId: "second", reasoningEffort: "low" });
+		assert.deepEqual(requests[0].reasoning, { effort: "high" });
+		assert.equal(requests[0].model, "test");
+		release();
+		assert.equal((await f.wait(accepted.agentId)).status, "succeeded");
+		assert.equal(requests.length, 2);
+		assert.equal(requests[1].model, "second");
+		assert.deepEqual(requests[1].reasoning, { effort: "low" });
+		assert.deepEqual((await f.json(route)).chatOptions, {
+			modelId: "second",
+			reasoningEffort: "low",
+		});
 	} finally {
 		release();
-		server.closeAllConnections();
-		await new Promise<void>((resolve) => server.close(() => resolve()));
-		await rm(directory, { recursive: true, force: true });
+		await f.close();
+	}
+});
+
+test("deleting the selected model stops continuation without issuing another Model Call", async () => {
+	let started!: () => void, release!: () => void;
+	const entered = new Promise<void>((resolve) => (started = resolve));
+	const held = new Promise<void>((resolve) => (release = resolve));
+	let requests = 0;
+	const f = await fixture(async () => {
+		requests++;
+		started();
+		await held;
+		return completedResponse({
+			output: [
+				{
+					id: "tool",
+					type: "function_call",
+					name: "count_files",
+					call_id: "tool",
+					arguments: JSON.stringify({ path: "/tmp" }),
+				},
+			],
+		});
+	});
+	try {
+		const route = `/api/chats/${f.chat.id}`;
+		const { agentId } = await f.json(route, "POST", { prompt: "Q" });
+		await entered;
+		await f.json("/api/models/test", "DELETE");
+		release();
+		assert.equal((await f.wait(agentId)).status, "failed");
+		assert.equal(requests, 1);
+		assert.deepEqual((await f.json(route)).chatOptions, {
+			modelId: null,
+			reasoningEffort: null,
+		});
+	} finally {
+		release();
+		await f.close();
 	}
 });

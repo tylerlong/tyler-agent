@@ -36,11 +36,13 @@ export function ChatOptionPicker({
 	models,
 	change,
 	disabled = false,
+	saving = false,
 }: {
 	options: ChatOptions;
 	models: ManagedModel[];
 	change: (options: ChatOptions) => void;
 	disabled?: boolean;
+	saving?: boolean;
 }) {
 	const { t } = useTranslation();
 	const [open, setOpen] = useState(false);
@@ -133,6 +135,7 @@ export function ChatOptionPicker({
 					>
 						<input
 							type="radio"
+							disabled={saving}
 							name={`${id}-${label}`}
 							checked={selected === item.value}
 							onChange={() => select(item.value)}

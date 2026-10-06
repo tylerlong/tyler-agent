@@ -20,13 +20,16 @@ async function chats(page: import("@playwright/test").Page, url: string) {
 	return [first.id, second.id] as number[];
 }
 
-test("first addition fills the initiating empty composer even with history; passive windows stay empty", async ({
+test("first addition fills saved Chat choices in all windows even with history", async ({
 	page,
 	app,
 }) => {
 	const [id] = await chats(page, app.url);
+	await page.request.put(`${app.url}/api/chats/${id}`, {
+		data: { modelId: "test", reasoningEffort: "high" },
+	});
 	await page.request.post(`${app.url}/api/chats/${id}`, {
-		data: { modelId: "test", reasoningEffort: "high", prompt: "History" },
+		data: { prompt: "History" },
 	});
 	await page.request.delete(`${app.url}/api/models/test`);
 	await page.goto(`${app.url}/?chat=${id}`);
@@ -46,24 +49,29 @@ test("first addition fills the initiating empty composer even with history; pass
 	await expect(
 		settings.getByRole("button", { name: "Add model", exact: true }),
 	).toBeFocused();
+	await settings.getByRole("button", { name: "Close", exact: true }).click();
+	await peer
+		.getByRole("dialog", { name: "Settings", exact: true })
+		.getByRole("button", { name: "Close", exact: true })
+		.click();
 	await expectModel(page, "second");
 	await expect(peerModel).toBeEnabled();
-	await expectModel(peer, "");
+	await expectModel(peer, "second");
 	await expect(
 		page.getByRole("combobox", { name: "Reasoning level" }),
 	).toHaveCount(0);
-	await expect(
-		settings.getByRole("list", { name: "Enabled models" }),
-	).toContainText("Default");
 });
 
-test("first addition initializes its composer before a delayed historical read completes", async ({
+test("first addition fills saved Chat after a delayed read and Settings close", async ({
 	page,
 	app,
 }) => {
 	const [id] = await chats(page, app.url);
+	await page.request.put(`${app.url}/api/chats/${id}`, {
+		data: { modelId: "test", reasoningEffort: "high" },
+	});
 	await page.request.post(`${app.url}/api/chats/${id}`, {
-		data: { modelId: "test", reasoningEffort: "high", prompt: "History" },
+		data: { prompt: "History" },
 	});
 	await page.request.delete(`${app.url}/api/models/test`);
 	let release!: () => void;
@@ -87,6 +95,7 @@ test("first addition initializes its composer before a delayed historical read c
 		settings.getByRole("button", { name: "Add model", exact: true }),
 	).toBeEnabled();
 	release();
+	await settings.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(page.getByRole("log", { name: "Chat history" })).toContainText(
 		"History",
 	);
@@ -151,7 +160,7 @@ for (const action of ["navigation", "selection"] as const) {
 		if (action === "navigation") {
 			await page.goBack();
 			await expect(page).toHaveURL(`${app.url}/?chat=${first}`);
-			await expectModel(page, "");
+			await expectModel(page, "second");
 			await page.goForward();
 			await expect(page).toHaveURL(`${app.url}/?chat=${second}`);
 		} else {
@@ -163,12 +172,16 @@ for (const action of ["navigation", "selection"] as const) {
 			settings.getByRole("button", { name: "Add model", exact: true }),
 		).toBeEnabled();
 		await settings.getByRole("button", { name: "Close", exact: true }).click();
-		await expectModel(page, action === "selection" ? "second" : "");
+		await expectModel(page, "second");
 		if (action === "navigation") {
 			await page.goBack();
 			await expect(page).toHaveURL(`${app.url}/?chat=${first}`);
-			await expectModel(page, "");
+			await expectModel(page, "second");
 		}
-		await expectModel(peer, "");
+		await peer
+			.getByRole("dialog", { name: "Settings", exact: true })
+			.getByRole("button", { name: "Close", exact: true })
+			.click();
+		await expectModel(peer, "second");
 	});
 }

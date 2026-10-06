@@ -284,30 +284,38 @@ export function createServer(
 			hasMoreNewer: after !== null && more,
 		};
 	};
-	const chatOptions = (id: number) => {
-		const calls = database
+	const chatOptions = (id: number) =>
+		database
 			.prepare(
-				"SELECT request_body FROM model_calls JOIN agents ON agents.id=model_calls.agent_id WHERE agents.chat_id=? ORDER BY agents.id DESC,model_calls.id DESC",
+				"SELECT model_id AS modelId,reasoning_effort AS reasoningEffort FROM chats WHERE id=?",
 			)
-			.iterate(id);
-		for (const call of calls) {
-			try {
-				const body = JSON.parse(String(call.request_body));
-				if (typeof body?.model !== "string" || !body.model.trim()) continue;
-				return {
-					modelId: body.model,
-					reasoningEffort:
-						typeof body.reasoning?.effort === "string"
-							? body.reasoning.effort
-							: null,
-				};
-			} catch {
-				// Legacy or interrupted request records may not contain usable JSON.
-			}
-		}
+			.get(id) as { modelId: string | null; reasoningEffort: string | null };
+	const currentConfig = (id: number) => {
+		const options = chatOptions(id);
+		const apiKey = String(
+			database.prepare("SELECT api_key FROM settings WHERE id=1").get()
+				?.api_key ?? "",
+		);
+		if (!apiKey) throw new InputError("modelConfigMissing");
+		const model = modelSettings(database).models.find(
+			(model) => model.id === options.modelId,
+		);
+		if (!model) throw new InputError("invalidModel");
+		if (
+			options.reasoningEffort !== null &&
+			!supportedReasoningEfforts(model)?.includes(options.reasoningEffort)
+		)
+			throw new InputError("invalidReasoning");
 		return {
-			modelId: modelSettings(database).defaultModelId,
-			reasoningEffort: null,
+			apiKey,
+			model: model.id,
+			reasoningEffort: options.reasoningEffort,
+			targetFolders: database
+				.prepare(
+					"SELECT folders.path FROM folders JOIN chats ON chats.project_id=folders.project_id WHERE chats.id=? ORDER BY folders.rowid",
+				)
+				.all(id)
+				.map((row) => String(row.path)),
 		};
 	};
 
@@ -602,6 +610,9 @@ export function createServer(
 				database.exec("BEGIN");
 				try {
 					const settings = modelSettings(database);
+					database
+						.prepare("UPDATE chats SET reasoning_effort=NULL WHERE model_id=?")
+						.run(id);
 					database.prepare("DELETE FROM managed_models WHERE id=?").run(id);
 					if (settings.defaultModelId === id) {
 						const remaining = settings.models.filter(
@@ -1098,11 +1109,54 @@ export function createServer(
 			}
 			if (request.method === "PUT") {
 				try {
-					const chatName = name(await readJson(request));
+					const input = await readJson(request);
+					const options = chatOptions(id);
+					const modelId =
+						input.modelId === undefined ? options.modelId : input.modelId;
+					if (modelId !== null && typeof modelId !== "string")
+						throw new InputError("invalidModel");
+					const selected = modelSettings(database).models.find(
+						(model) => model.id === modelId,
+					);
+					if (modelId !== null && !selected)
+						throw new InputError("invalidModel");
+					let effort =
+						input.reasoningEffort === undefined
+							? options.reasoningEffort
+							: input.reasoningEffort;
+					if (effort !== null && typeof effort !== "string")
+						throw new InputError("invalidReasoning");
+					if (!selected) effort = null;
+					else if (
+						(input.modelId !== undefined ||
+							input.reasoningEffort !== undefined) &&
+						effort !== null &&
+						!supportedReasoningEfforts(selected)?.includes(effort)
+					) {
+						if (
+							input.reasoningEffort !== undefined &&
+							modelId === options.modelId
+						)
+							throw new InputError("invalidReasoning");
+						effort = null;
+					}
+					const chatName =
+						input.name === undefined
+							? String(
+									database.prepare("SELECT name FROM chats WHERE id=?").get(id)
+										?.name,
+								)
+							: name(input);
 					database
-						.prepare("UPDATE chats SET name=? WHERE id=?")
-						.run(chatName, id);
-					json(response, 200, { id, name: chatName });
+						.prepare(
+							"UPDATE chats SET name=?,model_id=?,reasoning_effort=? WHERE id=?",
+						)
+						.run(chatName, modelId, effort, id);
+					json(response, 200, {
+						id,
+						name: chatName,
+						chatOptions: chatOptions(id),
+					});
 					notifyChange();
 				} catch (error) {
 					json(
@@ -1123,42 +1177,7 @@ export function createServer(
 					json(response, 409, errorBody("chatBusy"));
 					return;
 				}
-				const settings = database
-					.prepare("SELECT api_key,default_model_id FROM settings WHERE id=1")
-					.get();
-				if (
-					input.reasoningEffort != null &&
-					typeof input.reasoningEffort !== "string"
-				)
-					throw new InputError("invalidReasoning");
-				const config = {
-					apiKey: String(settings?.api_key ?? ""),
-					model: typeof input.modelId === "string" ? input.modelId : "",
-					reasoningEffort:
-						typeof input.reasoningEffort === "string"
-							? input.reasoningEffort
-							: null,
-				};
-				if (!config.apiKey) throw new InputError("modelConfigMissing");
-				const selected = modelSettings(database).models.find(
-					(model) => model.id === config.model,
-				);
-				if (!selected) throw new InputError("invalidModel");
-				if (
-					config.reasoningEffort !== null &&
-					(typeof config.reasoningEffort !== "string" ||
-						!supportedReasoningEfforts(selected)?.includes(
-							config.reasoningEffort,
-						))
-				)
-					throw new InputError("invalidReasoning");
-				const targetFolders = database
-					.prepare(
-						"SELECT folders.path FROM folders JOIN chats ON chats.project_id=folders.project_id WHERE chats.id=? ORDER BY folders.rowid",
-					)
-					.all(id)
-					.map((row) => String(row.path));
-				const agentConfig = { ...config, targetFolders };
+				const config = currentConfig(id);
 				busy.add(id);
 				locked = true;
 				let agentId: number;
@@ -1190,8 +1209,8 @@ export function createServer(
 				let savedToolIds: number[] = [];
 				const secrets = [
 					...new Set([
-						agentConfig.apiKey,
-						JSON.stringify(agentConfig.apiKey).slice(1, -1),
+						config.apiKey,
+						JSON.stringify(config.apiKey).slice(1, -1),
 					]),
 				];
 				const redactTool = (text: string) =>
@@ -1321,7 +1340,15 @@ export function createServer(
 								notifyAgent(id, agentId);
 							},
 						},
-						agentConfig,
+						() => {
+							const next = currentConfig(id);
+							for (const secret of [
+								next.apiKey,
+								JSON.stringify(next.apiKey).slice(1, -1),
+							])
+								if (!secrets.includes(secret)) secrets.push(secret);
+							return next;
+						},
 						runTool,
 					);
 				} catch (error) {
@@ -1415,9 +1442,14 @@ export function createServer(
 				const id = Number(
 					database
 						.prepare(
-							"INSERT INTO chats(project_id,name,created_at) VALUES (?,?,?)",
+							"INSERT INTO chats(project_id,name,created_at,model_id) VALUES (?,?,?,?)",
 						)
-						.run(projectId, chatName, createdAt).lastInsertRowid,
+						.run(
+							projectId,
+							chatName,
+							createdAt,
+							modelSettings(database).defaultModelId,
+						).lastInsertRowid,
 				);
 				json(response, 201, {
 					id,
