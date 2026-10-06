@@ -749,6 +749,12 @@ test("a child terminal persistence failure still releases its parent with saved 
 		assert(lastInput.includes("durable child output"));
 		assert(lastInput.includes("answerWriteFailed"));
 		assert(lastInput.includes("failed"));
+		const childId = JSON.parse(
+			(await f.get(`/api/agents/${rootId}/tools`)).toolCalls[0].result,
+		).agent_id;
+		const detail = await f.get(`/api/agents/${childId}`);
+		assert.equal(detail.agents[0].status, "failed");
+		assert.equal(detail.agentBusy, false);
 	} finally {
 		childRelease.release();
 		await f.close();

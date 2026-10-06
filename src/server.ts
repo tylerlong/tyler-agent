@@ -1388,7 +1388,7 @@ export function createServer(
 				agents,
 				messages: agentMessages(agents),
 				busy: busy.has(agentSource(Number(row.id)).chatId),
-				agentBusy: row.status === "pending",
+				agentBusy: agents[0]?.status === "pending",
 				hasMore: false,
 			});
 			return;
