@@ -299,6 +299,70 @@ for (const language of ["en", "zh-CN"]) {
 				.poll(() => detail.evaluate((element) => element.scrollTop))
 				.toBe(readingTop);
 
+			// An earlier streaming item grows above the item currently being read.
+			grandchild.push(
+				frame("response.output_item.added", {
+					output_index: 1,
+					item: { id: "later-answer", type: "message", content: [] },
+				}),
+			);
+			grandchild.push(
+				frame("response.output_text.delta", {
+					item_id: "later-answer",
+					output_index: 1,
+					content_index: 0,
+					delta: Array.from(
+						{ length: 50 },
+						(_, i) => `Later output line ${i}`,
+					).join("\n"),
+				}),
+			);
+			await expect(detail).toContainText("Later output line 49");
+			const laterOutput = detail.locator(
+				'[data-output-index="1"] > [data-reading-anchor]',
+			);
+			await laterOutput.evaluate((element) => {
+				const scroller = element.closest("section");
+				if (!scroller) throw new Error("Missing detail scroller");
+				scroller.scrollTop +=
+					element.getBoundingClientRect().top -
+					scroller.getBoundingClientRect().top +
+					100;
+				scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+			});
+			const outputOffset = () =>
+				laterOutput.evaluate((element) => {
+					const scroller = element.closest("section");
+					if (!scroller) throw new Error("Missing detail scroller");
+					return (
+						element.getBoundingClientRect().top -
+						scroller.getBoundingClientRect().top
+					);
+				});
+			const savedOutputOffset = await outputOffset();
+			expect(savedOutputOffset).toBe(-100);
+			const beforeExpansion = await detail.evaluate(
+				(element) => element.scrollTop,
+			);
+			grandchild.push(
+				frame("response.output_text.delta", {
+					item_id: "same-answer",
+					output_index: 0,
+					content_index: 0,
+					delta:
+						"\n" +
+						Array.from(
+							{ length: 30 },
+							(_, i) => `Earlier output expansion ${i}`,
+						).join("\n"),
+				}),
+			);
+			await expect(detail).toContainText("Earlier output expansion 29");
+			await expect.poll(outputOffset).toBe(savedOutputOffset);
+			expect(
+				await detail.evaluate((element) => element.scrollTop),
+			).toBeGreaterThan(beforeExpansion);
+
 			await page
 				.getByRole("navigation", { name: labels.path })
 				.getByRole("button", { name: new RegExp(`#${branchId} Branch`) })

@@ -264,9 +264,17 @@ export function TaskView({
 			onScroll={(event) => {
 				const element = event.currentTarget;
 				const top = element.getBoundingClientRect().top;
-				const anchor = [
+				const anchors = [
 					...element.querySelectorAll<HTMLElement>("[data-reading-anchor]"),
-				].find((anchor) => anchor.getBoundingClientRect().bottom > top);
+				];
+				const anchor =
+					anchors
+						.filter((anchor) => {
+							const bounds = anchor.getBoundingClientRect();
+							return bounds.top <= top && bounds.bottom > top;
+						})
+						.at(-1) ??
+					anchors.find((anchor) => anchor.getBoundingClientRect().bottom > top);
 				positions.current[agentId] = {
 					top: element.scrollTop,
 					...(anchor?.dataset.readingAnchor

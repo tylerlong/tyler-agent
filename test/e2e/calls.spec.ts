@@ -543,7 +543,16 @@ test("failure before a model call shows its question and agent error without com
 				id: chat.id,
 				busy: false,
 				hasMore: false,
-				agents: [{ id: 1, status: "failed", output: [], calls: [] }],
+				agents: [
+					{
+						id: 1,
+						status: "failed",
+						output: [],
+						calls: [],
+						errorCode: "modelRequestFailed",
+						errorDetails: "Execution failed before creating a model call",
+					},
+				],
 				messages: [
 					{ id: "1-user", role: "user", content: "the accepted question" },
 					{
