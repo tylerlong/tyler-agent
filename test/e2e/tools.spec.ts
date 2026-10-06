@@ -123,7 +123,7 @@ test("a tool agent retains output and exposes both communications while Send sta
 		"Response 1",
 		"Tool Call · count_files",
 		"Request 2",
-		"3",
+		"0",
 		"Response 2",
 	]);
 	await request.locator("summary").click();

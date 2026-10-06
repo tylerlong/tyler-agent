@@ -220,6 +220,45 @@ export function createServer(
 					reason: "toolSaveFailed",
 				}),
 			}));
+
+	const agentOutput = (agentId: number) =>
+		database
+			.prepare(
+				"SELECT id,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
+			)
+			.all(agentId)
+			.flatMap((call) =>
+				(JSON.parse(String(call.output_json)) as OutputItem[]).map((item) => ({
+					...item,
+					callId: Number(call.id),
+				})),
+			);
+	const agentResult = (row: Record<string, unknown>) => {
+		const output = agentOutput(Number(row.id));
+		const failedCall = database
+			.prepare(
+				"SELECT id,status,error_code,error FROM model_calls WHERE agent_id=? ORDER BY id DESC",
+			)
+			.all(Number(row.id))
+			.find(
+				(call) => call.status === "failed" || unsavedCalls.has(Number(call.id)),
+			);
+		return {
+			...row,
+			answer: answerText(output) || null,
+			output: outputSummary(output),
+			errorCode:
+				row.errorCode ??
+				(failedCall
+					? (callPersistenceError(failedCall.id).errorCode ??
+						failedCall.error_code)
+					: null),
+			errorDetails: row.errorCode ? null : (failedCall?.error ?? null),
+			...persistenceError(row.id),
+			calls: callMetadata(Number(row.id)),
+			toolCalls: toolCalls(Number(row.id)),
+		};
+	};
 	const agentPage = (
 		id: number,
 		before: number | null,
@@ -227,7 +266,7 @@ export function createServer(
 	) => {
 		const rows = database
 			.prepare(
-				`SELECT id, prompt AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails, output_json AS output FROM agents WHERE chat_id=? ${before !== null ? "AND id<?" : after !== null ? "AND id>?" : ""} ORDER BY id ${after !== null ? "ASC" : "DESC"} LIMIT 11`,
+				`SELECT id, prompt AS question, status, created_at AS createdAt, error_code AS errorCode FROM agents WHERE chat_id=? ${before !== null ? "AND id<?" : after !== null ? "AND id>?" : ""} ORDER BY id ${after !== null ? "ASC" : "DESC"} LIMIT 11`,
 			)
 			.all(
 				...(before !== null
@@ -237,13 +276,7 @@ export function createServer(
 						: [id]),
 			);
 		const more = rows.length > 10;
-		const page = rows.slice(0, 10).map((row) => ({
-			...row,
-			...persistenceError(row.id),
-			output: outputSummary(JSON.parse(String(row.output))),
-			calls: callMetadata(Number(row.id)),
-			toolCalls: toolCalls(Number(row.id)),
-		}));
+		const page = rows.slice(0, 10).map(agentResult);
 		if (after === null) page.reverse();
 		return {
 			agents: page,
@@ -278,28 +311,17 @@ export function createServer(
 		};
 	};
 
-	const messages = (id: number, successfulOnly = false) =>
+	const successfulMessages = (chatId: number, beforeAgentId: number) =>
 		database
 			.prepare(
-				`SELECT id, prompt, assistant_content,status,error_code,error_details FROM agents WHERE chat_id=? ${successfulOnly ? "AND status='succeeded'" : ""} ORDER BY id`,
+				"SELECT id,prompt FROM agents WHERE chat_id=? AND id<? AND status='succeeded' ORDER BY id",
 			)
-			.all(id)
+			.all(chatId, beforeAgentId)
 			.flatMap((row) => [
+				{ role: "user" as const, content: String(row.prompt) },
 				{
-					id: `${row.id}-user`,
-					role: "user" as const,
-					content: String(row.prompt),
-				},
-				{
-					id: `${row.id}-assistant`,
 					role: "assistant" as const,
-					content:
-						row.assistant_content === null ? "" : String(row.assistant_content),
-					...(row.status !== "succeeded" && {
-						status: String(row.status),
-						errorCode: row.error_code,
-						errorDetails: row.error_details,
-					}),
+					content: answerText(agentOutput(Number(row.id))),
 				},
 			]);
 	const agentMessages = (
@@ -309,6 +331,7 @@ export function createServer(
 			answer?: unknown;
 			status?: unknown;
 			errorCode?: unknown;
+			errorDetails?: unknown;
 			output: unknown;
 		}[],
 	) =>
@@ -322,6 +345,7 @@ export function createServer(
 				...(agent.status !== "succeeded" && {
 					status: agent.status,
 					errorCode: agent.errorCode,
+					errorDetails: agent.errorDetails,
 				}),
 			},
 		]);
@@ -890,26 +914,28 @@ export function createServer(
 		}
 		const reasoningRoute = path.match(/^\/api\/agents\/(\d+)\/reasoning$/);
 		if (reasoningRoute && request.method === "GET") {
-			const row = database
-				.prepare("SELECT output_json FROM agents WHERE id=?")
-				.get(Number(reasoningRoute[1]));
-			if (!row) {
-				json(response, 404, errorBody("notFound"));
+			const callId = url.searchParams.get("callId");
+			if (
+				!callId ||
+				!/^[1-9]\d*$/.test(callId) ||
+				url.searchParams.has("callOrdinal")
+			) {
+				json(response, 400, errorBody("invalidInput"));
 				return;
 			}
-			const ordinal = url.searchParams.get("callOrdinal");
-			if (ordinal !== null && !/^[1-9]\d*$/.test(ordinal)) {
-				json(response, 400, errorBody("invalidInput"));
+			const row = database
+				.prepare(
+					"SELECT output_json FROM model_calls WHERE id=? AND agent_id=?",
+				)
+				.get(Number(callId), Number(reasoningRoute[1]));
+			if (!row) {
+				json(response, 404, errorBody("notFound"));
 				return;
 			}
 			const output: OutputItem[] = JSON.parse(String(row.output_json));
 			json(response, 200, {
 				output: output
-					.filter(
-						(item) =>
-							item.type === "reasoning" &&
-							(ordinal === null || item.callOrdinal === Number(ordinal)),
-					)
+					.filter((item) => item.type === "reasoning")
 					.map((item) => ({
 						...item,
 						content: readableParts(item),
@@ -921,22 +947,14 @@ export function createServer(
 		if (agentRoute && request.method === "GET") {
 			const row = database
 				.prepare(
-					"SELECT id,chat_id AS chatId,prompt AS question,assistant_content AS answer,status,created_at AS createdAt,error_code AS errorCode,output_json AS output FROM agents WHERE id=?",
+					"SELECT id,chat_id AS chatId,prompt AS question,status,created_at AS createdAt,error_code AS errorCode FROM agents WHERE id=?",
 				)
 				.get(Number(agentRoute[1]));
 			if (!row) {
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
-			const agents = [
-				{
-					...row,
-					...persistenceError(row.id),
-					output: outputSummary(JSON.parse(String(row.output))),
-					calls: callMetadata(Number(row.id)),
-					toolCalls: toolCalls(Number(row.id)),
-				},
-			];
+			const agents = [agentResult(row)];
 			json(response, 200, {
 				agents,
 				messages: agentMessages(agents),
@@ -1006,7 +1024,7 @@ export function createServer(
 							)
 						: database
 								.prepare(
-									`SELECT id,agent_id AS agentId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE agent_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
+									`SELECT id,agent_id AS agentId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error,error_code AS errorCode FROM model_calls WHERE agent_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
 								)
 								.all(
 									...(callId === null ? [agentId] : [agentId, Number(callId)]),
@@ -1166,7 +1184,7 @@ export function createServer(
 				acceptedAgentId = agentId;
 				json(response, 202, { agentId });
 				notifyChange();
-				let answer: string | undefined;
+
 				let failure: unknown;
 				let callId: number | undefined;
 				let savedToolIds: number[] = [];
@@ -1182,8 +1200,8 @@ export function createServer(
 						text,
 					);
 				try {
-					answer = await requestModel(
-						messages(id, true).map(({ role, content }) => ({ role, content })),
+					await requestModel(
+						successfulMessages(id, agentId),
 						input.prompt,
 						fetchModel,
 						{
@@ -1280,7 +1298,7 @@ export function createServer(
 								try {
 									database
 										.prepare(
-											"UPDATE model_calls SET status=?,http_status=?,response_body=?,duration_ms=?,error=? WHERE id=?",
+											"UPDATE model_calls SET status=?,http_status=?,response_body=?,duration_ms=?,error=?,error_code=?,output_json=? WHERE id=?",
 										)
 										.run(
 											result.status,
@@ -1288,14 +1306,11 @@ export function createServer(
 											result.responseBody,
 											result.durationMs,
 											result.error,
+											result.errorCode ?? null,
+											JSON.stringify(output),
 											callId,
 										);
-									const partial = answerText(output);
-									database
-										.prepare(
-											"UPDATE agents SET assistant_content=?,output_json=? WHERE id=?",
-										)
-										.run(partial || null, JSON.stringify(output), agentId);
+
 									database.exec("COMMIT");
 								} catch (error) {
 									database.exec("ROLLBACK");
@@ -1339,14 +1354,16 @@ export function createServer(
 						? caughtError(failure, "answerWriteFailed")
 						: null;
 					database
-						.prepare(
-							"UPDATE agents SET status=?,assistant_content=COALESCE(?,assistant_content),error_code=?,error_details=? WHERE id=?",
-						)
+						.prepare("UPDATE agents SET status=?,error_code=? WHERE id=?")
 						.run(
 							failure ? "failed" : "succeeded",
-							answer ?? null,
-							savedError?.code ?? null,
-							null,
+							(callId !== undefined &&
+								database
+									.prepare("SELECT status FROM model_calls WHERE id=?")
+									.get(callId)?.status === "failed") ||
+								(callId !== undefined && unsavedCalls.has(callId))
+								? null
+								: (savedError?.code ?? null),
 							agentId,
 						);
 					database.exec("COMMIT");

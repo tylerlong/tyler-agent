@@ -440,7 +440,7 @@ test("older downloads cannot overwrite newer per-call response and thinking cont
 	});
 	const intercepted = new Set<string>();
 	await page.route(
-		/\/api\/agents\/\d+\/(?:calls\?kind=response&callId=\d+|reasoning\?callOrdinal=1)$/,
+		/\/api\/agents\/\d+\/(?:calls\?kind=response&callId=\d+|reasoning\?callId=\d+)$/,
 		async (route) => {
 			const kind = route.request().url().includes("/reasoning?")
 				? "reasoning"

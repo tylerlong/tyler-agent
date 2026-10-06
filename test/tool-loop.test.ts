@@ -406,7 +406,16 @@ for (const finalAnswer of [true, false])
 			const response = await f.ask();
 			assert.equal(response.status, 202);
 			const agent = await f.wait((await response.json()).agentId);
-			if (!finalAnswer) assert.equal(agent.errorCode, "modelCallLimit");
+			if (!finalAnswer) {
+				assert.equal(agent.errorCode, "modelCallLimit");
+				const calls = (await f.get(`/api/agents/${agent.id}/calls`)).calls;
+				assert(
+					calls.every(
+						(call: { status: string; errorCode: string | null }) =>
+							call.status === "succeeded" && call.errorCode === null,
+					),
+				);
+			}
 			assert.equal(agent.status, finalAnswer ? "succeeded" : "failed");
 			assert.match(
 				agent.answer,
@@ -742,7 +751,7 @@ test("a continuation persistence failure preserves prior calls and restart inter
 		await f.restart();
 		agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
 		assert.equal(agent.status, "failed");
-		assert.equal(agent.errorCode, "modelInterrupted");
+		assert.equal(agent.errorCode, "agentInterrupted");
 		assert.deepEqual(
 			(await f.get(`/api/agents/${agent.id}/tools`)).toolCalls,
 			savedTools,
@@ -823,9 +832,19 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
 		}
 		assert.deepEqual(
-			agent.output.map((item: { callOrdinal: number }) => item.callOrdinal),
-			[1, 1, 2, 2],
+			agent.output.map((item: { callId: number }) => item.callId),
+			[
+				agent.calls[0].id,
+				agent.calls[0].id,
+				agent.calls[1].id,
+				agent.calls[1].id,
+			],
 		);
+		assert.deepEqual(
+			agent.output.map((item: { index: number }) => item.index),
+			[0, 1, 0, 1],
+		);
+		assert(agent.output.every((item: object) => !("callOrdinal" in item)));
 		assert.deepEqual(
 			agent.calls.map((call: { ordinal: number; status: string }) => [
 				call.ordinal,
@@ -859,11 +878,16 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			assert.equal(request[0].responseBody, null);
 			assert.equal(JSON.parse(request[0].requestBody).model, "tool-model");
 		}
-		const details = (await f.get(`/api/agents/${agent.id}/reasoning`)).output;
-		assert.deepEqual(
-			details.map((item: { callOrdinal: number }) => item.callOrdinal),
-			[1, 2],
-		);
+		const details = (
+			await Promise.all(
+				agent.calls.map(
+					async (call: { id: number }) =>
+						(
+							await f.get(`/api/agents/${agent.id}/reasoning?callId=${call.id}`)
+						).output,
+				),
+			)
+		).flat();
 		assert.deepEqual(
 			details.map(
 				(item: { content: { text: string }[] }) => item.content[0].text,
@@ -871,7 +895,9 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			["first thinking", "second thinking"],
 		);
 		const onlySecond = (
-			await f.get(`/api/agents/${agent.id}/reasoning?callOrdinal=2`)
+			await f.get(
+				`/api/agents/${agent.id}/reasoning?callId=${agent.calls[1].id}`,
+			)
 		).output;
 		assert.deepEqual(onlySecond, [details[1]]);
 		for (const suffix of ["callId=0", "callId=bogus", "kind=bogus"])
@@ -880,7 +906,7 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 				"invalidInput",
 			);
 		assert.equal(
-			(await f.get(`/api/agents/${agent.id}/reasoning?callOrdinal=0`)).code,
+			(await f.get(`/api/agents/${agent.id}/reasoning?callId=0`)).code,
 			"invalidInput",
 		);
 		assert.equal(
@@ -912,8 +938,12 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 		assert.deepEqual(saved.calls, agent.calls);
 		assert.deepEqual(saved.output, agent.output);
 		assert.deepEqual(
-			(await f.get(`/api/agents/${agent.id}/reasoning`)).output,
-			details,
+			(
+				await f.get(
+					`/api/agents/${agent.id}/reasoning?callId=${agent.calls[1].id}`,
+				)
+			).output,
+			[details[1]],
 		);
 		assert.equal(requests, 2);
 		assert.equal((await f.ask()).status, 202);
@@ -929,6 +959,18 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 				)
 			).code,
 			"notFound",
+		);
+		assert.equal(
+			(
+				await f.get(
+					`/api/agents/${later.id}/reasoning?callId=${agent.calls[0].id}`,
+				)
+			).code,
+			"notFound",
+		);
+		assert.equal(
+			(await f.get(`/api/agents/${later.id}/reasoning`)).code,
+			"invalidInput",
 		);
 		assert.equal(requests, 3);
 	} finally {

@@ -160,7 +160,7 @@ for (const language of ["en", "zh-CN"]) {
 		const db = new DatabaseSync(join(app.folder, "db.sqlite"));
 		try {
 			db.exec(
-				"CREATE TRIGGER reject_progress BEFORE UPDATE ON agents BEGIN SELECT RAISE(ABORT,'write rejected'); END",
+				"CREATE TRIGGER reject_progress BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'write rejected'); END",
 			);
 			stream.push(
 				frame("response.output_text.delta", {

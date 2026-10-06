@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 export type ReaderItem = {
 	id: string;
-	callOrdinal: number;
+	callId: number;
 	index: number;
 	type: string;
 	content: { index: number; type: string; text?: string }[];
@@ -18,7 +18,6 @@ const folds = new Map<string, boolean>();
 export function AgentOutput({
 	agentId,
 	callId,
-	ordinal,
 	status,
 	output,
 	revision,
@@ -26,7 +25,6 @@ export function AgentOutput({
 }: {
 	agentId: number;
 	callId: number;
-	ordinal: number;
 	status: string;
 	output: ReaderItem[];
 	revision: number;
@@ -57,7 +55,7 @@ export function AgentOutput({
 		)
 			return;
 		let current = true;
-		void fetch(`/api/agents/${agentId}/reasoning?callOrdinal=${ordinal}`)
+		void fetch(`/api/agents/${agentId}/reasoning?callId=${callId}`)
 			.then(async (response) => {
 				if (!response.ok) throw new Error("Read failed");
 				const data = await response.json();
@@ -75,8 +73,8 @@ export function AgentOutput({
 		};
 	}, [
 		agentId,
+		callId,
 		cacheKey,
-		ordinal,
 		status,
 		revision,
 		expanded,
@@ -97,7 +95,7 @@ export function AgentOutput({
 				<div
 					key={item.index}
 					data-output-index={item.index}
-					data-reading-anchor={`${agentId}-output-${item.index}`}
+					data-reading-anchor={`${agentId}-${callId}-output-${item.index}`}
 				>
 					{item.content
 						.filter(
@@ -106,7 +104,7 @@ export function AgentOutput({
 						.map((part) => (
 							<div
 								key={`${part.index}-${part.type}`}
-								data-reading-anchor={`${agentId}-output-${item.index}-${part.type}-${part.index}`}
+								data-reading-anchor={`${agentId}-${callId}-output-${item.index}-${part.type}-${part.index}`}
 							>
 								{part.text}
 							</div>
@@ -124,7 +122,7 @@ export function AgentOutput({
 			<div
 				key={item.index}
 				data-output-index={item.index}
-				data-reading-anchor={`${agentId}-output-${item.index}`}
+				data-reading-anchor={`${agentId}-${callId}-output-${item.index}`}
 				className="my-2 rounded border border-neutral-200 p-3"
 			>
 				<button
@@ -144,7 +142,7 @@ export function AgentOutput({
 						{content?.map((part) => (
 							<div
 								key={`${part.index}-${part.type}`}
-								data-reading-anchor={`${agentId}-output-${item.index}-${part.type}-${part.index}`}
+								data-reading-anchor={`${agentId}-${callId}-output-${item.index}-${part.type}-${part.index}`}
 							>
 								<strong>
 									{t(

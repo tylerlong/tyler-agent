@@ -452,7 +452,7 @@ test("agent communication is exact, redacted, independently readable and survive
 		);
 		assert.equal(
 			(await get(`/api/agents/${interrupted.id}/calls`)).calls[0].responseBody,
-			null,
+			calls[0].responseBody,
 		);
 		db.exec("DROP TRIGGER reject_complete");
 		db.close();
@@ -464,14 +464,14 @@ test("agent communication is exact, redacted, independently readable and survive
 		);
 		url = await base();
 		history = await get(route);
-		assert.equal(history.agents.at(-1).errorCode, "modelInterrupted");
+		assert.equal(history.agents.at(-1).errorCode, "agentInterrupted");
 		assert.equal(history.busy, false);
 		assert.equal(count, sent);
 		const interruptedCall = (await get(`/api/agents/${interrupted.id}/calls`))
 			.calls[0];
-		assert.equal(interruptedCall.status, "failed");
-		assert.equal(interruptedCall.responseBody, null);
-		assert.match(interruptedCall.error, /restarted/);
+		assert.equal(interruptedCall.status, "succeeded");
+		assert.equal(interruptedCall.responseBody, calls[0].responseBody);
+		assert.equal(interruptedCall.error, null);
 		await fetch(`${url}/api/projects/${project.id}/archive`, {
 			method: "PUT",
 			headers: { "content-type": "application/json" },

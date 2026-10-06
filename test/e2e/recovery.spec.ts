@@ -183,7 +183,9 @@ test("pending cached thinking and raw records recover on focus, visibility, reco
 				async () =>
 					(
 						await (
-							await page.request.get(`${app.url}/api/agents/1/reasoning`)
+							await page.request.get(
+								`${app.url}/api/agents/1/reasoning?callId=1`,
+							)
 						).json()
 					).output[0].content[0].text,
 			)

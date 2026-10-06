@@ -245,16 +245,22 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		]);
 		db.exec(`INSERT INTO projects(name,created_at) VALUES('Saved',1);
 			INSERT INTO chats(project_id,name,created_at) VALUES(1,'Chat',2);
-			INSERT INTO agents(chat_id,prompt,assistant_content,status,created_at) VALUES(1,'Question','部分回答','pending',3);
+			INSERT INTO agents(chat_id,prompt,status,created_at) VALUES(1,'Question','pending',3);
 			INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status,response_body) VALUES(1,'https://example.test','POST','now','{}','pending','data: partial');
 			UPDATE settings SET sidebar_width=410.5,language='zh-CN' WHERE id=1;`);
 		assert.equal(
-			db.prepare("SELECT output_json FROM agents").get()?.output_json,
+			db.prepare("SELECT output_json FROM model_calls").get()?.output_json,
 			"[]",
 		);
-		db.prepare("UPDATE agents SET output_json=? WHERE id=1").run(output);
+		const agentColumns = db
+			.prepare("PRAGMA table_info(agents)")
+			.all()
+			.map((column) => column.name);
+		for (const removed of ["assistant_content", "output_json", "error_details"])
+			assert(!agentColumns.includes(removed));
+		db.prepare("UPDATE model_calls SET output_json=? WHERE id=1").run(output);
 		assert.throws(
-			() => db.prepare("UPDATE agents SET output_json=?").run("{}"),
+			() => db.prepare("UPDATE model_calls SET output_json=?").run("{}"),
 			/CHECK/,
 		);
 		db.close();
@@ -265,27 +271,25 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const saved = new DatabaseSync(path);
 		assert.deepEqual(
 			{
-				...saved
-					.prepare(
-						"SELECT assistant_content,output_json,status,error_code FROM agents",
-					)
-					.get(),
+				...saved.prepare("SELECT status,error_code FROM agents").get(),
 			},
 			{
-				assistant_content: "部分回答",
-				output_json: output,
 				status: "failed",
-				error_code: "modelInterrupted",
+				error_code: "agentInterrupted",
 			},
 		);
 		assert.deepEqual(
 			{
 				...saved
-					.prepare("SELECT response_body,status,error FROM model_calls")
+					.prepare(
+						"SELECT response_body,output_json,status,error_code,error FROM model_calls",
+					)
 					.get(),
 			},
 			{
 				response_body: "data: partial",
+				output_json: output,
+				error_code: "modelInterrupted",
 				status: "failed",
 				error: "Service restarted before the call completed",
 			},
@@ -354,7 +358,7 @@ test("unsupported, invalid, corrupt and read-only databases fail without resetti
 		const invalid = join(directory, "invalid.sqlite");
 		createServer(fetch, invalid).emit("close");
 		const invalidDb = new DatabaseSync(invalid);
-		invalidDb.exec("ALTER TABLE agents DROP COLUMN output_json");
+		invalidDb.exec("ALTER TABLE model_calls DROP COLUMN output_json");
 		invalidDb.close();
 		assert.throws(
 			() => createServer(fetch, invalid),

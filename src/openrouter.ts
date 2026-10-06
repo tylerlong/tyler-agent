@@ -8,7 +8,6 @@ import {
 type Message = { role: "user" | "assistant"; content: string };
 export type OutputPart = { index: number; type: string; text: string };
 export type OutputItem = {
-	callOrdinal?: number;
 	id: string;
 	index: number;
 	type: string;
@@ -65,6 +64,7 @@ export type CallResult = {
 	responseBody: string | null;
 	durationMs: number;
 	error: string | null;
+	errorCode?: string | null;
 };
 class PersistenceError extends Error {
 	constructor(cause: unknown) {
@@ -107,16 +107,8 @@ export async function requestModel(
 			{
 				request: (call) => record?.request(call),
 				result: (result, output) => {
-					const offset = previous.reduce(
-						(next, item) => Math.max(next, item.index + 1),
-						0,
-					);
-					current = output.map((item) => ({
-						...item,
-						index: offset + item.index,
-						callOrdinal: round + 1,
-					}));
-					record?.result(result, [...previous, ...current]);
+					current = output;
+					record?.result(result, current);
 				},
 			},
 			config,
@@ -265,6 +257,7 @@ async function requestOnce(
 		status: CallResult["status"],
 		error: string | null = null,
 		final = false,
+		errorCode: string | null = null,
 	) => {
 		const isSse =
 			upstream?.headers
@@ -280,6 +273,7 @@ async function requestOnce(
 				responseBody: response || null,
 				durationMs: Math.round(performance.now() - started),
 				error: error ? redact(error) : null,
+				errorCode,
 			},
 			output(final),
 		);
@@ -471,6 +465,7 @@ async function requestOnce(
 			"failed",
 			error instanceof ModelError ? error.message : String(error),
 			true,
+			error instanceof ModelError ? error.code : "modelRequestFailed",
 		);
 		throw error instanceof ModelError
 			? error

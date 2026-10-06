@@ -1493,10 +1493,9 @@ function App() {
 																	onLayoutChange={restoreReadingPosition}
 																	agentId={Number(message.id.split("-")[0])}
 																	callId={call.id}
-																	ordinal={call.ordinal}
 																	status={call.status}
 																	output={(message.output ?? []).filter(
-																		(item) => item.callOrdinal === call.ordinal,
+																		(item) => item.callId === call.id,
 																	)}
 																	revision={message.revision ?? 0}
 																/>

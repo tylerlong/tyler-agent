@@ -139,7 +139,10 @@ export function AgentCalls({
 			...(kind === "response" && call.error
 				? [
 						{
-							text: call.errorCode ? t(call.errorCode) : call.error,
+							text:
+								call.errorCode === "answerWriteFailed"
+									? t(call.errorCode)
+									: call.error,
 							body: false,
 						},
 					]

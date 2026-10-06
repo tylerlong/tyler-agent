@@ -386,13 +386,14 @@ for (const failedWrite of ["progress", "terminal"])
 			assert.doesNotMatch(JSON.stringify(agent), /stream-secret/);
 			assert.doesNotMatch(
 				String(
-					db.prepare("SELECT output_json FROM agents WHERE id=?").get(agent.id)
-						?.output_json,
+					db
+						.prepare("SELECT output_json FROM model_calls WHERE agent_id=?")
+						.get(agent.id)?.output_json,
 				),
 				/stream-secret/,
 			);
 			db.exec(
-				"CREATE TRIGGER reject_progress BEFORE UPDATE ON agents BEGIN SELECT RAISE(ABORT,'write rejected'); END",
+				"CREATE TRIGGER reject_progress BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'write rejected'); END",
 			);
 			stream.enqueue(
 				new TextEncoder().encode(
@@ -412,7 +413,7 @@ for (const failedWrite of ["progress", "terminal"])
 			assert.equal(
 				db.prepare("SELECT status FROM agents WHERE id=?").get(retained.id)
 					?.status,
-				"pending",
+				"failed",
 			);
 			assert.equal(retained.output[0].content[0].text, "saved");
 			assert.equal(retained.calls[0].status, "failed");
@@ -497,10 +498,7 @@ for (const httpStatus of [200, 503])
 			stream.error(new Error("private upstream body stream-secret"));
 			const completedAgent = await f.wait(acceptedId);
 			assert.equal(completedAgent.status, "failed");
-			assert.doesNotMatch(
-				JSON.stringify(completedAgent),
-				/private upstream body|stream-secret/,
-			);
+			assert.doesNotMatch(JSON.stringify(completedAgent), /stream-secret/);
 			const history = await f.get(`/api/chats/${f.chat.id}`);
 			assert.equal(history.busy, false);
 			assert.equal(history.agents.at(-1).status, "failed");
@@ -516,6 +514,15 @@ for (const httpStatus of [200, 503])
 			assert.equal(call.httpStatus, httpStatus);
 			assert.equal(call.status, "failed");
 			assert.doesNotMatch(call.error, /stream-secret/);
+			assert.equal(completedAgent.errorDetails, call.error);
+			assert.equal(completedAgent.errorCode, call.errorCode);
+			const db = new DatabaseSync(f.path);
+			assert.equal(
+				db.prepare("SELECT error_code FROM agents WHERE id=?").get(saved.id)
+					?.error_code,
+				null,
+			);
+			db.close();
 			assert.equal(requests, 1);
 		} finally {
 			await f.close();
@@ -577,6 +584,7 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 		}
 		const id = history.agents[0].id;
 		const ordered = history.agents[0].output;
+		const callId = history.agents[0].calls[0].id;
 		assert.deepEqual(
 			ordered.map((item: { type: string }) => item.type),
 			["reasoning", "message", "reasoning", "message", "reasoning"],
@@ -592,7 +600,8 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 			/later body|ciphertext|brief/,
 		);
 		assert.equal(
-			(await f.get(`/api/agents/${id}/reasoning`)).output[0].content[0].text,
+			(await f.get(`/api/agents/${id}/reasoning?callId=${callId}`)).output[0]
+				.content[0].text,
 			"body",
 		);
 		stream.enqueue(
@@ -611,10 +620,10 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 					}),
 			),
 		);
-		let details = await f.get(`/api/agents/${id}/reasoning`);
+		let details = await f.get(`/api/agents/${id}/reasoning?callId=${callId}`);
 		while (details.output[0].content[0].text !== "body grows!") {
 			await new Promise((resolve) => setImmediate(resolve));
-			details = await f.get(`/api/agents/${id}/reasoning`);
+			details = await f.get(`/api/agents/${id}/reasoning?callId=${callId}`);
 		}
 		assert.equal(details.output[0].content[1].text, "brief grows!");
 		assert.equal(
@@ -626,11 +635,14 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 		await f.restart();
 		assert.equal((await f.get(`/api/agents/${id}`)).agents[0].status, "failed");
 		assert.equal(
-			(await f.get(`/api/agents/${id}/reasoning`)).output[0].content[0].text,
+			(await f.get(`/api/agents/${id}/reasoning?callId=${callId}`)).output[0]
+				.content[0].text,
 			"body grows!",
 		);
 		assert.equal(
-			(await f.get(`/api/agents/${id}/reasoning`)).output.at(-1).content.length,
+			(await f.get(`/api/agents/${id}/reasoning?callId=${callId}`)).output.at(
+				-1,
+			).content.length,
 			0,
 		);
 	} finally {
@@ -686,8 +698,11 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 			"durable answer",
 		);
 		assert.equal(
-			(await f.get(`/api/agents/${agentId}/reasoning`)).output[0].content[0]
-				.text,
+			(
+				await f.get(
+					`/api/agents/${agentId}/reasoning?callId=${recovered.agents[0].calls[0].id}`,
+				)
+			).output[0].content[0].text,
 			"durable thinking",
 		);
 		assert.equal(
