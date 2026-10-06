@@ -132,7 +132,7 @@ pnpm exec playwright show-trace test-results/<失败用例目录>/trace.zip
 
 ⋯ 菜单可直接归档或恢复，无确认框。project 和 chat 各自持久化独立归档状态，归档 project 不改变其 chats 自身标记。正常列表仅显示未归档 project 和未归档 chats；侧栏底部 Archived 默认折叠，按 project → chat 分组：归档 project 标记“(project archived)”并包含全部 chats，正常 project 的分组只列其单独归档 chats。列表继续按原活动时间排序，改名、归档及恢复不使条目跑到最前。
 
-归档后只读：project 不能改名、更新文件夹或创建 chat；chat 自身或父 project 任一归档时不能改名或提交新问题，server 同样拒绝这些操作。仍可查看历史和恢复。恢复 project 保留各 chat 原标记；父 project 归档时可恢复已单独归档的 chat，但它仍因父状态只读，需要恢复 project 才可继续使用。
+归档后只读：project 不能改名、更新文件夹或创建 chat；chat 自身或父 project 任一归档时不能改名或提交新问题，server 同样拒绝这些操作。只读 chat 隐藏整个 prompt 区域（模型、思考强度、输入框及发送控件），保留历史、当前任务状态及恢复提示；查看历史无需模型或 API key，也不会强制打开 Settings。仍可查看历史和恢复。恢复 project 保留各 chat 原标记；父 project 归档时可恢复已单独归档的 chat，但它仍因父状态只读，需要恢复 project 才可继续使用。
 
 归档允许在回答或保存进行中执行，已接纳的操作继续完成、保存及同步，不取消请求。当前选中 chat 不自动切换或清空，主区域保留历史、提示只读原因，已开始的回答继续更新。现有编辑及提问草稿保留；恢复后重新判断可用操作。编辑、归档及恢复经 SSE 同步所有页面，选择、未提交草稿及 Archived 折叠只属于本页；刷新后 Archived 重新折叠，重启保留所有已提交的归档状态和历史。
 

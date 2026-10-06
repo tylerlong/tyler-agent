@@ -52,7 +52,12 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		);
 		await expect(
 			other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-		).toBeDisabled();
+		).toHaveCount(0);
+		await expect(other.getByLabel("Prompt", { exact: true })).toHaveCount(0);
+		await expect(other.getByLabel("Model", { exact: true })).toHaveCount(0);
+		await expect(
+			other.getByLabel("Reasoning level", { exact: true }),
+		).toHaveCount(0);
 		await expect(
 			page.getByRole("heading", { name: "A", exact: true }),
 		).toBeVisible();
@@ -108,7 +113,7 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(other.getByRole("log")).toContainText("Test answer");
 		await expect(
 			other.getByRole("textbox", { name: "Prompt", exact: true }),
-		).toHaveValue("other draft");
+		).toHaveCount(0);
 		await group
 			.getByRole("button", { name: "Project actions", exact: true })
 			.click();
@@ -118,6 +123,9 @@ test("Archived groups independent states, preserves selection and syncs read-onl
 		await expect(
 			other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 		).toBeEnabled();
+		await expect(other.getByLabel("Prompt", { exact: true })).toHaveValue(
+			"other draft",
+		);
 		await expect(
 			page
 				.getByRole("region", { name: "Project Work", exact: true })
@@ -185,10 +193,7 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 	await modal.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(
 		page.getByRole("textbox", { name: "Prompt", exact: true }),
-	).toHaveValue("draft");
-	await expect(
-		page.getByRole("textbox", { name: "Prompt", exact: true }),
-	).not.toBeEditable();
+	).toHaveCount(0);
 	await page.getByText("Archived", { exact: true }).click();
 	const archived = page.getByRole("group", { name: "Archived", exact: true });
 	await expect(
@@ -233,6 +238,7 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 		.getByRole("button", { name: "Restore project", exact: true })
 		.click();
 	await expect(normal.getByRole("heading")).toHaveText(["Work", "Newer"]);
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue("draft");
 	await section
 		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
@@ -270,4 +276,72 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 		"local edit (project archived)",
 		"Newer (project archived)",
 	]);
+});
+
+test("archived history needs no configuration across chat switching and refresh", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "History", folders: [] },
+		})
+	).json();
+	const createChat = async (name: string) =>
+		(
+			await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+				data: { name },
+			})
+		).json();
+	const first = await createChat("First");
+	await createChat("Second");
+	await page.goto(`${app.url}/?chat=${first.id}`);
+	await page.getByLabel("Prompt", { exact: true }).fill("Saved question");
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
+	await expect(page.getByRole("log")).toContainText("Test answer");
+	await page.request.put(`${app.url}/api/chats/${first.id}/archive`, {
+		data: { archived: true },
+	});
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveCount(0);
+	await page.request.put(`${app.url}/api/model-settings`, {
+		data: { removeApiKey: true },
+	});
+	await page.request.delete(`${app.url}/api/models/test`);
+	await expect(
+		page.getByRole("dialog", { name: "Settings", exact: true }),
+	).toBeHidden();
+	await page.reload();
+	await expect(page.getByRole("log")).toContainText("Test answer");
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveCount(0);
+	await expect(
+		page.getByRole("dialog", { name: "Settings", exact: true }),
+	).toBeHidden();
+	await page.request.put(`${app.url}/api/projects/${project.id}/archive`, {
+		data: { archived: true },
+	});
+	await page.getByText("Archived", { exact: true }).click();
+	await page.getByRole("button", { name: "Second", exact: true }).click();
+	await expect(
+		page.getByRole("heading", { name: "Second", exact: true }),
+	).toBeVisible();
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveCount(0);
+	await expect(
+		page.getByRole("dialog", { name: "Settings", exact: true }),
+	).toBeHidden();
+	await page.getByRole("button", { name: "First", exact: true }).click();
+	await expect(page.getByRole("log")).toContainText("Test answer");
+	await page.request.put(`${app.url}/api/chats/${first.id}/archive`, {
+		data: { archived: false },
+	});
+	await expect(
+		page.getByRole("status").filter({ hasText: "Project is archived" }),
+	).toBeVisible();
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveCount(0);
+	await page.request.put(`${app.url}/api/projects/${project.id}/archive`, {
+		data: { archived: false },
+	});
+	await expect(
+		page.getByRole("dialog", { name: "Settings", exact: true }),
+	).toBeVisible();
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveCount(1);
 });

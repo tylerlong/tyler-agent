@@ -190,10 +190,16 @@ test("unknown keyboard preference preserves draft and explicit Send, retries wit
 	await page.request.put(`${app.url}/api/enter-behavior`, {
 		data: { behavior: "newline" },
 	});
-	let readFails = true;
-	await page.route("**/api/enter-behavior", (route) =>
-		readFails ? route.abort() : route.continue(),
-	);
+	let retrying = false;
+	let finishRetry!: () => void;
+	const retryClicked = new Promise<void>((resolve) => {
+		finishRetry = resolve;
+	});
+	await page.route("**/api/enter-behavior", async (route) => {
+		if (!retrying) return route.abort();
+		await retryClicked;
+		await route.continue();
+	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
 	await prompt.fill("draft");
@@ -209,10 +215,12 @@ test("unknown keyboard preference preserves draft and explicit Send, retries wit
 	await expect(page.getByRole("alert")).toContainText(
 		"Unable to read Enter key behavior",
 	);
-	readFails = false;
+	// Keep recovery reads pending until Retry is clicked, so refresh cannot remove it first.
+	retrying = true;
 	await page
 		.getByRole("button", { name: "Retry", exact: true })
 		.dispatchEvent("click");
+	finishRetry();
 	await expect(
 		page.getByRole("combobox", { name: "Enter key behavior" }),
 	).toHaveValue("newline");

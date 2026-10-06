@@ -503,7 +503,7 @@ test("combined picker applies immediately, keeps focus on keyboard dismissal and
 	await page.request.put(`${app.url}/api/chats/${first.id}/archive`, {
 		data: { archived: true },
 	});
-	await expect(trigger).toBeDisabled();
+	await expect(trigger).toHaveCount(0);
 });
 
 test("catalog capability changes normalize the current draft without rewriting submitted history", async ({

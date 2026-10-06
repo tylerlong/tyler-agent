@@ -1555,7 +1555,7 @@ function App() {
 						</div>
 					)}
 				</section>
-				{project && chat && (
+				{project && chat && !readOnly && (
 					<div className="shrink-0 border-t border-neutral-200 px-6 py-4">
 						<form className="mx-auto max-w-2xl" onSubmit={submit}>
 							<div className="rounded-2xl border border-neutral-300 bg-white p-3 focus-within:border-neutral-500">
