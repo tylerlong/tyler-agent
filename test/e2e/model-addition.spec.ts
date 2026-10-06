@@ -103,7 +103,7 @@ test("first addition fills saved Chat after a delayed read and Settings close", 
 });
 
 for (const action of ["navigation", "selection"] as const) {
-	test(`delayed first-add completion preserves later ${action}`, async ({
+	test(`Settings waits for delayed first-add completion before later ${action}`, async ({
 		page,
 		app,
 	}) => {
@@ -156,7 +156,13 @@ for (const action of ["navigation", "selection"] as const) {
 		await expect(settings).toBeVisible();
 		// The committed membership arrives by SSE while its initiating response is held.
 		await expect(model).toBeEnabled();
-		await settings.getByRole("button", { name: "Close", exact: true }).click();
+		// Native dismissal also commits and waits for the held model addition.
+		await expect(
+			settings.getByRole("button", { name: "Close", exact: true }),
+		).toBeDisabled();
+		await expect(settings).toBeVisible();
+		release();
+		await expect(settings).toBeHidden();
 		if (action === "navigation") {
 			await page.goBack();
 			await expect(page).toHaveURL(`${app.url}/?chat=${first}`);
@@ -166,7 +172,6 @@ for (const action of ["navigation", "selection"] as const) {
 		} else {
 			await selectModel(page, "second");
 		}
-		release();
 		await page.getByRole("button", { name: "Settings", exact: true }).click();
 		await page.getByRole("tab", { name: "Models", exact: true }).click();
 		await expect(

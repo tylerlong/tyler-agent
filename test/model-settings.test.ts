@@ -29,7 +29,7 @@ test("custom database startup rejects a shared parent without changing permissio
 	}
 });
 
-test("database key/model configuration is write-only, durable, anonymous lazy catalog refresh preserves membership and failures", async () => {
+test("database model metadata excludes credentials, durable anonymous lazy catalog refresh preserves membership and failures", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-settings-"));
 	const path = join(directory, "db.sqlite");
 	let calls = 0;
@@ -118,7 +118,6 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 		assert.equal(calls, 1);
 		await request("/api/model-settings", "PUT", {
 			defaultModelId: "one",
-			apiKey: "",
 		});
 		data = [
 			catalogModel("one", "Renamed", { supported_efforts: ["low"] }),
@@ -170,6 +169,9 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 			models: settings.models,
 		});
 		assert.equal(calls, restartCalls);
+		assert.deepEqual(await (await request("/api/settings/credential")).json(), {
+			apiKey: "secret",
+		});
 		assert.equal((await stat(path)).mode & 0o777, 0o600);
 		assert.equal((await stat(directory)).mode & 0o777, 0o700);
 		const db = new DatabaseSync(path);
@@ -178,13 +180,91 @@ test("database key/model configuration is write-only, durable, anonymous lazy ca
 			"secret",
 		);
 		db.close();
-		await request("/api/model-settings", "PUT", { removeApiKey: true });
+		await request("/api/model-settings", "PUT", { apiKey: "" });
 		assert.equal(
 			(await (await request("/api/model-settings")).json()).apiKeyConfigured,
 			false,
 		);
 	} finally {
 		release?.();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("Settings credential read is scoped and uncached; empty writes remove it without provider calls or exposing events", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-credential-read-"));
+	const path = join(directory, "db.sqlite");
+	const noProvider: typeof fetch = async () => {
+		assert.fail("Credential reads and writes must not call a provider");
+	};
+	const server = createServer(noProvider, path, noProvider).listen(
+		0,
+		"127.0.0.1",
+	);
+	await new Promise<void>((resolve) => server.once("listening", resolve));
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const base = `http://127.0.0.1:${address.port}`;
+	const request = (route: string, method = "GET", body?: unknown) =>
+		fetch(`${base}${route}`, {
+			method,
+			...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+		});
+	const eventsAbort = new AbortController();
+	try {
+		const credential = await request("/api/settings/credential");
+		assert.equal(credential.headers.get("cache-control"), "no-store");
+		assert.deepEqual(await credential.json(), { apiKey: "" });
+		const events = await fetch(`${base}/api/events`, {
+			signal: eventsAbort.signal,
+		});
+		const reader = events.body?.getReader();
+		assert(reader);
+		await reader.read();
+		const saved = await request("/api/model-settings", "PUT", {
+			apiKey: " synthetic-secret ",
+		});
+		assert.equal(saved.status, 200);
+		assert.doesNotMatch(await saved.text(), /synthetic-secret/);
+		const event = new TextDecoder().decode((await reader.read()).value);
+		assert.equal(event, "data: changed\n\n");
+		assert.deepEqual(await (await request("/api/settings/credential")).json(), {
+			apiKey: "synthetic-secret",
+		});
+		assert.doesNotMatch(
+			await (await request("/api/model-settings")).text(),
+			/synthetic-secret/,
+		);
+		assert.equal(
+			(await request("/api/settings/credential", "POST")).status,
+			404,
+		);
+		for (const apiKey of [3, "synthetic-secret\ninvalid"]) {
+			const invalid = await request("/api/model-settings", "PUT", { apiKey });
+			assert.equal(invalid.status, 400);
+			assert.doesNotMatch(await invalid.text(), /synthetic-secret/);
+		}
+		for (const apiKey of ["", "   "]) {
+			await request("/api/model-settings", "PUT", {
+				apiKey: "synthetic-secret",
+			});
+			const removed = await request("/api/model-settings", "PUT", { apiKey });
+			assert.equal((await removed.json()).apiKeyConfigured, false);
+			assert.deepEqual(
+				await (await request("/api/settings/credential")).json(),
+				{ apiKey: "" },
+			);
+			const db = new DatabaseSync(path);
+			assert.equal(
+				db.prepare("SELECT api_key FROM settings").get()?.api_key,
+				null,
+			);
+			db.close();
+		}
+	} finally {
+		eventsAbort.abort();
+		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		await rm(directory, { recursive: true, force: true });
 	}

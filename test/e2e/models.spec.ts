@@ -33,7 +33,7 @@ test("mandatory Settings explains reload recovery after an initial catalog failu
 		"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
 	);
 	const close = settings.getByRole("button", { name: "Close", exact: true });
-	await expect(close).toBeDisabled();
+	await expect(close).toBeEnabled();
 	await page.keyboard.press("Escape");
 	await expect(settings).toBeVisible();
 	await expect(
@@ -66,10 +66,8 @@ test("mandatory Settings explains reload recovery after an initial catalog failu
 	await settings
 		.getByLabel("OpenRouter API key", { exact: true })
 		.fill("setup-secret");
-	await settings
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
-	await expect(close).toBeDisabled();
+	await settings.getByRole("heading", { name: "Models", exact: true }).click();
+	await expect(close).toBeEnabled();
 	await expect(filter).toBeEnabled();
 	await filter.focus();
 	await settings
@@ -83,7 +81,7 @@ test("mandatory Settings explains reload recovery after an initial catalog failu
 	await expect(page.getByRole("log")).toContainText("Test answer");
 });
 
-test("settings save write-only credentials and manage cached model choices across restart", async ({
+test("settings populate credentials, synchronize clean peers and persist across restart", async ({
 	page,
 	app,
 }) => {
@@ -97,17 +95,23 @@ test("settings save write-only credentials and manage cached model choices acros
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	const key = dialog.getByLabel("OpenRouter API key", { exact: true });
 	await expect(key).toHaveAttribute("type", "password");
-	await expect(key).toHaveValue("");
+	await expect(key).toHaveValue("zkey");
 	await key.fill("replacement-secret");
-	await dialog
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
-	await expect(key).toHaveValue("");
+	await dialog.getByRole("heading", { name: "Models", exact: true }).click();
+	await expect(
+		dialog
+			.getByRole("region", { name: "Credentials", exact: true })
+			.getByRole("status"),
+	).toHaveText("Saved");
+	await expect(key).toHaveValue("replacement-secret");
+	await expect(
+		peer.getByLabel("OpenRouter API key", { exact: true }),
+	).toHaveValue("replacement-secret");
 	const settings = await page.request.get(`${app.url}/api/model-settings`);
 	expect(await settings.text()).not.toContain("replacement-secret");
 	await expect(
 		dialog.getByRole("button", { name: "Save API key", exact: true }),
-	).toBeDisabled();
+	).toHaveCount(0);
 	await expect(dialog.getByText("Configured", { exact: true })).toBeVisible();
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await dialog
@@ -140,15 +144,24 @@ test("settings save write-only credentials and manage cached model choices acros
 	await expect(
 		peer.getByRole("list", { name: "Enabled models" }),
 	).toContainText("Default");
-	await dialog
-		.getByRole("button", { name: "Remove API key", exact: true })
-		.click();
-	await expect(dialog.getByText("Not configured")).toBeVisible();
 	await app.restart();
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await page.getByRole("tab", { name: "Models", exact: true }).click();
-	await expect(page.getByText("Not configured")).toBeVisible();
+	await expect(key).toHaveValue("replacement-secret");
+	await key.fill("");
+	await dialog.getByRole("heading", { name: "Models", exact: true }).click();
+	await expect(
+		dialog.getByText("Not configured", { exact: true }),
+	).toBeVisible();
+	await app.restart();
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
+	await expect(key).toHaveValue("");
+	await expect(
+		dialog.getByText("Not configured", { exact: true }),
+	).toBeVisible();
 	await expect(
 		page.getByRole("list", { name: "Enabled models" }),
 	).toContainText("Default");
@@ -174,9 +187,7 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 	await dialog
 		.getByLabel("OpenRouter API key", { exact: true })
 		.fill("retry-secret");
-	await dialog
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
+	await dialog.getByRole("heading", { name: "Models", exact: true }).click();
 	await expect(dialog.getByRole("alert")).toHaveText(
 		"Unable to save API key. Please retry.",
 	);
@@ -184,13 +195,8 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 		dialog.getByLabel("OpenRouter API key", { exact: true }),
 	).toHaveValue("retry-secret");
 	await page.unroute("**/api/model-settings");
-	await dialog
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
-	await expect(
-		dialog.getByLabel("OpenRouter API key", { exact: true }),
-	).toHaveValue("");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
 	await page.route("**/api/model-catalog", (route) =>
 		route.fulfill({ status: 500, json: {} }),
 	);
@@ -536,7 +542,66 @@ test("row removal failures preserve default and composer, successful removal rep
 		.getByRole("button", { name: "Disable model", exact: true })
 		.click();
 	await expect(rows).toHaveCount(0);
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+});
+
+test("Close waits for a failed default change and the next Close retries that exact action", async ({
+	page,
+	app,
+}) => {
+	await page.request.post(`${app.url}/api/model-catalog`);
+	await page.request.post(`${app.url}/api/models`, { data: { id: "second" } });
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const second = dialog
+		.getByRole("list", { name: "Enabled models" })
+		.getByRole("listitem")
+		.filter({ hasText: "Second" });
+	const writes: unknown[] = [];
+	let release = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const failure = async (route: import("@playwright/test").Route) => {
+		if (route.request().method() !== "PUT") return route.continue();
+		writes.push(route.request().postDataJSON());
+		await gate;
+		await route.fulfill({ status: 500, json: {} });
+	};
+	await page.route("**/api/model-settings", failure);
+	await second
+		.getByRole("button", { name: "Set default", exact: true })
+		.click();
+	await expect.poll(() => writes.length).toBe(1);
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	expect(writes).toEqual([{ defaultModelId: "second" }]);
+	release();
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"Unable to save model settings. Please retry.",
+	);
 	await expect(
 		dialog.getByRole("button", { name: "Close", exact: true }),
-	).toBeDisabled();
+	).toBeEnabled();
+	await expect(dialog).toBeVisible();
+	expect(writes).toHaveLength(1);
+	await page.unroute("**/api/model-settings", failure);
+	await page.route("**/api/model-settings", async (route) => {
+		if (route.request().method() === "PUT")
+			writes.push(route.request().postDataJSON());
+		await route.continue();
+	});
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
+	expect(writes).toEqual([
+		{ defaultModelId: "second" },
+		{ defaultModelId: "second" },
+	]);
+	expect(
+		(await (await page.request.get(`${app.url}/api/model-settings`)).json())
+			.defaultModelId,
+	).toBe("second");
 });

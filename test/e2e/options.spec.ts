@@ -142,20 +142,18 @@ test("empty configuration uses sole mandatory Settings, then initializes the com
 		settings.getByLabel("Reasoning level", { exact: true }),
 	).toHaveCount(0);
 	const close = settings.getByRole("button", { name: "Close", exact: true });
-	await expect(close).toBeDisabled();
+	await expect(close).toBeEnabled();
 	await page.keyboard.press("Escape");
 	await page.mouse.click(1, 1);
 	await expect(settings).toBeVisible();
 	await settings
 		.getByLabel("OpenRouter API key", { exact: true })
 		.fill("setup-secret");
-	await settings
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
+	await settings.getByRole("heading", { name: "Models", exact: true }).click();
 	await expect(
 		settings.getByLabel("OpenRouter API key", { exact: true }),
-	).toHaveValue("");
-	await expect(close).toBeDisabled();
+	).toHaveValue("setup-secret");
+	await expect(close).toBeEnabled();
 	await settings
 		.getByRole("button", { name: "Add model", exact: true })
 		.click();
@@ -187,7 +185,7 @@ test("mandatory Settings retains failed credential input and becomes closable af
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(settings).toBeVisible();
 	const close = settings.getByRole("button", { name: "Close", exact: true });
-	await expect(close).toBeDisabled();
+	await expect(close).toBeEnabled();
 	const key = settings.getByLabel("OpenRouter API key", { exact: true });
 	await expect(key).toHaveAttribute("type", "password");
 	await page.route("**/api/model-settings", (route) =>
@@ -199,25 +197,18 @@ test("mandatory Settings retains failed credential input and becomes closable af
 			: route.continue(),
 	);
 	await key.fill("replacement-secret");
-	await settings
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
+	await settings.getByRole("heading", { name: "Models", exact: true }).click();
 	await expect(key).toHaveValue("replacement-secret");
 	await expect(settings.getByRole("alert")).toBeVisible();
 	await page.unroute("**/api/model-settings");
-	await settings
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
-	await expect(key).toHaveValue("");
-	await expect(close).toBeEnabled();
-	await page.keyboard.press("Escape");
+	await close.click();
 	await expect(settings).toBeHidden();
 	expect(
 		await (await page.request.get(`${app.url}/api/model-settings`)).text(),
 	).not.toContain("replacement-secret");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await page.getByRole("tab", { name: "Models", exact: true }).click();
-	await expect(key).toHaveValue("");
+	await expect(key).toHaveValue("replacement-secret");
 });
 
 test("missing configuration does not obstruct archived history", async ({
@@ -264,9 +255,8 @@ test("cross-page removals preserve drafts and distinguish alternative selection 
 	);
 	await peer.request.delete(`${app.url}/api/models/second`);
 	await expect(settings).toBeVisible();
-	await expect(
-		settings.getByRole("button", { name: "Close", exact: true }),
-	).toBeDisabled();
+	await settings.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(settings).toBeVisible();
 	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
 		"Keep my draft",
 	);
@@ -340,17 +330,18 @@ test("Settings retains inputs through hide/show and becomes mandatory after ordi
 	await expect(
 		settings.getByLabel("Search models by name or ID", { exact: true }),
 	).toHaveValue("Sec");
-	await settings
-		.getByRole("button", { name: "Remove API key", exact: true })
-		.click();
+	await key.fill("");
+	await settings.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(settings).toBeVisible();
+	await expect(key).toHaveValue("");
 	await expect(
 		settings.getByRole("button", { name: "Close", exact: true }),
-	).toBeDisabled();
-	await page.keyboard.press("Escape");
-	await expect(settings).toBeVisible();
-	await settings
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
+	).toBeEnabled();
+	await expect(
+		settings.getByText("Not configured", { exact: true }),
+	).toBeVisible();
+	await key.fill("restored-secret");
+	await settings.getByRole("heading", { name: "Models", exact: true }).click();
 	await expect(
 		settings.getByRole("button", { name: "Close", exact: true }),
 	).toBeEnabled();

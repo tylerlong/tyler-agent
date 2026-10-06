@@ -35,11 +35,10 @@ for (const chinese of [false, true]) {
 				models: "Models",
 				error: "Unable to save API key. Please retry.",
 			};
-	test(`credential states and blank submission guard (${chinese ? "zh" : "en"})`, async ({
+	test(`credential autosaves replacement and clearing (${chinese ? "zh" : "en"})`, async ({
 		page,
 		app,
 	}) => {
-		await page.setViewportSize({ width: 1280, height: 720 });
 		if (chinese)
 			await page.request.put(`${app.url}/api/language`, {
 				data: { language: "zh-CN" },
@@ -58,89 +57,64 @@ for (const chinese of [false, true]) {
 			exact: true,
 		});
 		const key = dialog.getByLabel(words.key, { exact: true });
-		const save = dialog.getByRole("button", { name: words.save, exact: true });
-		let writes = 0;
-		let release = () => {};
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await page.route("**/api/model-settings", async (route) => {
-			if (route.request().method() !== "PUT") return route.continue();
-			writes++;
-			await gate;
-			await route.continue();
-		});
-		if (process.env.SETTINGS_SCREENSHOTS)
-			await mkdir("/tmp/tyler-agent-79-evidence", { recursive: true });
-		if (process.env.SETTINGS_SCREENSHOTS)
-			await page.screenshot({
-				path: `/tmp/tyler-agent-79-evidence/settings-normal-${chinese ? "zh" : "en"}.png`,
-			});
-		await dialog
-			.getByRole("button", {
-				name: chinese ? "添加模型" : "Add model",
-				exact: true,
-			})
-			.click();
-		await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(
-			1,
-		);
-		if (process.env.SETTINGS_SCREENSHOTS)
-			await page.screenshot({
-				path: `/tmp/tyler-agent-79-evidence/settings-expanded-${chinese ? "zh" : "en"}.png`,
-			});
-		await page.keyboard.press("Escape");
-		await expect(save).toBeDisabled();
-		await key.fill("   ");
-		await expect(save).toBeDisabled();
-		await key.press("Enter");
-		await key.evaluate((element) =>
-			(element as HTMLInputElement).form?.requestSubmit(),
-		);
-		expect(writes).toBe(0);
-		await key.fill("replacement-secret");
-		await save.click();
+		await expect(key).toHaveAttribute("type", "password");
+		await expect(key).toHaveValue("zkey");
 		await expect(
-			dialog.getByRole("button", { name: words.saving, exact: true }),
-		).toBeDisabled();
-		await expect(key).toBeDisabled();
+			dialog.getByRole("button", { name: words.save, exact: true }),
+		).toHaveCount(0);
 		await expect(
 			dialog.getByRole("button", { name: words.remove, exact: true }),
-		).toBeDisabled();
-		release();
-		await expect(key).toHaveValue("");
-		await expect(credentials.getByRole("status")).toHaveText(words.saved);
-		expect(writes).toBe(1);
-		await page.unroute("**/api/model-settings");
-		await key.fill("unsaved-draft");
-		await page.route("**/api/model-settings", (route) =>
-			route.request().method() === "PUT"
-				? route.fulfill({ status: 500, json: {} })
-				: route.continue(),
-		);
-		await save.click();
-		await expect(credentials.getByRole("alert")).toHaveText(words.error);
-		if (process.env.SETTINGS_SCREENSHOTS)
-			await page.screenshot({
-				path: `/tmp/tyler-agent-79-evidence/settings-failure-${chinese ? "zh" : "en"}.png`,
-			});
-		await expect(
-			credentials.getByText(words.configured, { exact: true }),
-		).toBeVisible();
-		await expect(key).toHaveValue("unsaved-draft");
+		).toHaveCount(0);
+		let writes = 0;
+		await page.route("**/api/model-settings", async (route) => {
+			if (route.request().method() === "PUT") writes++;
+			await route.continue();
+		});
+		await key.click();
 		await dialog
-			.getByRole("button", { name: words.remove, exact: true })
+			.getByRole("heading", { name: words.models, exact: true })
+			.click();
+		expect(writes).toBe(0);
+		await key.fill("replacement-secret");
+		expect(writes).toBe(0);
+		await dialog
+			.getByRole("heading", { name: words.models, exact: true })
+			.click();
+		await expect(credentials.getByRole("status")).toHaveText(words.saved);
+		await expect(key).toHaveValue("replacement-secret");
+		expect(writes).toBe(1);
+		if (process.env.SETTINGS_SCREENSHOTS) {
+			await mkdir("/tmp/tyler-agent-122-evidence", { recursive: true });
+			await page.screenshot({
+				path: `/tmp/tyler-agent-122-evidence/credential-saved-${chinese ? "zh" : "en"}.png`,
+			});
+		}
+		const failure = async (route: import("@playwright/test").Route) => {
+			if (route.request().method() === "PUT")
+				await route.fulfill({ status: 500, json: {} });
+			else await route.fallback();
+		};
+		await page.route("**/api/model-settings", failure);
+		await key.fill("failed-secret");
+		await dialog
+			.getByRole("heading", { name: words.models, exact: true })
 			.click();
 		await expect(credentials.getByRole("alert")).toHaveText(words.error);
-		await expect(key).toHaveValue("unsaved-draft");
-		await page.unroute("**/api/model-settings");
+		await expect(key).toHaveValue("failed-secret");
+		if (process.env.SETTINGS_SCREENSHOTS)
+			await page.screenshot({
+				path: `/tmp/tyler-agent-122-evidence/credential-failure-${chinese ? "zh" : "en"}.png`,
+			});
+		await page.unroute("**/api/model-settings", failure);
+		await key.fill("");
 		await dialog
-			.getByRole("button", { name: words.remove, exact: true })
+			.getByRole("heading", { name: words.models, exact: true })
 			.click();
 		await expect(
 			credentials.getByText(words.missing, { exact: true }),
 		).toBeVisible();
-		await expect(key).toHaveValue("unsaved-draft");
+		await expect(key).toHaveValue("");
+		expect(writes).toBe(2);
 	});
 
 	test(`fixed Settings actions with long models and notices (${chinese ? "zh" : "en"})`, async ({
@@ -260,9 +234,7 @@ test("required Settings identifies missing key, models and both", async ({
 	await dialog
 		.getByLabel("OpenRouter API key", { exact: true })
 		.fill("new-secret");
-	await dialog
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(
 		dialog.getByText("Enable at least one model to use this chat.", {
 			exact: true,
@@ -270,12 +242,12 @@ test("required Settings identifies missing key, models and both", async ({
 	).toBeVisible();
 	await expect(
 		dialog.getByRole("button", { name: "Close", exact: true }),
-	).toBeDisabled();
-	await page.keyboard.press("Escape");
+	).toBeEnabled();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).toBeVisible();
 });
 
-test("tabs preserve drafts, errors and pending saves without repeating discovery", async ({
+test("tabs retain failed credential drafts and Close deliberately retries on the affected tab", async ({
 	page,
 	app,
 }) => {
@@ -290,68 +262,202 @@ test("tabs preserve drafts, errors and pending saves without repeating discovery
 	const general = dialog.getByRole("tab", { name: "General", exact: true });
 	const models = dialog.getByRole("tab", { name: "Models", exact: true });
 	const execution = dialog.getByRole("tab", { name: "Execution", exact: true });
-	await expect(general).toHaveAttribute("aria-selected", "true");
-	await expect(dialog.getByLabel("Interface language")).toBeVisible();
-	await expect(
-		dialog.getByLabel("OpenRouter API key", { exact: true }),
-	).toBeHidden();
 	await models.click();
 	const key = dialog.getByLabel("OpenRouter API key", { exact: true });
-	await key.fill("retained-draft");
-	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
-	const search = dialog.getByRole("combobox", {
-		name: "Search models by name or ID",
+	let writes = 0;
+	await page.route("**/api/model-settings", async (route) => {
+		if (route.request().method() !== "PUT") return route.continue();
+		writes++;
+		await route.fulfill({ status: 500, json: {} });
 	});
-	await search.fill("Sec");
-	await expect(dialog.getByRole("listbox")).toBeVisible();
+	await key.fill("retained-draft");
 	await execution.click();
-	await expect(dialog.getByRole("listbox")).toHaveCount(0);
-	const limit = dialog.getByLabel("Model Calls per Agent", { exact: true });
-	await limit.fill("9");
-	await general.click();
-	await expect(general).toBeFocused();
+	await expect(execution).toHaveAttribute("aria-selected", "true");
 	await models.click();
 	await expect(key).toHaveValue("retained-draft");
-	await expect(search).toHaveValue("Sec");
-	await expect(dialog.getByRole("listbox")).toBeVisible();
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"Unable to save API key. Please retry.",
+	);
+	const synchronized = page.waitForResponse(
+		(response) =>
+			response.url().endsWith("/api/model-settings") &&
+			response.request().method() === "GET",
+	);
+	await page.request.put(`${app.url}/api/model-settings`, {
+		data: { apiKey: "peer-secret" },
+	});
+	await synchronized;
+	await expect(key).toHaveValue("retained-draft");
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"Unable to save API key. Please retry.",
+	);
+	await general.click();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(models).toHaveAttribute("aria-selected", "true");
+	await expect(dialog).toBeVisible();
+	await expect(key).toHaveValue("retained-draft");
+	expect(writes).toBe(2);
 	expect(discoveries).toBe(1);
-	await page.route("**/api/model-settings", (route) =>
-		route.request().method() === "PUT"
-			? route.fulfill({ status: 500, json: {} })
-			: route.continue(),
-	);
-	await dialog
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
-	await expect(dialog.getByRole("alert")).toHaveText(
-		"Unable to save API key. Please retry.",
-	);
-	await execution.click();
-	await expect(limit).toHaveValue("9");
-	await models.click();
-	await expect(dialog.getByRole("alert")).toHaveText(
-		"Unable to save API key. Please retry.",
-	);
+	if (process.env.SETTINGS_SCREENSHOTS) {
+		await mkdir("/tmp/tyler-agent-122-evidence", { recursive: true });
+		await page.screenshot({
+			path: "/tmp/tyler-agent-122-evidence/credential-failure-en.png",
+		});
+	}
 	await page.unroute("**/api/model-settings");
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await expect(general).toHaveAttribute("aria-selected", "true");
+	await models.click();
+	await expect(key).toHaveValue("retained-draft");
+	await expect.poll(() => discoveries).toBe(2);
+});
+
+test("Close waits for a credential save and preserves a newer draft without duplicate writes", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const key = dialog.getByLabel("OpenRouter API key", { exact: true });
+	const writes: string[] = [];
 	let release = () => {};
 	const gate = new Promise<void>((resolve) => {
 		release = resolve;
 	});
 	await page.route("**/api/model-settings", async (route) => {
-		if (route.request().method() === "PUT") await gate;
+		if (route.request().method() !== "PUT") return route.continue();
+		writes.push(route.request().postDataJSON().apiKey);
+		if (writes.length === 1) await gate;
 		await route.continue();
 	});
-	await dialog
-		.getByRole("button", { name: "Save API key", exact: true })
-		.click();
-	await general.click();
-	await expect(general).toBeFocused();
-	await expect(dialog.getByLabel("Interface language")).toBeVisible();
-	release();
-	await models.click();
-	await expect(key).toHaveValue("");
+	await key.fill("first-secret");
+	await dialog.getByRole("heading", { name: "Models", exact: true }).click();
+	await expect.poll(() => writes.length).toBe(1);
+	await expect(
+		dialog
+			.getByRole("region", { name: "Credentials", exact: true })
+			.getByRole("status"),
+	).toHaveText("Saving…");
+	await expect(key).toBeEnabled();
+	await key.fill("newer-secret");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	await expect(key).toHaveValue("newer-secret");
+	expect(writes).toEqual(["first-secret"]);
+	release();
+	await expect(dialog).toBeHidden();
+	expect(writes).toEqual(["first-secret", "newer-secret"]);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
-	await expect(general).toHaveAttribute("aria-selected", "true");
-	await expect.poll(() => discoveries).toBe(2);
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	await expect(key).toHaveValue("newer-secret");
+});
+
+test("initial setup saves a still-focused first credential through Close before gating", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Initial", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Initial" },
+		})
+	).json();
+	await page.request.put(`${app.url}/api/model-settings`, {
+		data: { removeApiKey: true },
+	});
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	const key = dialog.getByLabel("OpenRouter API key", { exact: true });
+	await key.fill("first-setup-secret");
+	await expect(key).toBeFocused();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
+	expect(
+		await (await page.request.get(`${app.url}/api/settings/credential`)).json(),
+	).toEqual({ apiKey: "first-setup-secret" });
+});
+
+test("backdrop waits for credential persistence and keeps a failed draft open", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const key = dialog.getByLabel("OpenRouter API key", { exact: true });
+	let writes = 0;
+	let release = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route("**/api/model-settings", async (route) => {
+		if (route.request().method() !== "PUT") return route.continue();
+		writes++;
+		if (writes === 1) {
+			await gate;
+			await route.fulfill({ status: 500, json: {} });
+		} else await route.continue();
+	});
+	await key.fill("failed-backdrop-secret");
+	await page.mouse.click(1, 1);
+	await expect.poll(() => writes).toBe(1);
+	await expect(dialog).toBeVisible();
+	release();
+	await expect(dialog.getByRole("alert")).toHaveText(
+		"Unable to save API key. Please retry.",
+	);
+	await expect(key).toHaveValue("failed-backdrop-secret");
+	await key.fill("corrected-backdrop-secret");
+	await page.mouse.click(1, 1);
+	await expect(dialog).toBeHidden();
+	expect(writes).toBe(2);
+	expect(
+		await (await page.request.get(`${app.url}/api/settings/credential`)).json(),
+	).toEqual({ apiKey: "corrected-backdrop-secret" });
+});
+
+test("Close hides the candidate portal while waiting for another tab to save", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	let release = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let writes = 0;
+	await page.route("**/api/execution-limits", async (route) => {
+		if (route.request().method() !== "PATCH") return route.continue();
+		writes++;
+		await gate;
+		await route.continue();
+	});
+	await dialog.getByRole("tab", { name: "Execution", exact: true }).click();
+	await dialog.getByLabel("Model Calls per Agent", { exact: true }).fill("7");
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	await expect.poll(() => writes).toBe(1);
+	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
+	await expect(
+		dialog.getByRole("listbox", { name: "Popular models", exact: true }),
+	).toBeVisible();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	await expect(
+		dialog.getByRole("listbox", { name: "Popular models", exact: true }),
+	).toHaveCount(0);
+	expect(writes).toBe(1);
+	release();
+	await expect(dialog).toBeHidden();
+	expect(writes).toBe(1);
 });

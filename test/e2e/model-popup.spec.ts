@@ -65,7 +65,13 @@ for (const size of [
 		const listBounds = await list.boundingBox();
 		if (!inputBounds || !listBounds || !titleBounds)
 			throw new Error("Missing popup bounds");
-		expect(listBounds.y + listBounds.height).toBeLessThanOrEqual(inputBounds.y);
+		expect(
+			listBounds.y + listBounds.height <= inputBounds.y ||
+				listBounds.y >= inputBounds.y + inputBounds.height,
+		).toBe(true);
+		expect(listBounds.y + listBounds.height).toBeLessThan(
+			closeBounds?.y ?? size.height,
+		);
 		expect(listBounds.y).toBeGreaterThan(titleBounds.y + titleBounds.height);
 		await search.press("ArrowUp");
 		const last = list.getByRole("option").last();
@@ -150,12 +156,10 @@ for (const size of [
 			.getByLabel("OpenRouter API key", { exact: true })
 			.fill("replacement");
 		await expect(list).toHaveCount(0);
-		await dialog
-			.getByRole("button", { name: "Save API key", exact: true })
-			.click();
+		await dialog.getByRole("heading", { name: "Models", exact: true }).click();
 		await expect(
 			dialog.getByLabel("OpenRouter API key", { exact: true }),
-		).toHaveValue("");
+		).toHaveValue("replacement");
 		await search.focus();
 		await expect(search).toHaveValue("candidate-99");
 		await expect(list.getByRole("option")).toHaveCount(1);

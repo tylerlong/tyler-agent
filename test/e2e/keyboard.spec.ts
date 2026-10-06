@@ -39,6 +39,9 @@ test("Enter sends once by default and the persisted newline preference keeps bot
 		page.getByRole("combobox", { name: "Enter key behavior" }),
 	).toHaveValue("newline");
 	await page.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(
+		page.getByRole("dialog", { name: "Settings", exact: true }),
+	).toBeHidden();
 	await prompt.press("Enter");
 	await expect(prompt).toHaveValue("next\n");
 	await page.reload();
@@ -245,7 +248,7 @@ test("Enter preference synchronizes hidden pages, reconnects and restarts, with 
 			: route.continue(),
 	);
 	await choice.selectOption("newline");
-	await expect(choice).toHaveValue("send");
+	await expect(choice).toHaveValue("newline");
 	await expect(page.getByRole("alert")).toContainText(
 		"Unable to confirm Enter key behavior",
 	);
@@ -256,7 +259,7 @@ test("Enter preference synchronizes hidden pages, reconnects and restarts, with 
 			await route.abort();
 		} else await route.continue();
 	});
-	await choice.selectOption("newline");
+	await page.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(choice).toHaveValue("newline");
 	await other.getByRole("button", { name: "Settings", exact: true }).click();
 	await expect(

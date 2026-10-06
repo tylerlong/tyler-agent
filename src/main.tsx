@@ -18,6 +18,7 @@ import {
 	validChatOptions,
 } from "./chat-options.tsx";
 import type { ModelSettings } from "./database.ts";
+import { ExecutionLimits } from "./execution-limits.tsx";
 import i18n from "./i18n.ts";
 import { ModelConfiguration } from "./model-configuration.tsx";
 import { createSettingState } from "./setting-state.ts";
@@ -130,114 +131,6 @@ function saveSidebarWidth(width: number) {
 	void api("/api/sidebar-width", "PUT", { width }).catch(() => {});
 }
 
-type ExecutionLimitsValue = { modelCallLimit: number; subAgentLimit: number };
-
-function ExecutionLimits({ open }: { open: boolean }) {
-	const { t } = useTranslation();
-	const [limits, setLimits] = useState<ExecutionLimitsValue | null>(null);
-	const [pending, setPending] = useState(false);
-	const [error, setError] = useState("");
-	const [setting] = useState(() =>
-		createSettingState<ExecutionLimitsValue>(
-			async () => {
-				const value = await api("/api/execution-limits");
-				if (
-					![value.modelCallLimit, value.subAgentLimit].every(
-						(limit) => Number.isSafeInteger(limit) && limit > 0,
-					)
-				)
-					throw new Error("Invalid execution limits");
-				return value;
-			},
-			async (value) => {
-				await api("/api/execution-limits", "PATCH", value);
-			},
-			(value) => {
-				setLimits(value);
-				setError(value === null ? "executionLimitsFailed" : "");
-			},
-		),
-	);
-	useEffect(() => {
-		if (open) void setting.refresh();
-	}, [open, setting]);
-	return (
-		<section aria-labelledby="execution-limits-title">
-			<h3 id="execution-limits-title" className="font-semibold">
-				{t("executionLimits")}
-			</h3>
-			<p className="mt-2 text-sm text-neutral-600">
-				{t("executionLimitsHelp")}
-			</p>
-			<form
-				onSubmit={async (event) => {
-					event.preventDefault();
-					if (!limits || pending) return;
-					setPending(true);
-					try {
-						const result = await setting.save(limits);
-						setError(result === "saved" ? "" : "executionLimitsFailed");
-					} finally {
-						setPending(false);
-					}
-				}}
-			>
-				{(["modelCallLimit", "subAgentLimit"] as const).map((key) => (
-					<label key={key} className="mt-2 block">
-						<span>
-							{t(
-								key === "modelCallLimit"
-									? "modelCallLimitSetting"
-									: "subAgentLimitSetting",
-							)}
-						</span>
-						<input
-							className={control}
-							type="number"
-							min="1"
-							step="1"
-							required
-							value={limits && Number.isFinite(limits[key]) ? limits[key] : ""}
-							disabled={pending || limits === null}
-							onChange={(event) =>
-								setLimits(
-									(current) =>
-										current && {
-											...current,
-											[key]: event.target.valueAsNumber,
-										},
-								)
-							}
-						/>
-					</label>
-				))}
-				<button
-					type="submit"
-					className={`${button} mt-2`}
-					disabled={pending || limits === null}
-				>
-					{t("saveExecutionLimits")}
-				</button>
-			</form>
-			{error && (
-				<div className="mt-2">
-					<p role="alert" className="text-red-700">
-						{t(error)}
-					</p>
-					<button
-						type="button"
-						className={button}
-						disabled={pending}
-						onClick={() => void setting.refresh()}
-					>
-						{t("retry")}
-					</button>
-				</div>
-			)}
-		</section>
-	);
-}
-
 function App() {
 	const { t } = useTranslation();
 	const [undersized, setUndersized] = useState(
@@ -255,6 +148,9 @@ function App() {
 		error === null
 			? ""
 			: `${t(error.code, { defaultValue: t("requestFailed") })}${error.details ? `\n${error.details}` : ""}`;
+	const languageDraft = useRef<string | null>(null);
+	const languageSave = useRef<Promise<boolean> | null>(null);
+	const [languageSaved, setLanguageSaved] = useState(false);
 	const [language, setLanguage] = useState<string | null>(null);
 	const [languageReady, setLanguageReady] = useState(false);
 	const [languagePending, setLanguagePending] = useState(false);
@@ -271,6 +167,13 @@ function App() {
 				await api("/api/language", "PUT", { language });
 			},
 			(language) => {
+				if (languageDraft.current !== null) {
+					if (language !== null) {
+						void i18n.changeLanguage(language);
+						document.documentElement.lang = language;
+					}
+					return;
+				}
 				setLanguage(language);
 				setLanguageError(language === null ? "languageReadFailed" : "");
 				if (language !== null) {
@@ -281,6 +184,9 @@ function App() {
 			},
 		),
 	);
+	const enterDraft = useRef<string | null>(null);
+	const enterSave = useRef<Promise<boolean> | null>(null);
+	const [enterSaved, setEnterSaved] = useState(false);
 	const [enterBehavior, setEnterBehavior] = useState<string | null>(null);
 	const [enterPending, setEnterPending] = useState(false);
 	const [enterError, setEnterError] = useState("");
@@ -296,11 +202,62 @@ function App() {
 				await api("/api/enter-behavior", "PUT", { behavior });
 			},
 			(behavior) => {
+				if (enterDraft.current !== null) return;
 				setEnterBehavior(behavior);
 				setEnterError(behavior === null ? "enterBehaviorReadFailed" : "");
 			},
 		),
 	);
+	async function commitLanguage(): Promise<boolean> {
+		if (languageSave.current) return languageSave.current;
+		const value = languageDraft.current;
+		if (value === null) return !languageError;
+		setLanguagePending(true);
+		setLanguageSaved(false);
+		const operation = (async () => {
+			const result = await languageState.save(value);
+			const succeeded = result === "saved";
+			setLanguageError(succeeded ? "" : "languageSaveFailed");
+			if (succeeded) {
+				languageDraft.current = null;
+				setLanguageSaved(true);
+				void i18n.changeLanguage(value);
+				document.documentElement.lang = value;
+			}
+			return succeeded;
+		})();
+		languageSave.current = operation;
+		try {
+			return await operation;
+		} finally {
+			languageSave.current = null;
+			setLanguagePending(false);
+		}
+	}
+	async function commitEnter(): Promise<boolean> {
+		if (enterSave.current) return enterSave.current;
+		const value = enterDraft.current;
+		if (value === null) return !enterError;
+		setEnterPending(true);
+		setEnterSaved(false);
+		const operation = (async () => {
+			const result = await enterState.save(value);
+			const succeeded = result === "saved";
+			setEnterError(succeeded ? "" : "enterBehaviorSaveFailed");
+			if (succeeded) {
+				enterDraft.current = null;
+				setEnterSaved(true);
+			}
+			return succeeded;
+		})();
+		enterSave.current = operation;
+		try {
+			return await operation;
+		} finally {
+			enterSave.current = null;
+			setEnterPending(false);
+		}
+	}
 	const mac = navigator.platform.startsWith("Mac");
 	const submitName =
 		enterBehavior === null
@@ -781,6 +738,10 @@ function App() {
 	const [error, setError] = useState<ApiError | null>(null);
 	const settingsDialog = useRef<HTMLDialogElement>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const executionCommit = useRef<(() => Promise<boolean>) | null>(null);
+	const modelsCommit = useRef<(() => Promise<boolean>) | null>(null);
+	const closingSettings = useRef(false);
+	const [settingsClosing, setSettingsClosing] = useState(false);
 	const [settingsTab, setSettingsTab] = useState("general");
 	const openSettings = (required = false) => {
 		if (!settingsDialog.current?.open) {
@@ -1232,6 +1193,48 @@ function App() {
 		const otherOpen = [dialog, folderDialog].some((ref) => ref.current?.open);
 		if (missingSetup && !otherOpen && !undersized) openSettings(true);
 	});
+	async function closeSettings() {
+		if (closingSettings.current) return;
+		closingSettings.current = true;
+		setSettingsClosing(true);
+		try {
+			const [languageOK, enterOK, executionOK, modelsOK] = await Promise.all([
+				commitLanguage(),
+				commitEnter(),
+				executionCommit.current?.() ?? false,
+				modelsCommit.current?.() ?? false,
+			]);
+			if (!languageOK || !enterOK) {
+				setSettingsTab("general");
+				return;
+			}
+			if (!modelsOK) {
+				setSettingsTab("models");
+				return;
+			}
+			if (!executionOK) {
+				setSettingsTab("execution");
+				return;
+			}
+			await refreshModelSettings();
+			const saved = await api("/api/model-settings");
+			if (
+				chat &&
+				!readOnly &&
+				(!saved.apiKeyConfigured || saved.models.length === 0)
+			) {
+				setSettingsTab("models");
+				return;
+			}
+			settingsDialog.current?.close();
+		} catch {
+			setModelSettingsError(true);
+			setSettingsTab("models");
+		} finally {
+			closingSettings.current = false;
+			setSettingsClosing(false);
+		}
+	}
 	async function saveChatOptions(id: number, value: ChatOptions) {
 		if (optionRequests.current.has(id)) return;
 		optionRequests.current.add(id);
@@ -1333,7 +1336,11 @@ function App() {
 						<button
 							type="button"
 							className={button}
-							onClick={() => void languageState.refresh()}
+							onClick={() =>
+								void (languageDraft.current === null
+									? languageState.refresh()
+									: commitLanguage())
+							}
 						>
 							{t("retry")}
 						</button>
@@ -2069,9 +2076,10 @@ function App() {
 					void refreshChat();
 					setDialogChange((value) => value + 1);
 				}}
-				closedby={missingSetup ? "none" : "any"}
+				closedby="any"
 				onCancel={(event) => {
-					if (missingSetup) event.preventDefault();
+					event.preventDefault();
+					void closeSettings();
 				}}
 				ref={settingsDialog}
 				aria-labelledby="settings-title"
@@ -2120,91 +2128,99 @@ function App() {
 					hidden={settingsTab !== "general"}
 					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
 				>
-					<h3 className="font-semibold">{t("settingsLanguage")}</h3>
-					<label className="block">
-						<span className="sr-only">{t("language")}</span>
-						<select
-							className={control}
-							value={language ?? i18n.language}
-							disabled={languagePending || language === null}
-							onChange={async (event) => {
-								setLanguagePending(true);
-								try {
-									const result = await languageState.save(event.target.value);
-									setLanguageError(
-										result === "saved" ? "" : "languageSaveFailed",
-									);
-								} finally {
-									setLanguagePending(false);
-								}
-							}}
-						>
-							<option value="en">English</option>
-							<option value="zh-CN">简体中文</option>
-						</select>
-					</label>
-					{languageError && (
-						<div className="mt-4">
-							<p
-								role="alert"
-								className="whitespace-pre-wrap break-words text-red-700"
+					<fieldset disabled={settingsClosing} className="min-w-0">
+						<h3 className="font-semibold">{t("settingsLanguage")}</h3>
+						<label className="block">
+							<span className="sr-only">{t("language")}</span>
+							<select
+								className={control}
+								value={language ?? i18n.language}
+								disabled={languagePending || language === null}
+								onChange={(event) => {
+									languageDraft.current = event.target.value;
+									setLanguage(event.target.value);
+									void commitLanguage();
+								}}
 							>
-								{t(languageError)}
+								<option value="en">English</option>
+								<option value="zh-CN">简体中文</option>
+							</select>
+						</label>
+						{(languagePending || languageSaved) && (
+							<p role="status" className="mt-2 text-sm text-neutral-600">
+								{t(languagePending ? "settingsSaving" : "settingsSaved")}
 							</p>
-							<button
-								type="button"
-								className={button}
-								disabled={languagePending}
-								onClick={() => void languageState.refresh()}
+						)}
+						{languageError && (
+							<div className="mt-4">
+								<p
+									role="alert"
+									className="whitespace-pre-wrap break-words text-red-700"
+								>
+									{t(languageError)}
+								</p>
+								<button
+									type="button"
+									className={button}
+									disabled={languagePending}
+									onClick={() =>
+										void (languageDraft.current === null
+											? languageState.refresh()
+											: commitLanguage())
+									}
+								>
+									{t("retry")}
+								</button>
+							</div>
+						)}
+						<h3 className="mt-6 font-semibold">{t("enterBehavior")}</h3>
+						<label className="block">
+							<span className="sr-only">{t("enterBehavior")}</span>
+							<select
+								className={control}
+								value={enterBehavior ?? ""}
+								disabled={enterPending || enterBehavior === null}
+								onChange={(event) => {
+									enterDraft.current = event.target.value;
+									setEnterBehavior(event.target.value);
+									void commitEnter();
+								}}
 							>
-								{t("retry")}
-							</button>
-						</div>
-					)}
-					<h3 className="mt-6 font-semibold">{t("enterBehavior")}</h3>
-					<label className="block">
-						<span className="sr-only">{t("enterBehavior")}</span>
-						<select
-							className={control}
-							value={enterBehavior ?? ""}
-							disabled={enterPending || enterBehavior === null}
-							onChange={async (event) => {
-								setEnterPending(true);
-								try {
-									const result = await enterState.save(event.target.value);
-									setEnterError(
-										result === "saved" ? "" : "enterBehaviorSaveFailed",
-									);
-								} finally {
-									setEnterPending(false);
-								}
-							}}
-						>
-							{enterBehavior === null && (
-								<option value="">{t("loading")}</option>
-							)}
-							<option value="send">{t("enterSend")}</option>
-							<option value="newline">{t("enterNewline")}</option>
-						</select>
-					</label>
-					<p className="mt-2 text-sm text-neutral-600">
-						{t("enterHelp", { shortcut: mac ? "⌘+Enter" : "Ctrl+Enter" })}
-					</p>
-					{enterError && (
-						<div className="mt-4">
-							<p role="alert" className="text-red-700">
-								{t(enterError)}
+								{enterBehavior === null && (
+									<option value="">{t("loading")}</option>
+								)}
+								<option value="send">{t("enterSend")}</option>
+								<option value="newline">{t("enterNewline")}</option>
+							</select>
+						</label>
+						<p className="mt-2 text-sm text-neutral-600">
+							{t("enterHelp", { shortcut: mac ? "⌘+Enter" : "Ctrl+Enter" })}
+						</p>
+						{(enterPending || enterSaved) && (
+							<p role="status" className="mt-2 text-sm text-neutral-600">
+								{t(enterPending ? "settingsSaving" : "settingsSaved")}
 							</p>
-							<button
-								type="button"
-								className={button}
-								disabled={enterPending}
-								onClick={() => void enterState.refresh()}
-							>
-								{t("retry")}
-							</button>
-						</div>
-					)}
+						)}
+						{enterError && (
+							<div className="mt-4">
+								<p role="alert" className="text-red-700">
+									{t(enterError)}
+								</p>
+								<button
+									type="button"
+									className={button}
+									disabled={enterPending}
+									onClick={() =>
+										void (enterDraft.current === null
+											? enterState.refresh()
+											: commitEnter())
+									}
+								>
+									{t("retry")}
+								</button>
+							</div>
+						)}
+					</fieldset>
 				</div>
 				<div
 					role="tabpanel"
@@ -2213,7 +2229,9 @@ function App() {
 					hidden={settingsTab !== "execution"}
 					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
 				>
-					<ExecutionLimits open={settingsOpen} />
+					<fieldset disabled={settingsClosing} className="min-w-0">
+						<ExecutionLimits open={settingsOpen} commitRef={executionCommit} />
+					</fieldset>
 				</div>
 				<div
 					role="tabpanel"
@@ -2222,20 +2240,24 @@ function App() {
 					hidden={settingsTab !== "models"}
 					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
 				>
-					<ModelConfiguration
-						active={settingsTab === "models"}
-						open={settingsOpen}
-						settings={modelSettings}
-						readFailed={modelSettingsError}
-						refresh={refreshModelSettings}
-					/>
+					<fieldset disabled={settingsClosing} className="min-w-0">
+						<ModelConfiguration
+							commitRef={modelsCommit}
+							active={settingsTab === "models" && !settingsClosing}
+							open={settingsOpen}
+							settings={modelSettings}
+							readFailed={modelSettingsError}
+							refresh={refreshModelSettings}
+						/>
+					</fieldset>
 				</div>
 				<footer className="flex shrink-0 justify-end border-t border-neutral-200 px-6 py-4">
 					<button
 						type="button"
 						className={button}
-						disabled={missingSetup}
-						onClick={() => settingsDialog.current?.close()}
+						disabled={settingsClosing}
+						onPointerDown={(event) => event.preventDefault()}
+						onClick={() => void closeSettings()}
 					>
 						{t("close")}
 					</button>

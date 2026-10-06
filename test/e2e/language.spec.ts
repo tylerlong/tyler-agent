@@ -111,6 +111,9 @@ test("failed and ambiguous language saves reconcile to server and existing error
 	await expect(
 		dialog.getByRole("alert").filter({ hasText: "Unable to confirm language" }),
 	).toBeVisible();
+	await expect(
+		page.getByRole("combobox", { name: "Interface language" }),
+	).toHaveValue("zh-CN");
 	await page.unroute("**/api/language");
 	await page.route("**/api/language", async (route) => {
 		if (route.request().method() === "PUT") {
@@ -118,13 +121,126 @@ test("failed and ambiguous language saves reconcile to server and existing error
 			await route.abort();
 		} else await route.continue();
 	});
-	await page
-		.getByRole("combobox", { name: "Interface language" })
-		.selectOption("zh-CN");
+	await dialog.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
 	await page.unroute("**/api/language");
 	await page.getByRole("combobox", { name: "界面语言" }).selectOption("en");
 	await expect(page.locator("html")).toHaveAttribute("lang", "en");
+});
+
+test("Close waits for an immediate dropdown save without duplicate writes", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog");
+	let release!: () => void;
+	let enter!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const entered = new Promise<void>((resolve) => {
+		enter = resolve;
+	});
+	let writes = 0;
+	await page.route("**/api/enter-behavior", async (route) => {
+		if (route.request().method() !== "PUT") return route.continue();
+		writes++;
+		enter();
+		await held;
+		await route.continue();
+	});
+	await dialog
+		.getByRole("combobox", { name: "Enter key behavior" })
+		.selectOption("newline");
+	await entered;
+	await expect(dialog.getByRole("status")).toHaveText("Saving…");
+	await dialog.getByRole("tab", { name: "Execution", exact: true }).click();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	await expect(
+		dialog.getByRole("button", { name: "Close", exact: true }),
+	).toBeDisabled();
+	expect(writes).toBe(1);
+	release();
+	await expect(dialog).toBeHidden();
+	expect(writes).toBe(1);
+	expect(
+		(await (await page.request.get(`${app.url}/api/enter-behavior`)).json())
+			.behavior,
+	).toBe("newline");
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await expect(
+		dialog.getByRole("combobox", { name: "Enter key behavior" }),
+	).toHaveValue("newline");
+});
+
+test("failed pending dropdown save reveals General on Close, retains draft through sync and deliberately retries", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog");
+	let release!: () => void;
+	let enter!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const entered = new Promise<void>((resolve) => {
+		enter = resolve;
+	});
+	let writes = 0;
+	await page.route("**/api/enter-behavior", async (route) => {
+		if (route.request().method() !== "PUT") return route.continue();
+		writes++;
+		if (writes > 1) return route.continue();
+		enter();
+		await held;
+		await route.fulfill({
+			status: 500,
+			json: { code: "enterBehaviorWriteFailed", error: "failed" },
+		});
+	});
+	await dialog
+		.getByRole("combobox", { name: "Enter key behavior" })
+		.selectOption("newline");
+	await entered;
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	release();
+	await expect(
+		dialog.getByRole("tab", { name: "General", exact: true }),
+	).toHaveAttribute("aria-selected", "true");
+	await expect(dialog.getByRole("alert")).toContainText(
+		"Unable to confirm Enter key behavior",
+	);
+	await expect(dialog.getByRole("status")).toHaveCount(0);
+	await expect(
+		dialog.getByRole("combobox", { name: "Enter key behavior" }),
+	).toHaveValue("newline");
+	expect(writes).toBe(1);
+	await page.request.put(`${app.url}/api/enter-behavior`, {
+		data: { behavior: "send" },
+	});
+	await page.request.put(`${app.url}/api/language`, {
+		data: { language: "zh-CN" },
+	});
+	await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+	await expect(
+		dialog.getByRole("combobox", { name: "Enter 键行为" }),
+	).toHaveValue("newline");
+	await expect(dialog.getByRole("alert")).toBeVisible();
+	await dialog.getByRole("tab", { name: "执行", exact: true }).click();
+	await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+	await expect(dialog).toBeHidden();
+	expect(writes).toBe(2);
+	expect(
+		(await (await page.request.get(`${app.url}/api/enter-behavior`)).json())
+			.behavior,
+	).toBe("newline");
 });
 
 test("interface text and existing validation errors change language without rewriting creation drafts", async ({

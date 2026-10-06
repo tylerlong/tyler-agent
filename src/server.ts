@@ -1076,6 +1076,19 @@ export function createServer(
 			response.on("close", () => subscribers.delete(response));
 			return;
 		}
+		if (path === "/api/settings/credential" && request.method === "GET") {
+			response.setHeader("cache-control", "no-store");
+			try {
+				json(response, 200, {
+					apiKey:
+						database.prepare("SELECT api_key FROM settings WHERE id=1").get()
+							?.api_key ?? "",
+				});
+			} catch (error) {
+				json(response, 500, caughtError(error, "modelSettingsFailed"));
+			}
+			return;
+		}
 		if (
 			path === "/api/model-settings" &&
 			["GET", "PUT"].includes(request.method ?? "")
@@ -1108,10 +1121,10 @@ export function createServer(
 							database
 								.prepare("UPDATE settings SET api_key=NULL WHERE id=1")
 								.run();
-						else if (typeof input.apiKey === "string" && input.apiKey.trim())
+						else if (typeof input.apiKey === "string")
 							database
 								.prepare("UPDATE settings SET api_key=? WHERE id=1")
-								.run(input.apiKey.trim());
+								.run(input.apiKey.trim() || null);
 						if (input.defaultModelId !== undefined)
 							database
 								.prepare("UPDATE settings SET default_model_id=? WHERE id=1")

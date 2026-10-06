@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	type RefObject,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ManagedModel, ModelSettings } from "./database.ts";
@@ -14,12 +20,14 @@ export function ModelConfiguration({
 	refresh,
 	open,
 	active,
+	commitRef,
 }: {
 	open: boolean;
 	active: boolean;
 	settings: ModelSettings | null;
 	readFailed: boolean;
 	refresh: () => Promise<void>;
+	commitRef: RefObject<(() => Promise<boolean>) | null>;
 }) {
 	const { t } = useTranslation();
 	const [key, setKey] = useState("");
@@ -34,6 +42,13 @@ export function ModelConfiguration({
 	const searchInput = useRef<HTMLInputElement>(null);
 	const section = useRef<HTMLDivElement>(null);
 	const saving = useRef(false);
+	const modelSave = useRef<Promise<boolean> | null>(null);
+	const modelFailed = useRef(false);
+	const modelRetry = useRef<(() => Promise<boolean> | null) | null>(null);
+	const credential = useRef({ draft: "", saved: "", loaded: false, error: "" });
+	const keyRead = useRef<Promise<boolean> | null>(null);
+	const keySave = useRef<Promise<boolean> | null>(null);
+	const [keyLoaded, setKeyLoaded] = useState(false);
 	const [popup, setPopup] = useState<{
 		dialog: HTMLDialogElement;
 		left: number;
@@ -102,45 +117,141 @@ export function ModelConfiguration({
 		if (!response.ok) throw new Error("configurationSaveFailed");
 		return response.json();
 	}
-	async function mutate(
-		path: string,
-		method: string,
-		body?: unknown,
-		clearKey = false,
-	) {
-		if (saving.current) return;
+	function mutate(path: string, method: string, body?: unknown) {
+		if (saving.current) return modelSave.current;
 		saving.current = true;
 		setPending(true);
-		const credential =
-			path === "/api/model-settings" &&
-			body !== undefined &&
-			("apiKey" in (body as object) || "removeApiKey" in (body as object));
-		if (credential) {
-			setKeyError("");
-			setKeySaved(false);
-			setKeySaving(clearKey);
-		} else setError("");
-		try {
-			await request(path, method, body);
-			if (clearKey) {
-				setKey("");
-				setKeySaved(true);
+		setError("");
+		modelFailed.current = false;
+		modelRetry.current = null;
+		const operation = (async () => {
+			try {
+				await request(path, method, body);
+				await refresh();
+				return true;
+			} catch {
+				modelFailed.current = true;
+				modelRetry.current = () => mutate(path, method, body);
+				setError("configurationSaveFailed");
+				return false;
+			} finally {
+				saving.current = false;
+				setPending(false);
+				modelSave.current = null;
 			}
-			await refresh();
-		} catch {
-			if (credential) setKeyError("credentialSaveFailed");
-			else setError("configurationSaveFailed");
-		} finally {
-			setKeySaving(false);
-			saving.current = false;
-			setPending(false);
-		}
+		})();
+		modelSave.current = operation;
+		return operation;
 	}
+	async function saveKey(): Promise<boolean> {
+		if (keyRead.current && !(await keyRead.current)) return false;
+		if (!credential.current.loaded) return false;
+		while (keySave.current) {
+			if (!(await keySave.current)) return false;
+		}
+		const value = credential.current.draft;
+		if (value === credential.current.saved) return !credential.current.error;
+		credential.current.error = "";
+		setKeyError("");
+		setKeySaved(false);
+		setKeySaving(true);
+		const operation = (async () => {
+			try {
+				await request("/api/model-settings", "PUT", { apiKey: value });
+				credential.current.saved = value;
+				setKeySaved(credential.current.draft === value);
+				await refresh();
+				return true;
+			} catch {
+				credential.current.error = "credentialSaveFailed";
+				setKeyError("credentialSaveFailed");
+				return false;
+			} finally {
+				setKeySaving(false);
+				keySave.current = null;
+			}
+		})();
+		keySave.current = operation;
+		return operation;
+	}
+	useLayoutEffect(() => {
+		commitRef.current = async () => {
+			const modelOperation = modelSave.current ?? modelRetry.current?.();
+			let keyOk = await saveKey();
+			while (keyOk && credential.current.draft !== credential.current.saved) {
+				keyOk = await saveKey();
+			}
+			let modelOk = modelOperation ? await modelOperation : true;
+			do {
+				while (modelSave.current) {
+					if (!(await modelSave.current)) modelOk = false;
+				}
+				if (keyOk && credential.current.draft !== credential.current.saved) {
+					keyOk = await saveKey();
+				}
+			} while (
+				modelSave.current ||
+				(keyOk && credential.current.draft !== credential.current.saved)
+			);
+			return keyOk && modelOk && !modelFailed.current && !readFailed;
+		};
+		return () => {
+			commitRef.current = null;
+		};
+	});
+	function readCredential() {
+		if (keyRead.current) return keyRead.current;
+		const previousSaved = credential.current.saved;
+		const operation = (async () => {
+			try {
+				const data = await request("/api/settings/credential", "GET");
+				const state = credential.current;
+				if (
+					!state.loaded ||
+					(!keySave.current &&
+						state.error !== "credentialSaveFailed" &&
+						state.saved === previousSaved &&
+						state.draft === state.saved)
+				) {
+					state.draft = data.apiKey;
+					state.saved = data.apiKey;
+					setKey(data.apiKey);
+				}
+				state.loaded = true;
+				if (state.error === "credentialReadFailed") {
+					state.error = "";
+					setKeyError("");
+				}
+				setKeyLoaded(true);
+				return true;
+			} catch {
+				credential.current.error = "credentialReadFailed";
+				setKeyError("credentialReadFailed");
+				return false;
+			} finally {
+				keyRead.current = null;
+			}
+		})();
+		keyRead.current = operation;
+		return operation;
+	}
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh clean credentials on shared settings synchronization
+	useEffect(() => {
+		if (
+			open &&
+			!keySave.current &&
+			credential.current.draft === credential.current.saved &&
+			credential.current.error !== "credentialSaveFailed"
+		)
+			void readCredential();
+	}, [open, settings]);
 	function cancelAddition() {
 		if (saving.current) return;
 		setAdding(false);
 		setQuery("");
 		setAdditionError("");
+		modelFailed.current = false;
+		modelRetry.current = null;
 		setHighlighted(null);
 		returnAdditionFocus.current = true;
 	}
@@ -150,22 +261,33 @@ export function ModelConfiguration({
 			addButton.current?.focus();
 		}
 	}, [adding, pending, active, open]);
-	async function addModel(id: string) {
-		if (saving.current || pending) return;
+	function addModel(id: string) {
+		if (saving.current || pending) return modelSave.current;
 		saving.current = true;
 		setPending(true);
 		setAdditionError("");
-		try {
-			await request("/api/models", "POST", { id });
-			await refresh();
-			saving.current = false;
-			cancelAddition();
-		} catch {
-			setAdditionError("configurationSaveFailed");
-		} finally {
-			saving.current = false;
-			setPending(false);
-		}
+		modelFailed.current = false;
+		modelRetry.current = null;
+		const operation = (async () => {
+			try {
+				await request("/api/models", "POST", { id });
+				await refresh();
+				saving.current = false;
+				cancelAddition();
+				return true;
+			} catch {
+				modelFailed.current = true;
+				modelRetry.current = () => addModel(id);
+				setAdditionError("configurationSaveFailed");
+				return false;
+			} finally {
+				saving.current = false;
+				setPending(false);
+				modelSave.current = null;
+			}
+		})();
+		modelSave.current = operation;
+		return operation;
 	}
 	// biome-ignore lint/correctness/useExhaustiveDependencies: cancellation reads pending from the dispatch guard
 	useEffect(() => {
@@ -246,13 +368,7 @@ export function ModelConfiguration({
 						<form
 							onSubmit={(event) => {
 								event.preventDefault();
-								if (key.trim())
-									void mutate(
-										"/api/model-settings",
-										"PUT",
-										{ apiKey: key },
-										true,
-									);
+								void saveKey();
 							}}
 						>
 							<input
@@ -273,8 +389,15 @@ export function ModelConfiguration({
 									type="password"
 									autoComplete="new-password"
 									value={key}
-									disabled={pending}
-									onChange={(event) => setKey(event.target.value)}
+									disabled={!keyLoaded}
+									onChange={(event) => {
+										credential.current.draft = event.target.value;
+										credential.current.error = "";
+										setKey(event.target.value);
+										setKeyError("");
+										setKeySaved(false);
+									}}
+									onBlur={() => void saveKey()}
 								/>
 							</label>
 							<p className="mt-2 text-sm text-neutral-600">
@@ -284,37 +407,27 @@ export function ModelConfiguration({
 										: "apiKeyMissing",
 								)}
 							</p>
-							<div className="mt-2 flex gap-2">
-								<button
-									type="submit"
-									className={button}
-									disabled={pending || !key.trim()}
-								>
-									{t(keySaving ? "savingKey" : "saveKey")}
-								</button>
-								<button
-									type="button"
-									className="px-2 py-2 text-red-700 hover:underline disabled:opacity-50"
-									disabled={pending || !settings.apiKeyConfigured}
-									onClick={() =>
-										void mutate("/api/model-settings", "PUT", {
-											removeApiKey: true,
-										})
-									}
-								>
-									{t("removeKey")}
-								</button>
+							<div className="mt-2 min-h-10">
+								{(keySaving || keySaved) && (
+									<p role="status" className="text-sm text-neutral-600">
+										{t(keySaving ? "settingsSaving" : "settingsSaved")}
+									</p>
+								)}
+								{keyError && (
+									<p role="alert" className="break-words text-red-700">
+										{t(keyError)}
+										{keyError === "credentialReadFailed" && (
+											<button
+												type="button"
+												className={button}
+												onClick={() => void readCredential()}
+											>
+												{t("retry")}
+											</button>
+										)}
+									</p>
+								)}
 							</div>
-							{keySaved && (
-								<p role="status" className="mt-2 text-sm text-neutral-600">
-									{t("savedKey")}
-								</p>
-							)}
-							{keyError && (
-								<p role="alert" className="mt-2 break-words text-red-700">
-									{t(keyError)}
-								</p>
-							)}
 						</form>
 					</section>
 					<section
