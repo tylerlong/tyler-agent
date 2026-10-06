@@ -91,7 +91,9 @@ test("settings save write-only credentials and manage cached model choices acros
 	await page.goto(app.url);
 	await peer.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await peer.getByRole("button", { name: "Settings", exact: true }).click();
+	await peer.getByRole("tab", { name: "Models", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	const key = dialog.getByLabel("OpenRouter API key", { exact: true });
 	await expect(key).toHaveAttribute("type", "password");
@@ -145,6 +147,7 @@ test("settings save write-only credentials and manage cached model choices acros
 	await app.restart();
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect(page.getByText("Not configured")).toBeVisible();
 	await expect(
 		page.getByRole("list", { name: "Enabled models" }),
@@ -158,6 +161,7 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 }) => {
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	await page.route("**/api/model-settings", (route) =>
 		route.request().method() === "PUT"
@@ -191,6 +195,7 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 		route.fulfill({ status: 500, json: {} }),
 	);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect(
 		dialog.getByText(
 			"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
@@ -203,6 +208,7 @@ test("settings retain input on save failure and retry catalog by reopening", asy
 	await page.unroute("**/api/model-catalog");
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect(
 		dialog.getByText(
 			"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
@@ -230,6 +236,7 @@ test("each opening refreshes once; the combobox filters unenabled ranked models 
 	await page.goto(app.url);
 	await expect.poll(() => calls).toBe(0);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	const add = dialog.getByRole("button", { name: "Add model", exact: true });
 	await expect(
@@ -328,6 +335,7 @@ test("each opening refreshes once; the combobox filters unenabled ranked models 
 	await page.keyboard.press("Escape");
 	await expect(dialog).toBeHidden();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect.poll(() => calls).toBe(2);
 	await add.click();
 	await expect(filter).toHaveValue("");
@@ -343,6 +351,7 @@ test("initial catalog failure differs from an empty filter and existing models r
 	);
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(
 		dialog.getByText(
@@ -371,6 +380,7 @@ test("initial catalog failure differs from an empty filter and existing models r
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await page.unroute("**/api/model-catalog");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect(
 		dialog.getByRole("listbox", { name: "Popular models" }).getByRole("option"),
 	).toHaveCount(1);
@@ -407,6 +417,7 @@ test("ranking changes preserve selected default and historical model outside top
 		},
 	]);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await dialog
@@ -429,6 +440,7 @@ test("ranking changes preserve selected default and historical model outside top
 		})),
 	);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await expect(
 		dialog.getByRole("listbox", { name: "Popular models" }).getByRole("option"),
@@ -474,6 +486,7 @@ test("row removal failures preserve default and composer, successful removal rep
 	await selectEffort(page, "high");
 	await page.getByLabel("Prompt", { exact: true }).fill("Keep draft");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 	const rows = dialog
 		.getByRole("list", { name: "Enabled models" })
@@ -518,6 +531,7 @@ test("row removal failures preserve default and composer, successful removal rep
 		"Keep draft",
 	);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await second
 		.getByRole("button", { name: "Disable model", exact: true })
 		.click();

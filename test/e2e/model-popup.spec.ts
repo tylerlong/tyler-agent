@@ -19,6 +19,7 @@ for (const size of [
 		await page.goto(app.url);
 		const loaded = page.waitForResponse("**/api/model-catalog");
 		await page.getByRole("button", { name: "Settings", exact: true }).click();
+		await page.getByRole("tab", { name: "Models", exact: true }).click();
 		await loaded;
 		const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
 		const add = dialog.getByRole("button", { name: "Add model", exact: true });
@@ -134,7 +135,7 @@ for (const size of [
 			),
 		).toBe(true);
 		await capture("populated-long");
-		await dialog.locator(".settings-content").evaluate((element) => {
+		await dialog.locator(".settings-content:visible").evaluate((element) => {
 			element.scrollTop = 0;
 		});
 		await expect(list).toHaveCount(0);
@@ -192,6 +193,7 @@ test("addition loading and initial failure stay local with Chinese search and no
 	});
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "设置", exact: true }).click();
+	await page.getByRole("tab", { name: "模型", exact: true }).click();
 	const dialog = page.getByRole("dialog", { name: "设置", exact: true });
 	await expect(dialog.getByRole("status")).toHaveText("加载中…");
 	const loadingBounds = await dialog.boundingBox();
@@ -215,6 +217,7 @@ test("addition loading and initial failure stay local with Chinese search and no
 	await page.keyboard.press("Escape");
 	await page.unroute("**/api/model-catalog");
 	await page.getByRole("button", { name: "设置", exact: true }).click();
+	await page.getByRole("tab", { name: "模型", exact: true }).click();
 	await dialog.getByRole("button", { name: "添加模型", exact: true }).click();
 	await search.fill("absent");
 	await expect(dialog.getByRole("status")).toHaveText(

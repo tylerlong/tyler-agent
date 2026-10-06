@@ -89,6 +89,7 @@ test("failed and ambiguous language saves reconcile to server and existing error
 	await page.goto(app.url);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	const dialog = page.getByRole("dialog");
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
 	await dialog.getByRole("button", { name: "Add model", exact: true }).click();
 	await expect(
 		dialog.getByRole("listbox", { name: "Popular models" }).getByRole("option"),
@@ -102,6 +103,7 @@ test("failed and ambiguous language saves reconcile to server and existing error
 				})
 			: route.continue(),
 	);
+	await dialog.getByRole("tab", { name: "General", exact: true }).click();
 	await page
 		.getByRole("combobox", { name: "Interface language" })
 		.selectOption("zh-CN");

@@ -38,6 +38,7 @@ test("desktop boundary preserves drafts, modal addition and focus without prefer
 			writes.push(request.url());
 	});
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	await settings
 		.getByLabel("OpenRouter API key", { exact: true })

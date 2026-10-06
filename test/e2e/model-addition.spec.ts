@@ -168,6 +168,7 @@ for (const action of ["navigation", "selection"] as const) {
 		}
 		release();
 		await page.getByRole("button", { name: "Settings", exact: true }).click();
+		await page.getByRole("tab", { name: "Models", exact: true }).click();
 		await expect(
 			settings.getByRole("button", { name: "Add model", exact: true }),
 		).toBeEnabled();

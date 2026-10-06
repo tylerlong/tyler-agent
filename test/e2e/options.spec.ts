@@ -216,6 +216,7 @@ test("mandatory Settings retains failed credential input and becomes closable af
 		await (await page.request.get(`${app.url}/api/model-settings`)).text(),
 	).not.toContain("replacement-secret");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect(key).toHaveValue("");
 });
 
@@ -322,6 +323,7 @@ test("Settings retains inputs through hide/show and becomes mandatory after ordi
 	const { first } = await chats(page.request, app.url);
 	await page.goto(`${app.url}/?chat=${first.id}`);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	const key = settings.getByLabel("OpenRouter API key", { exact: true });
 	await key.fill("unsaved-draft");
@@ -333,6 +335,7 @@ test("Settings retains inputs through hide/show and becomes mandatory after ordi
 		.fill("Sec");
 	await settings.getByRole("button", { name: "Close", exact: true }).click();
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Models", exact: true }).click();
 	await expect(key).toHaveValue("unsaved-draft");
 	await expect(
 		settings.getByLabel("Search models by name or ID", { exact: true }),

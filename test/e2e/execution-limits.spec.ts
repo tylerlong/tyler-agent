@@ -21,6 +21,9 @@ for (const chinese of [false, true]) {
 		const save = chinese ? "保存执行上限" : "Save execution limits";
 		await page.goto(app.url);
 		await page.getByRole("button", { name: settings, exact: true }).click();
+		await page
+			.getByRole("tab", { name: chinese ? "执行" : "Execution", exact: true })
+			.click();
 		const region = page.getByRole("region", { name: title, exact: true });
 		await expect(region.getByLabel(calls, { exact: true })).toHaveValue("16");
 		await expect(region.getByLabel(descendants, { exact: true })).toHaveValue(
@@ -47,6 +50,9 @@ for (const chinese of [false, true]) {
 		await app.restart();
 		await page.goto(app.url);
 		await page.getByRole("button", { name: settings, exact: true }).click();
+		await page
+			.getByRole("tab", { name: chinese ? "执行" : "Execution", exact: true })
+			.click();
 		await expect(region.getByLabel(calls, { exact: true })).toHaveValue("7");
 		await expect(region.getByLabel(descendants, { exact: true })).toHaveValue(
 			"11",

@@ -162,7 +162,7 @@ function ExecutionLimits({ open }: { open: boolean }) {
 		if (open) void setting.refresh();
 	}, [open, setting]);
 	return (
-		<section aria-labelledby="execution-limits-title" className="mt-6">
+		<section aria-labelledby="execution-limits-title">
 			<h3 id="execution-limits-title" className="font-semibold">
 				{t("executionLimits")}
 			</h3>
@@ -781,8 +781,10 @@ function App() {
 	const [error, setError] = useState<ApiError | null>(null);
 	const settingsDialog = useRef<HTMLDialogElement>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
-	const openSettings = () => {
+	const [settingsTab, setSettingsTab] = useState("general");
+	const openSettings = (required = false) => {
 		if (!settingsDialog.current?.open) {
+			setSettingsTab(required ? "models" : "general");
 			settingsDialog.current?.showModal();
 			setSettingsOpen(true);
 		}
@@ -1228,7 +1230,7 @@ function App() {
 	useEffect(() => {
 		void dialogChange;
 		const otherOpen = [dialog, folderDialog].some((ref) => ref.current?.open);
-		if (missingSetup && !otherOpen && !undersized) openSettings();
+		if (missingSetup && !otherOpen && !undersized) openSettings(true);
 	});
 	async function saveChatOptions(id: number, value: ChatOptions) {
 		if (optionRequests.current.has(id)) return;
@@ -1417,7 +1419,7 @@ function App() {
 						className={`${iconButton} self-start`}
 						aria-label={t("settings")}
 						title={t("settings")}
-						onClick={openSettings}
+						onClick={() => openSettings(missingSetup)}
 					>
 						<svg
 							aria-hidden="true"
@@ -2091,7 +2093,33 @@ function App() {
 						</p>
 					)}
 				</header>
-				<div className="settings-content min-h-0 overflow-y-auto px-6 py-4">
+				<div
+					role="tablist"
+					aria-label={t("settings")}
+					className="flex shrink-0 border-b border-neutral-200 px-6"
+				>
+					{["general", "models", "execution"].map((tab) => (
+						<button
+							type="button"
+							role="tab"
+							key={tab}
+							id={`settings-tab-${tab}`}
+							aria-controls={`settings-panel-${tab}`}
+							aria-selected={settingsTab === tab}
+							onClick={() => setSettingsTab(tab)}
+							className={`flex-1 border-b-2 px-2 py-3 focus-visible:outline-2 focus-visible:outline-blue-600 ${settingsTab === tab ? "border-blue-600 text-blue-700" : "border-transparent hover:bg-neutral-100"}`}
+						>
+							{t(`settings${tab[0].toUpperCase()}${tab.slice(1)}`)}
+						</button>
+					))}
+				</div>
+				<div
+					role="tabpanel"
+					id="settings-panel-general"
+					aria-labelledby="settings-tab-general"
+					hidden={settingsTab !== "general"}
+					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
+				>
 					<h3 className="font-semibold">{t("settingsLanguage")}</h3>
 					<label className="block">
 						<span className="sr-only">{t("language")}</span>
@@ -2177,8 +2205,25 @@ function App() {
 							</button>
 						</div>
 					)}
+				</div>
+				<div
+					role="tabpanel"
+					id="settings-panel-execution"
+					aria-labelledby="settings-tab-execution"
+					hidden={settingsTab !== "execution"}
+					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
+				>
 					<ExecutionLimits open={settingsOpen} />
+				</div>
+				<div
+					role="tabpanel"
+					id="settings-panel-models"
+					aria-labelledby="settings-tab-models"
+					hidden={settingsTab !== "models"}
+					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
+				>
 					<ModelConfiguration
+						active={settingsTab === "models"}
 						open={settingsOpen}
 						settings={modelSettings}
 						readFailed={modelSettingsError}

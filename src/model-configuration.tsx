@@ -13,8 +13,10 @@ export function ModelConfiguration({
 	readFailed,
 	refresh,
 	open,
+	active,
 }: {
 	open: boolean;
+	active: boolean;
 	settings: ModelSettings | null;
 	readFailed: boolean;
 	refresh: () => Promise<void>;
@@ -41,7 +43,7 @@ export function ModelConfiguration({
 		above: boolean;
 	} | null>(null);
 	useLayoutEffect(() => {
-		if (!adding || !open || !expanded) {
+		if (!adding || !open || !active || !expanded) {
 			setPopup(null);
 			return;
 		}
@@ -80,7 +82,7 @@ export function ModelConfiguration({
 			content.removeEventListener("scroll", position);
 			window.removeEventListener("resize", position);
 		};
-	}, [adding, open, expanded]);
+	}, [adding, open, active, expanded]);
 	const [error, setError] = useState("");
 	const [additionError, setAdditionError] = useState("");
 	const [keyError, setKeyError] = useState("");
@@ -143,11 +145,11 @@ export function ModelConfiguration({
 		returnAdditionFocus.current = true;
 	}
 	useLayoutEffect(() => {
-		if (returnAdditionFocus.current && !adding && !pending) {
+		if (returnAdditionFocus.current && active && open && !adding && !pending) {
 			returnAdditionFocus.current = false;
 			addButton.current?.focus();
 		}
-	}, [adding, pending]);
+	}, [adding, pending, active, open]);
 	async function addModel(id: string) {
 		if (saving.current || pending) return;
 		saving.current = true;
@@ -167,7 +169,7 @@ export function ModelConfiguration({
 	}
 	// biome-ignore lint/correctness/useExhaustiveDependencies: cancellation reads pending from the dispatch guard
 	useEffect(() => {
-		if (!adding || !open) return;
+		if (!adding || !open || !active) return;
 		searchInput.current?.focus();
 		const dialog = section.current?.closest("dialog");
 		const cancel = (event: KeyboardEvent) => {
@@ -187,7 +189,10 @@ export function ModelConfiguration({
 			dialog?.removeEventListener("keydown", cancel);
 			dialog?.removeEventListener("cancel", cancelModal);
 		};
-	}, [adding, open]);
+	}, [adding, open, active]);
+	useEffect(() => {
+		if (!active) setExpanded(false);
+	}, [active]);
 	const [catalogLoading, setCatalogLoading] = useState(false);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only modal openings refresh discovery
 	useEffect(() => {
@@ -219,7 +224,7 @@ export function ModelConfiguration({
 			`${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase()),
 	);
 	return (
-		<div ref={section} className="mt-6 border-t border-neutral-200 pt-4">
+		<div ref={section}>
 			{readFailed && (
 				<div role="alert">
 					{t("configurationReadFailed")}{" "}
