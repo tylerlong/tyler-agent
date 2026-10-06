@@ -143,7 +143,7 @@ test("pending submission stays in original chat and does not clear later drafts 
 	await expect(page.getByRole("log")).toContainText("original question");
 });
 
-test("a failed accepted turn stays in history and user resubmission succeeds", async ({
+test("a failed accepted agent stays in history and user resubmission succeeds", async ({
 	page,
 	app,
 }) => {

@@ -1,5 +1,5 @@
+import { chatPicker, expectModel, selectModel } from "./chat-picker.ts";
 import { expect, test } from "./fixtures.ts";
-import { expectModel, selectModel, turnPicker } from "./turn-picker.ts";
 
 async function chats(page: import("@playwright/test").Page, url: string) {
 	const project = await (
@@ -32,8 +32,8 @@ test("first addition fills the initiating empty composer even with history; pass
 	await page.goto(`${app.url}/?chat=${id}`);
 	const peer = await page.context().newPage();
 	await peer.goto(`${app.url}/?chat=${id}`);
-	const _model = turnPicker(page);
-	const peerModel = turnPicker(peer);
+	const _model = chatPicker(page);
+	const peerModel = chatPicker(peer);
 	await expectModel(page, "");
 	await expectModel(peer, "");
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
@@ -103,7 +103,7 @@ for (const action of ["navigation", "selection"] as const) {
 		await page.getByRole("button", { name: "Other", exact: true }).click();
 		await expect(page).toHaveURL(`${app.url}/?chat=${second}`);
 		await page.request.delete(`${app.url}/api/models/test`);
-		const model = turnPicker(page);
+		const model = chatPicker(page);
 		await expectModel(page, "");
 		const peer = await page.context().newPage();
 		await peer.goto(`${app.url}/?chat=${second}`);

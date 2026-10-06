@@ -67,8 +67,8 @@ function responseEvents(body: string) {
 			}
 		});
 }
-export function TurnCalls({
-	turnId,
+export function AgentCalls({
+	agentId,
 	callId,
 	ordinal,
 	status,
@@ -76,7 +76,7 @@ export function TurnCalls({
 	revision = 0,
 	onLayoutChange,
 }: {
-	turnId: number;
+	agentId: number;
 	callId: number;
 	ordinal: number;
 	status: string;
@@ -86,7 +86,7 @@ export function TurnCalls({
 }) {
 	const { t } = useTranslation();
 	useLayoutEffect(onLayoutChange);
-	const key = `${turnId}-${callId}-${kind}`;
+	const key = `${agentId}-${callId}-${kind}`;
 	let state = records.get(key);
 	if (!state) {
 		state = {
@@ -165,7 +165,7 @@ export function TurnCalls({
 		render((value) => value + 1);
 		try {
 			const response = await fetch(
-				`/api/turns/${turnId}/calls?kind=${kind}&callId=${callId}`,
+				`/api/agents/${agentId}/calls?kind=${kind}&callId=${callId}`,
 			);
 			if (!response.ok) throw new Error("Unable to read communication");
 			const data = await response.json();
@@ -181,7 +181,7 @@ export function TurnCalls({
 				render((value) => value + 1);
 			}
 		}
-	}, [record, status, kind, turnId, callId, revision]);
+	}, [record, status, kind, agentId, callId, revision]);
 	useEffect(() => {
 		if (
 			(record.open || record.calls) &&
@@ -212,7 +212,7 @@ export function TurnCalls({
 					{kind === "response" && status === "pending" && (
 						<span
 							role="status"
-							aria-label={t("turnPending")}
+							aria-label={t("agentPending")}
 							className="h-4 w-4 rounded-full border-2 border-neutral-300 border-t-neutral-600 motion-safe:animate-spin"
 						/>
 					)}

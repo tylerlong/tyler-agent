@@ -65,7 +65,7 @@ async function countFiles(
 			"Expected one absolute directory path argument",
 		);
 	if (!roots.length)
-		return failure("scope", "No target folders are configured for this Turn");
+		return failure("scope", "No target folders are configured for this Agent");
 	const selectedPath = args.path;
 	let directory: string;
 	try {

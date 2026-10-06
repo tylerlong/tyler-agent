@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures.ts";
 
-test("two pages show saved answer increments before completion using targeted turn reads", async ({
+test("two pages show saved answer increments before completion using targeted agent reads", async ({
 	page,
 	context,
 	app,
@@ -47,7 +47,7 @@ test("two pages show saved answer increments before completion using targeted tu
 			browserPage.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 		).toBeEnabled();
 	}
-	expect(reads.some((path) => /^\/api\/turns\/\d+$/.test(path))).toBe(true);
+	expect(reads.some((path) => /^\/api\/agents\/\d+$/.test(path))).toBe(true);
 	expect(reads).not.toContain("/api/projects");
 	expect(reads).not.toContain(`/api/chats/${chat.id}`);
 	const closingStream = app.streamModel();
@@ -70,7 +70,7 @@ test("two pages show saved answer increments before completion using targeted tu
 	).toBeEnabled();
 });
 
-test("a live turn arriving before initial history preserves load-earlier pagination", async ({
+test("a live agent arriving before initial history preserves load-earlier pagination", async ({
 	page,
 	app,
 }) => {
@@ -114,7 +114,7 @@ test("a live turn arriving before initial history preserves load-earlier paginat
 	await expect(page.getByRole("log")).toContainText("Test ");
 	releaseHistory();
 	const earlier = page.getByRole("button", {
-		name: "Load earlier turns",
+		name: "Load earlier agents",
 		exact: true,
 	});
 	await expect(earlier).toBeVisible();

@@ -3,11 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
-test("stable ten-turn pages and forward catch-up preserve complete model context", async () => {
+test("stable ten-agent pages and forward catch-up preserve complete model context", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-pages-"));
 	let lastInput: { content: string }[] = [];
 	const server = createServer(
@@ -45,13 +45,13 @@ test("stable ten-turn pages and forward catch-up preserve complete model context
 				modelId: "test",
 				prompt: `Question ${i}`,
 			});
-			await waitForTurn(base, accepted.turnId);
+			await waitForAgent(base, accepted.agentId);
 		}
 		const read = async (query = "") =>
 			(await fetch(base + path + query)).json();
 		const latest = await read();
-		assert.equal(latest.turns.length, 10);
-		assert.equal(latest.turns[0].question, "Question 16");
+		assert.equal(latest.agents.length, 10);
+		assert.equal(latest.agents[0].question, "Question 16");
 		assert.equal(latest.hasMore, true);
 		assert.equal(latest.messages.length, 20);
 		assert(!JSON.stringify(latest).includes("requestBody"));
@@ -59,21 +59,21 @@ test("stable ten-turn pages and forward catch-up preserve complete model context
 			modelId: "test",
 			prompt: "Question 26",
 		});
-		await waitForTurn(base, accepted.turnId);
-		const older = await read(`?before=${latest.turns[0].id}`);
+		await waitForAgent(base, accepted.agentId);
+		const older = await read(`?before=${latest.agents[0].id}`);
 		assert.deepEqual(
-			older.turns.map((turn: { question: string }) => turn.question),
+			older.agents.map((agent: { question: string }) => agent.question),
 			Array.from({ length: 10 }, (_, i) => `Question ${i + 6}`),
 		);
-		const first = await read(`?before=${older.turns[0].id}`);
-		assert.equal(first.turns.length, 5);
+		const first = await read(`?before=${older.agents[0].id}`);
+		assert.equal(first.agents.length, 5);
 		assert.equal(first.hasMore, false);
-		const forward = await read(`?after=${first.turns.at(-1).id}`);
-		assert.equal(forward.turns.length, 10);
-		assert.equal(forward.turns[0].question, "Question 6");
+		const forward = await read(`?after=${first.agents.at(-1).id}`);
+		assert.equal(forward.agents.length, 10);
+		assert.equal(forward.agents[0].question, "Question 6");
 		assert.equal(forward.hasMoreNewer, true);
-		const finish = await read(`?after=${forward.turns.at(-1).id}`);
-		assert.equal(finish.turns[0].question, "Question 16");
+		const finish = await read(`?after=${forward.agents.at(-1).id}`);
+		assert.equal(finish.agents[0].question, "Question 16");
 		assert.equal(lastInput.length, 51);
 		assert.equal(lastInput[0]?.content, "Question 1");
 		assert.equal(lastInput.at(-1)?.content, "Question 26");

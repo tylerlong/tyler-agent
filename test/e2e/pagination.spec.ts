@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures.ts";
 
-test("ten-turn pages retain history and drafts across chats and reset on refresh", async ({
+test("ten-agent pages retain history and drafts across chats and reset on refresh", async ({
 	page,
 	app,
 }) => {
@@ -27,7 +27,7 @@ test("ten-turn pages retain history and drafts across chats and reset on refresh
 	const log = page.getByRole("log");
 	await expect(log).toContainText("Question 16.");
 	await expect(log).not.toContainText("Question 15.");
-	await page.getByRole("button", { name: "Load earlier turns" }).click();
+	await page.getByRole("button", { name: "Load earlier agents" }).click();
 	await expect(log).toContainText("Question 6.");
 	await expect(log).not.toContainText("Question 5.");
 	await page.getByLabel("Prompt").fill("keep draft");
@@ -42,7 +42,7 @@ test("ten-turn pages retain history and drafts across chats and reset on refresh
 	await expect(page.getByLabel("Prompt")).toHaveValue("");
 });
 
-test("offline cached history survives and lifecycle synchronization fills more than ten unseen turns", async ({
+test("offline cached history survives and lifecycle synchronization fills more than ten unseen agents", async ({
 	page,
 	app,
 }) => {
@@ -66,7 +66,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 	await page.route("**/api/chats/*", (route) =>
 		offline ? route.abort() : route.continue(),
 	);
-	await page.route("**/api/turns/*", (route) =>
+	await page.route("**/api/agents/*", (route) =>
 		offline ? route.abort() : route.continue(),
 	);
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -129,7 +129,7 @@ test("older-page errors preserve history and retry the same page", async ({
 	await page.route("**/api/chats/*?before=*", (route) => route.abort(), {
 		times: 1,
 	});
-	await page.getByRole("button", { name: "Load earlier turns" }).click();
+	await page.getByRole("button", { name: "Load earlier agents" }).click();
 	await expect(
 		page
 			.getByRole("region", { name: "Chat", exact: true })
@@ -140,11 +140,11 @@ test("older-page errors preserve history and retry the same page", async ({
 	await page.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(page.getByRole("log")).toContainText("Question 1.");
 	await expect(
-		page.getByRole("button", { name: "Load earlier turns" }),
+		page.getByRole("button", { name: "Load earlier agents" }),
 	).toHaveCount(0);
 });
 
-test("late snapshots cannot replace completed turns and interrupted catch-up retries without gaps", async ({
+test("late snapshots cannot replace completed agents and interrupted catch-up retries without gaps", async ({
 	page,
 	app,
 }) => {
@@ -198,7 +198,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	await page.route("**/api/chats/*", (route) =>
 		blocked ? route.abort() : route.continue(),
 	);
-	await page.route("**/api/turns/*", (route) =>
+	await page.route("**/api/agents/*", (route) =>
 		blocked ? route.abort() : route.continue(),
 	);
 	for (let i = 1; i <= 24; i++)
@@ -235,7 +235,7 @@ test("late snapshots cannot replace completed turns and interrupted catch-up ret
 	await expect(page.getByRole("log")).not.toContainText("Working");
 });
 
-test("an initially empty chat catches up every turn after more than one unseen page", async ({
+test("an initially empty chat catches up every agent after more than one unseen page", async ({
 	page,
 	app,
 }) => {
@@ -258,7 +258,7 @@ test("an initially empty chat catches up every turn after more than one unseen p
 	await page.route("**/api/chats/*", (route) =>
 		offline ? route.abort() : route.continue(),
 	);
-	await page.route("**/api/turns/*", (route) =>
+	await page.route("**/api/agents/*", (route) =>
 		offline ? route.abort() : route.continue(),
 	);
 	for (let i = 1; i <= 12; i++)

@@ -101,7 +101,7 @@ test("communication is lazy, formatted and copied as displayed text, retained ac
 	).json();
 	const savedRequests = await (
 		await page.request.get(
-			`${app.url}/api/turns/${history.turns[0].id}/calls?kind=request`,
+			`${app.url}/api/agents/${history.agents[0].id}/calls?kind=request`,
 		)
 	).json();
 	const requestBody = savedRequests.calls[0].requestBody;
@@ -396,7 +396,7 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	);
 	const call = await (
 		await page.request.get(
-			`${app.url}/api/turns/${history.turns[0].id}/calls?kind=response`,
+			`${app.url}/api/agents/${history.agents[0].id}/calls?kind=response`,
 		)
 	).json();
 	expect(call.calls[0].responseBody).toBe(raw);
@@ -440,7 +440,7 @@ test("older downloads cannot overwrite newer per-call response and thinking cont
 	});
 	const intercepted = new Set<string>();
 	await page.route(
-		/\/api\/turns\/\d+\/(?:calls\?kind=response&callId=\d+|reasoning\?callOrdinal=1)$/,
+		/\/api\/agents\/\d+\/(?:calls\?kind=response&callId=\d+|reasoning\?callOrdinal=1)$/,
 		async (route) => {
 			const kind = route.request().url().includes("/reasoning?")
 				? "reasoning"
@@ -518,7 +518,7 @@ test("older downloads cannot overwrite newer per-call response and thinking cont
 	await expect(response.locator("summary")).toHaveText("Response 1");
 });
 
-test("failure before a model call shows its question and turn error without communications", async ({
+test("failure before a model call shows its question and agent error without communications", async ({
 	page,
 	app,
 }) => {
@@ -539,7 +539,7 @@ test("failure before a model call shows its question and turn error without comm
 				id: chat.id,
 				busy: false,
 				hasMore: false,
-				turns: [{ id: 1, status: "failed", output: [], calls: [] }],
+				agents: [{ id: 1, status: "failed", output: [], calls: [] }],
 				messages: [
 					{ id: "1-user", role: "user", content: "the accepted question" },
 					{

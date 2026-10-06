@@ -3,9 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 test("accepted questions sort immediately, failures count, rejected questions and answers do not; activity survives restart", async (context) => {
 	const start = Date.now();
@@ -107,7 +107,7 @@ test("accepted questions sort immediately, failures count, rejected questions an
 		release();
 		const accepted = await pending;
 		assert.equal(accepted.status, 202);
-		await waitForTurn(url, (await accepted.json()).turnId);
+		await waitForAgent(url, (await accepted.json()).agentId);
 		projects = await list();
 		assert.equal(projects[0].chats[0].lastQuestionAt, start + 200);
 		assert.equal(projects[0].chats[0].busy, false);
@@ -119,7 +119,7 @@ test("accepted questions sort immediately, failures count, rejected questions an
 		});
 		assert.equal(failed.status, 202);
 		assert.equal(
-			(await waitForTurn(url, (await failed.json()).turnId)).status,
+			(await waitForAgent(url, (await failed.json()).agentId)).status,
 			"failed",
 		);
 		projects = await list();

@@ -9,19 +9,19 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
+import { AgentCalls } from "./agent-calls.tsx";
+import { AgentOutput, type ReaderItem } from "./agent-output.tsx";
+import {
+	ChatOptionPicker,
+	type ChatOptions,
+	normalizeChatOptions,
+	validChatOptions,
+} from "./chat-options.tsx";
 import type { ModelSettings } from "./database.ts";
 import i18n from "./i18n.ts";
 import { ModelConfiguration } from "./model-configuration.tsx";
 import { createSettingState } from "./setting-state.ts";
 import { type ToolCall, ToolCallCard } from "./tool-calls.tsx";
-import { TurnCalls } from "./turn-calls.tsx";
-import {
-	normalizeTurnOptions,
-	TurnOptionPicker,
-	type TurnOptions,
-	validTurnOptions,
-} from "./turn-options.tsx";
-import { type ReaderItem, TurnOutput } from "./turn-output.tsx";
 import "./style.css";
 
 type Chat = {
@@ -264,7 +264,7 @@ function App() {
 	selectedRef.current = selected;
 	type ChatState = {
 		id: number;
-		turns: {
+		agents: {
 			id: number;
 			status: string;
 			calls: { id: number; ordinal: number; status: string }[];
@@ -281,7 +281,7 @@ function App() {
 			errorCode?: string;
 			errorDetails?: string;
 		}[];
-		turnOptions?: TurnOptions;
+		chatOptions?: ChatOptions;
 		busy: boolean;
 		hasMore: boolean;
 		historyLoaded?: boolean;
@@ -333,7 +333,7 @@ function App() {
 	const chatRevisions = useRef<Record<number, number>>({});
 	const syncedThrough = useRef<Record<number, number>>({});
 	const readSequence = useRef(0);
-	const turnReads = useRef<Record<number, number>>({});
+	const agentReads = useRef<Record<number, number>>({});
 	const busyReads = useRef<Record<number, number>>({});
 	const [historyErrors, setHistoryErrors] = useState<
 		Record<number, ApiError | null>
@@ -366,16 +366,18 @@ function App() {
 			targeted = false,
 		) => {
 			const previous = cacheRef.current[id];
-			const turns = new Map(previous?.turns.map((turn) => [turn.id, turn]));
+			const agents = new Map(
+				previous?.agents.map((agent) => [agent.id, agent]),
+			);
 			const messages = new Map(
 				previous?.messages.map((message) => [message.id, message]),
 			);
-			const changed = (turnId: number) =>
-				(turnReads.current[turnId] ?? 0) > read;
-			for (const turn of data.turns)
-				if ((!older || !turns.has(turn.id)) && !changed(turn.id)) {
-					turns.set(turn.id, turn);
-					turnReads.current[turn.id] = read;
+			const changed = (agentId: number) =>
+				(agentReads.current[agentId] ?? 0) > read;
+			for (const agent of data.agents)
+				if ((!older || !agents.has(agent.id)) && !changed(agent.id)) {
+					agents.set(agent.id, agent);
+					agentReads.current[agent.id] = read;
 				}
 			for (const message of data.messages)
 				if (
@@ -388,7 +390,7 @@ function App() {
 					});
 			const next = {
 				id,
-				turns: [...turns.values()].sort((a, b) => a.id - b.id),
+				agents: [...agents.values()].sort((a, b) => a.id - b.id),
 				messages: [...messages.values()].sort(
 					(a, b) =>
 						Number(a.id.split("-")[0]) - Number(b.id.split("-")[0]) ||
@@ -408,23 +410,23 @@ function App() {
 		},
 		[updateBusy],
 	);
-	const [turnOptions, setTurnOptions] = useState<Record<number, TurnOptions>>(
+	const [chatOptions, setChatOptions] = useState<Record<number, ChatOptions>>(
 		{},
 	);
 	useEffect(() => {
 		if (
 			!modelSettings ||
-			!Object.values(turnOptions).some(
+			!Object.values(chatOptions).some(
 				(options) =>
-					normalizeTurnOptions(options, modelSettings.models) !== options,
+					normalizeChatOptions(options, modelSettings.models) !== options,
 			)
 		)
 			return;
-		setTurnOptions((current) => {
+		setChatOptions((current) => {
 			let changed = false;
 			const next = { ...current };
 			for (const [id, options] of Object.entries(current)) {
-				const normalized = normalizeTurnOptions(options, modelSettings.models);
+				const normalized = normalizeChatOptions(options, modelSettings.models);
 				if (normalized !== options) {
 					next[Number(id)] = normalized;
 					changed = true;
@@ -432,7 +434,7 @@ function App() {
 			}
 			return changed ? next : current;
 		});
-	}, [modelSettings, turnOptions]);
+	}, [modelSettings, chatOptions]);
 	const [drafts, setDrafts] = useState<Record<number, string>>({});
 	const draftVersions = useRef<Record<number, number>>({});
 	const [chatErrors, setChatErrors] = useState<Record<number, ApiError | null>>(
@@ -479,25 +481,25 @@ function App() {
 			try {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
-				if (latest.turnOptions)
-					setTurnOptions((current) =>
+				if (latest.chatOptions)
+					setChatOptions((current) =>
 						current[id]
 							? current
-							: { ...current, [id]: latest.turnOptions as TurnOptions },
+							: { ...current, [id]: latest.chatOptions as ChatOptions },
 					);
 				const cached = cacheRef.current[id];
 				let cursor = cached?.historyLoaded
 					? (syncedThrough.current[id] ?? 0)
 					: undefined;
 				const pendingId = cached?.historyLoaded
-					? cached.turns.find((turn) => turn.status === "pending")?.id
+					? cached.agents.find((agent) => agent.status === "pending")?.id
 					: undefined;
 				if (pendingId !== undefined)
 					cursor = Math.min(cursor ?? pendingId - 1, pendingId - 1);
-				const target = latest.turns.at(-1)?.id;
+				const target = latest.agents.at(-1)?.id;
 				mergeChat(id, latest, false, read);
 				confirmBusy(id, read);
-				// Refresh cached pending records and fill unseen turns in bounded pages.
+				// Refresh cached pending records and fill unseen agents in bounded pages.
 				while (
 					cursor !== undefined &&
 					target !== undefined &&
@@ -507,7 +509,7 @@ function App() {
 					const next: ChatState = await api(`/api/chats/${id}?after=${cursor}`);
 					if (!current()) return;
 					mergeChat(id, next, false, read);
-					const last = next.turns.at(-1)?.id;
+					const last = next.agents.at(-1)?.id;
 					if (last === undefined || last <= cursor) break;
 					cursor = last;
 					syncedThrough.current[id] = last;
@@ -537,19 +539,19 @@ function App() {
 		},
 		[mergeChat, changeSelectedChat, confirmBusy],
 	);
-	const refreshTurn = useCallback(
-		async (chatId: number, turnId: number) => {
+	const refreshAgent = useCallback(
+		async (chatId: number, agentId: number) => {
 			const read = ++readSequence.current;
 			try {
-				const data: ChatState = await api(`/api/turns/${turnId}`);
-				if ((turnReads.current[turnId] ?? 0) > read) return;
+				const data: ChatState = await api(`/api/agents/${agentId}`);
+				if ((agentReads.current[agentId] ?? 0) > read) return;
 				if (cacheRef.current[chatId] || selectedRef.current === chatId)
 					mergeChat(chatId, data, false, read, true);
 				else updateBusy(chatId, data.busy, read);
 				confirmBusy(chatId, read);
 				setHistoryErrors((errors) => ({ ...errors, [chatId]: null }));
 			} catch (cause) {
-				if ((turnReads.current[turnId] ?? 0) <= read)
+				if ((agentReads.current[agentId] ?? 0) <= read)
 					setHistoryErrors((errors) => ({
 						...errors,
 						[chatId]: appError(cause),
@@ -562,7 +564,7 @@ function App() {
 		const id = selectedRef.current;
 		if (id === null || earlierRequests.current.has(id)) return;
 		const state = cacheRef.current[id];
-		const before = state?.turns[0]?.id;
+		const before = state?.agents[0]?.id;
 		if (!state?.hasMore || before === undefined) return;
 		earlierRequests.current.add(id);
 		setLoadingEarlier(new Set(earlierRequests.current));
@@ -600,8 +602,8 @@ function App() {
 			!(drafts[id] ?? "").trim() ||
 			!modelSettings?.apiKeyConfigured ||
 			modelSettingsError ||
-			!turnOptions[id] ||
-			!validTurnOptions(turnOptions[id], modelSettings.models)
+			!chatOptions[id] ||
+			!validChatOptions(chatOptions[id], modelSettings.models)
 		)
 			return;
 		readingPositions.current[id] = { top: 0, bottom: true };
@@ -612,12 +614,12 @@ function App() {
 		setSubmitting(new Set(submissionRequests.current));
 		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
-			const { turnId } = await api(`/api/chats/${id}`, "POST", {
+			const { agentId } = await api(`/api/chats/${id}`, "POST", {
 				prompt,
-				...turnOptions[id],
+				...chatOptions[id],
 			});
 			const current = cacheRef.current[id];
-			const accepted = current?.turns.find((turn) => turn.id === turnId);
+			const accepted = current?.agents.find((agent) => agent.id === agentId);
 			if (current && (!accepted || accepted.status === "pending")) {
 				// Establish execution ownership before releasing the submission lock.
 				updateBusy(id, true, ++readSequence.current);
@@ -627,7 +629,7 @@ function App() {
 				};
 				setChatCache(cacheRef.current);
 			}
-			void refreshTurn(id, turnId);
+			void refreshAgent(id, agentId);
 			if ((draftVersions.current[id] ?? 0) === version)
 				setDrafts((current) => ({ ...current, [id]: "" }));
 		} catch (cause) {
@@ -709,9 +711,9 @@ function App() {
 		const events = new EventSource("/api/events");
 		events.onopen = sync;
 		events.onmessage = sync;
-		events.addEventListener("turn", (event) => {
-			const { chatId, turnId } = JSON.parse(event.data);
-			void refreshTurn(chatId, turnId);
+		events.addEventListener("agent", (event) => {
+			const { chatId, agentId } = JSON.parse(event.data);
+			void refreshAgent(chatId, agentId);
 		});
 		events.onerror = () => {
 			for (const id of Object.keys(cacheRef.current).map(Number)) {
@@ -729,7 +731,7 @@ function App() {
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", visible);
 		};
-	}, [refresh, refreshChat, refreshTurn]);
+	}, [refresh, refreshChat, refreshAgent]);
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [creatingProject, setCreatingProject] = useState<number | null>(null);
 	const [name, setName] = useState("");
@@ -1086,7 +1088,7 @@ function App() {
 	);
 	const chat = project?.chats.find((chat) => chat.id === selected);
 	const readOnly = Boolean(project?.archived || chat?.archived);
-	const options = selected === null ? undefined : turnOptions[selected];
+	const options = selected === null ? undefined : chatOptions[selected];
 	const missingSetup = Boolean(
 		chat &&
 			!readOnly &&
@@ -1099,10 +1101,10 @@ function App() {
 		const otherOpen = [dialog, folderDialog].some((ref) => ref.current?.open);
 		if (missingSetup && !otherOpen && !undersized) openSettings();
 	});
-	const changeTurnOptions = (value: TurnOptions) => {
+	const changeChatOptions = (value: ChatOptions) => {
 		selectionVersion.current++;
 		if (selected !== null)
-			setTurnOptions((current) => ({ ...current, [selected]: value }));
+			setChatOptions((current) => ({ ...current, [selected]: value }));
 	};
 	const modalProject = projects.find((project) =>
 		editing?.kind === "project"
@@ -1471,25 +1473,25 @@ function App() {
 												{t("labelSeparator")}
 											</strong>
 											{message.role === "assistant"
-												? chatState.turns
+												? chatState.agents
 														.find(
-															(turn) =>
-																turn.id === Number(message.id.split("-")[0]),
+															(agent) =>
+																agent.id === Number(message.id.split("-")[0]),
 														)
 														?.calls.map((call) => (
 															<div key={call.id} data-model-call-id={call.id}>
-																<TurnCalls
+																<AgentCalls
 																	onLayoutChange={restoreReadingPosition}
-																	turnId={Number(message.id.split("-")[0])}
+																	agentId={Number(message.id.split("-")[0])}
 																	callId={call.id}
 																	ordinal={call.ordinal}
 																	kind="request"
 																	status={call.status}
 																	revision={message.revision ?? 0}
 																/>
-																<TurnOutput
+																<AgentOutput
 																	onLayoutChange={restoreReadingPosition}
-																	turnId={Number(message.id.split("-")[0])}
+																	agentId={Number(message.id.split("-")[0])}
 																	callId={call.id}
 																	ordinal={call.ordinal}
 																	status={call.status}
@@ -1498,19 +1500,19 @@ function App() {
 																	)}
 																	revision={message.revision ?? 0}
 																/>
-																<TurnCalls
+																<AgentCalls
 																	onLayoutChange={restoreReadingPosition}
-																	turnId={Number(message.id.split("-")[0])}
+																	agentId={Number(message.id.split("-")[0])}
 																	callId={call.id}
 																	ordinal={call.ordinal}
 																	kind="response"
 																	status={call.status}
 																	revision={message.revision ?? 0}
 																/>
-																{chatState.turns
+																{chatState.agents
 																	.find(
-																		(turn) =>
-																			turn.id ===
+																		(agent) =>
+																			agent.id ===
 																			Number(message.id.split("-")[0]),
 																	)
 																	?.toolCalls.filter(
@@ -1528,11 +1530,11 @@ function App() {
 												: message.content}
 											{message.role === "assistant" &&
 												message.status === "pending" &&
-												t("turnPending")}
+												t("agentPending")}
 											{message.role === "assistant" &&
 												message.status === "failed" && (
 													<span role="status">
-														{message.content && <>{t("turnIncomplete")} </>}
+														{message.content && <>{t("agentIncomplete")} </>}
 														{t(message.errorCode ?? "modelRequestFailed")}
 														{message.errorDetails &&
 															`\n${message.errorDetails}`}
@@ -1615,10 +1617,10 @@ function App() {
 								<div className="flex min-h-11 items-center justify-end gap-2 pt-2">
 									{options && (
 										<div className="mr-auto flex min-w-0 flex-1 flex-wrap gap-1">
-											<TurnOptionPicker
+											<ChatOptionPicker
 												options={options}
 												models={modelSettings?.models ?? []}
-												change={changeTurnOptions}
+												change={changeChatOptions}
 												disabled={readOnly || modelSettingsError}
 											/>
 										</div>
@@ -1634,7 +1636,7 @@ function App() {
 											modelSettingsError ||
 											!modelSettings?.apiKeyConfigured ||
 											!options ||
-											!validTurnOptions(options, modelSettings.models) ||
+											!validChatOptions(options, modelSettings.models) ||
 											chatState?.id !== chat.id ||
 											chatState.busy ||
 											submitting.has(chat.id) ||
@@ -2027,7 +2029,7 @@ function App() {
 									selectionVersion.current !== version
 								)
 									return;
-								setTurnOptions((current) =>
+								setChatOptions((current) =>
 									!current[id]?.modelId
 										? { ...current, [id]: { modelId, reasoningEffort: null } }
 										: current,

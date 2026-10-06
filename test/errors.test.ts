@@ -3,9 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 test("HTTP errors provide stable identifiers independent of interface language", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-errors-"));
@@ -87,7 +87,7 @@ test("accepted model failures persist concise errors and keep redacted bodies in
 				prompt: "question",
 			});
 			assert.equal(response.status, 202);
-			const body = await waitForTurn(url, (await response.json()).turnId);
+			const body = await waitForAgent(url, (await response.json()).agentId);
 			assert.equal(body.status, "failed");
 			assert.equal(body.errorCode, code);
 			assert.doesNotMatch(
@@ -97,7 +97,7 @@ test("accepted model failures persist concise errors and keep redacted bodies in
 			const history = await (await fetch(`${url}/api/chats/${chat.id}`)).json();
 			const calls = await (
 				await fetch(
-					`${url}/api/turns/${history.turns.at(-1).id}/calls?kind=response`,
+					`${url}/api/agents/${history.agents.at(-1).id}/calls?kind=response`,
 				)
 			).json();
 			const expectedBodies = {
@@ -113,10 +113,10 @@ test("accepted model failures persist concise errors and keep redacted bodies in
 			assert.doesNotMatch(JSON.stringify(calls), /secret/);
 		}
 		const history = await (await fetch(`${url}/api/chats/${chat.id}`)).json();
-		assert.equal(history.turns.length, 5);
+		assert.equal(history.agents.length, 5);
 		assert(
-			history.turns.every(
-				(turn: { status: string }) => turn.status === "failed",
+			history.agents.every(
+				(agent: { status: string }) => agent.status === "failed",
 			),
 		);
 		assert.doesNotMatch(JSON.stringify(history), /secret/);

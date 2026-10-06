@@ -86,7 +86,7 @@ const errorMessages: Record<string, string> = {
 	invalidReasoning: "Choose a supported reasoning level",
 	invalidApiKey: "Invalid API key",
 	modelConfigMissing: "OpenRouter configuration is missing",
-	modelCallLimit: "Turn reached the five model request limit",
+	modelCallLimit: "Agent reached the five model request limit",
 };
 class InputError extends Error {
 	code: string;
@@ -176,7 +176,7 @@ export function createServer(
 	);
 	const home = homedir();
 	const busy = new Set<number>();
-	const unsavedTurns = new Set<number>();
+	const unsavedAgents = new Set<number>();
 	const unsavedCalls = new Set<number>();
 	const unsavedTools = new Set<number>();
 	let closed = false;
@@ -184,8 +184,8 @@ export function createServer(
 		unsavedCalls.has(Number(callId))
 			? { status: "failed", errorCode: "answerWriteFailed" }
 			: {};
-	const persistenceError = (turnId: unknown) =>
-		unsavedTurns.has(Number(turnId))
+	const persistenceError = (agentId: unknown) =>
+		unsavedAgents.has(Number(agentId))
 			? { status: "failed", errorCode: "answerWriteFailed" }
 			: {};
 	const projects = () =>
@@ -196,22 +196,22 @@ export function createServer(
 				busy: busy.has(Number(chat.id)),
 			})),
 		}));
-	const callMetadata = (turnId: number) =>
+	const callMetadata = (agentId: number) =>
 		database
-			.prepare("SELECT id,status FROM model_calls WHERE turn_id=? ORDER BY id")
-			.all(turnId)
+			.prepare("SELECT id,status FROM model_calls WHERE agent_id=? ORDER BY id")
+			.all(agentId)
 			.map((call, index) => ({
 				id: Number(call.id),
 				status: String(call.status),
 				...callPersistenceError(call.id),
 				ordinal: index + 1,
 			}));
-	const toolCalls = (turnId: number, content = false) =>
+	const toolCalls = (agentId: number, content = false) =>
 		database
 			.prepare(
-				`SELECT id,turn_id AS turnId,model_call_id AS modelCallId,call_id AS callId,name,ordinal,status,reason${content ? ",arguments,result" : ""} FROM tool_calls WHERE turn_id=? ORDER BY model_call_id,ordinal`,
+				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=? ORDER BY model_call_id,ordinal`,
 			)
-			.all(turnId)
+			.all(agentId)
 			.map((call) => ({
 				...call,
 				id: call.id,
@@ -220,14 +220,14 @@ export function createServer(
 					reason: "toolSaveFailed",
 				}),
 			}));
-	const turnPage = (
+	const agentPage = (
 		id: number,
 		before: number | null,
 		after: number | null,
 	) => {
 		const rows = database
 			.prepare(
-				`SELECT id, user_content AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails, output_json AS output FROM turns WHERE chat_id=? ${before !== null ? "AND id<?" : after !== null ? "AND id>?" : ""} ORDER BY id ${after !== null ? "ASC" : "DESC"} LIMIT 11`,
+				`SELECT id, prompt AS question, assistant_content AS answer, status, created_at AS createdAt, error_code AS errorCode, error_details AS errorDetails, output_json AS output FROM agents WHERE chat_id=? ${before !== null ? "AND id<?" : after !== null ? "AND id>?" : ""} ORDER BY id ${after !== null ? "ASC" : "DESC"} LIMIT 11`,
 			)
 			.all(
 				...(before !== null
@@ -246,15 +246,15 @@ export function createServer(
 		}));
 		if (after === null) page.reverse();
 		return {
-			turns: page,
+			agents: page,
 			hasMore: after === null && more,
 			hasMoreNewer: after !== null && more,
 		};
 	};
-	const turnOptions = (id: number) => {
+	const chatOptions = (id: number) => {
 		const calls = database
 			.prepare(
-				"SELECT request_body FROM model_calls JOIN turns ON turns.id=model_calls.turn_id WHERE turns.chat_id=? ORDER BY turns.id DESC,model_calls.id DESC",
+				"SELECT request_body FROM model_calls JOIN agents ON agents.id=model_calls.agent_id WHERE agents.chat_id=? ORDER BY agents.id DESC,model_calls.id DESC",
 			)
 			.iterate(id);
 		for (const call of calls) {
@@ -281,14 +281,14 @@ export function createServer(
 	const messages = (id: number, successfulOnly = false) =>
 		database
 			.prepare(
-				`SELECT id, user_content, assistant_content,status,error_code,error_details FROM turns WHERE chat_id=? ${successfulOnly ? "AND status='succeeded'" : ""} ORDER BY id`,
+				`SELECT id, prompt, assistant_content,status,error_code,error_details FROM agents WHERE chat_id=? ${successfulOnly ? "AND status='succeeded'" : ""} ORDER BY id`,
 			)
 			.all(id)
 			.flatMap((row) => [
 				{
 					id: `${row.id}-user`,
 					role: "user" as const,
-					content: String(row.user_content),
+					content: String(row.prompt),
 				},
 				{
 					id: `${row.id}-assistant`,
@@ -302,8 +302,8 @@ export function createServer(
 					}),
 				},
 			]);
-	const turnMessages = (
-		turns: {
+	const agentMessages = (
+		agents: {
 			id?: unknown;
 			question?: unknown;
 			answer?: unknown;
@@ -312,24 +312,24 @@ export function createServer(
 			output: unknown;
 		}[],
 	) =>
-		turns.flatMap((turn) => [
-			{ id: `${turn.id}-user`, role: "user", content: turn.question },
+		agents.flatMap((agent) => [
+			{ id: `${agent.id}-user`, role: "user", content: agent.question },
 			{
-				id: `${turn.id}-assistant`,
+				id: `${agent.id}-assistant`,
 				role: "assistant",
-				content: turn.answer ?? "",
-				output: turn.output,
-				...(turn.status !== "succeeded" && {
-					status: turn.status,
-					errorCode: turn.errorCode,
+				content: agent.answer ?? "",
+				output: agent.output,
+				...(agent.status !== "succeeded" && {
+					status: agent.status,
+					errorCode: agent.errorCode,
 				}),
 			},
 		]);
 	const subscribers = new Set<ServerResponse>();
-	const notifyTurn = (chatId: number, turnId: number) => {
+	const notifyAgent = (chatId: number, agentId: number) => {
 		for (const subscriber of subscribers)
 			subscriber.write(
-				`event: turn\ndata: ${JSON.stringify({ chatId, turnId })}\n\n`,
+				`event: agent\ndata: ${JSON.stringify({ chatId, agentId })}\n\n`,
 			);
 	};
 	const notifyChange = () => {
@@ -888,10 +888,10 @@ export function createServer(
 			}
 			return;
 		}
-		const reasoningRoute = path.match(/^\/api\/turns\/(\d+)\/reasoning$/);
+		const reasoningRoute = path.match(/^\/api\/agents\/(\d+)\/reasoning$/);
 		if (reasoningRoute && request.method === "GET") {
 			const row = database
-				.prepare("SELECT output_json FROM turns WHERE id=?")
+				.prepare("SELECT output_json FROM agents WHERE id=?")
 				.get(Number(reasoningRoute[1]));
 			if (!row) {
 				json(response, 404, errorBody("notFound"));
@@ -917,18 +917,18 @@ export function createServer(
 			});
 			return;
 		}
-		const turnRoute = path.match(/^\/api\/turns\/(\d+)$/);
-		if (turnRoute && request.method === "GET") {
+		const agentRoute = path.match(/^\/api\/agents\/(\d+)$/);
+		if (agentRoute && request.method === "GET") {
 			const row = database
 				.prepare(
-					"SELECT id,chat_id AS chatId,user_content AS question,assistant_content AS answer,status,created_at AS createdAt,error_code AS errorCode,output_json AS output FROM turns WHERE id=?",
+					"SELECT id,chat_id AS chatId,prompt AS question,assistant_content AS answer,status,created_at AS createdAt,error_code AS errorCode,output_json AS output FROM agents WHERE id=?",
 				)
-				.get(Number(turnRoute[1]));
+				.get(Number(agentRoute[1]));
 			if (!row) {
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
-			const turns = [
+			const agents = [
 				{
 					...row,
 					...persistenceError(row.id),
@@ -938,16 +938,16 @@ export function createServer(
 				},
 			];
 			json(response, 200, {
-				turns,
-				messages: turnMessages(turns),
+				agents,
+				messages: agentMessages(agents),
 				busy: busy.has(Number(row.chatId)),
 				hasMore: false,
 			});
 			return;
 		}
-		const toolsRoute = path.match(/^\/api\/turns\/(\d+)\/tools$/);
+		const toolsRoute = path.match(/^\/api\/agents\/(\d+)\/tools$/);
 		if (toolsRoute && request.method === "GET") {
-			const turnId = Number(toolsRoute[1]);
+			const agentId = Number(toolsRoute[1]);
 			const toolId = url.searchParams.get("toolId");
 			if (
 				toolId !== null &&
@@ -958,11 +958,11 @@ export function createServer(
 				json(response, 400, errorBody("invalidInput"));
 				return;
 			}
-			if (!database.prepare("SELECT id FROM turns WHERE id=?").get(turnId)) {
+			if (!database.prepare("SELECT id FROM agents WHERE id=?").get(agentId)) {
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
-			const calls = toolCalls(turnId, true).filter(
+			const calls = toolCalls(agentId, true).filter(
 				(call) => toolId === null || call.id === Number(toolId),
 			);
 			if (toolId !== null && !calls.length) {
@@ -972,10 +972,10 @@ export function createServer(
 			json(response, 200, { toolCalls: calls });
 			return;
 		}
-		const callRoute = path.match(/^\/api\/turns\/(\d+)\/calls$/);
+		const callRoute = path.match(/^\/api\/agents\/(\d+)\/calls$/);
 		if (callRoute && request.method === "GET") {
-			const turnId = Number(callRoute[1]);
-			if (!database.prepare("SELECT id FROM turns WHERE id=?").get(turnId)) {
+			const agentId = Number(callRoute[1]);
+			if (!database.prepare("SELECT id FROM agents WHERE id=?").get(agentId)) {
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
@@ -992,8 +992,8 @@ export function createServer(
 			if (
 				callId !== null &&
 				!database
-					.prepare("SELECT id FROM model_calls WHERE turn_id=? AND id=?")
-					.get(turnId, Number(callId))
+					.prepare("SELECT id FROM model_calls WHERE agent_id=? AND id=?")
+					.get(agentId, Number(callId))
 			) {
 				json(response, 404, errorBody("notFound"));
 				return;
@@ -1001,14 +1001,16 @@ export function createServer(
 			json(response, 200, {
 				calls:
 					kind === "metadata"
-						? callMetadata(turnId).filter(
+						? callMetadata(agentId).filter(
 								(call) => callId === null || call.id === Number(callId),
 							)
 						: database
 								.prepare(
-									`SELECT id,turn_id AS turnId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE turn_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
+									`SELECT id,agent_id AS agentId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error FROM model_calls WHERE agent_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
 								)
-								.all(...(callId === null ? [turnId] : [turnId, Number(callId)]))
+								.all(
+									...(callId === null ? [agentId] : [agentId, Number(callId)]),
+								)
 								.map((call) => ({
 									...call,
 									...callPersistenceError(call.id),
@@ -1051,15 +1053,15 @@ export function createServer(
 					json(response, 400, errorBody("invalidInput"));
 					return;
 				}
-				const page = turnPage(
+				const page = agentPage(
 					id,
 					before === null ? null : Number(before),
 					after === null ? null : Number(after),
 				);
 				json(response, 200, {
 					...page,
-					messages: turnMessages(page.turns),
-					turnOptions: turnOptions(id),
+					messages: agentMessages(page.agents),
+					chatOptions: chatOptions(id),
 					busy: busy.has(id),
 				});
 				return;
@@ -1094,7 +1096,7 @@ export function createServer(
 				return;
 			}
 			let locked = false;
-			let acceptedTurnId: number | undefined;
+			let acceptedAgentId: number | undefined;
 			try {
 				const input = await readJson(request);
 				if (typeof input.prompt !== "string" || !input.prompt.trim())
@@ -1138,10 +1140,10 @@ export function createServer(
 					)
 					.all(id)
 					.map((row) => String(row.path));
-				const turnConfig = { ...config, targetFolders };
+				const agentConfig = { ...config, targetFolders };
 				busy.add(id);
 				locked = true;
-				let turnId: number;
+				let agentId: number;
 				database.exec("BEGIN");
 				try {
 					const key = config.apiKey;
@@ -1149,23 +1151,20 @@ export function createServer(
 						(text, secret) => text.replaceAll(secret, "[REDACTED]"),
 						input.prompt,
 					);
-					turnId = Number(
+					agentId = Number(
 						database
 							.prepare(
-								"INSERT INTO turns(chat_id,user_content,status,created_at) VALUES (?,?,'pending',?)",
+								"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,?,'pending',?)",
 							)
 							.run(id, question, Date.now()).lastInsertRowid,
 					);
-					database
-						.prepare("UPDATE chats SET last_question_at=? WHERE id=?")
-						.run(Date.now(), id);
 					database.exec("COMMIT");
 				} catch (error) {
 					database.exec("ROLLBACK");
 					throw error;
 				}
-				acceptedTurnId = turnId;
-				json(response, 202, { turnId });
+				acceptedAgentId = agentId;
+				json(response, 202, { agentId });
 				notifyChange();
 				let answer: string | undefined;
 				let failure: unknown;
@@ -1173,8 +1172,8 @@ export function createServer(
 				let savedToolIds: number[] = [];
 				const secrets = [
 					...new Set([
-						turnConfig.apiKey,
-						JSON.stringify(turnConfig.apiKey).slice(1, -1),
+						agentConfig.apiKey,
+						JSON.stringify(agentConfig.apiKey).slice(1, -1),
 					]),
 				];
 				const redactTool = (text: string) =>
@@ -1199,10 +1198,9 @@ export function createServer(
 										Number(
 											database
 												.prepare(
-													"INSERT INTO tool_calls(turn_id,model_call_id,call_id,name,arguments,ordinal,status,reason) VALUES(?,?,?,?,?,?,?,?)",
+													"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status,reason) VALUES(?,?,?,?,?,?,?)",
 												)
 												.run(
-													turnId,
 													ownerId,
 													redactTool(call.call_id),
 													redactTool(call.name),
@@ -1221,7 +1219,7 @@ export function createServer(
 										errorMessages.toolWriteFailed,
 									);
 								}
-								notifyTurn(id, turnId);
+								notifyAgent(id, agentId);
 							},
 							toolStarted: (ordinal) => {
 								if (closed) throw new Error("Service closed");
@@ -1237,7 +1235,7 @@ export function createServer(
 										errorMessages.toolWriteFailed,
 									);
 								}
-								notifyTurn(id, turnId);
+								notifyAgent(id, agentId);
 							},
 							toolFinished: (ordinal, result) => {
 								if (closed) throw new Error("Service closed");
@@ -1257,23 +1255,23 @@ export function createServer(
 										errorMessages.toolWriteFailed,
 									);
 								}
-								notifyTurn(id, turnId);
+								notifyAgent(id, agentId);
 							},
 							request: (call) => {
 								callId = Number(
 									database
 										.prepare(
-											"INSERT INTO model_calls(turn_id,url,method,requested_at,request_body,status) VALUES (?,?,?,?,?,'pending')",
+											"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status) VALUES (?,?,?,?,?,'pending')",
 										)
 										.run(
-											turnId,
+											agentId,
 											call.url,
 											call.method,
 											call.requestedAt,
 											call.requestBody,
 										).lastInsertRowid,
 								);
-								notifyTurn(id, turnId);
+								notifyAgent(id, agentId);
 							},
 							result: (result, output) => {
 								if (callId === undefined)
@@ -1295,9 +1293,9 @@ export function createServer(
 									const partial = answerText(output);
 									database
 										.prepare(
-											"UPDATE turns SET assistant_content=?,output_json=? WHERE id=?",
+											"UPDATE agents SET assistant_content=?,output_json=? WHERE id=?",
 										)
-										.run(partial || null, JSON.stringify(output), turnId);
+										.run(partial || null, JSON.stringify(output), agentId);
 									database.exec("COMMIT");
 								} catch (error) {
 									database.exec("ROLLBACK");
@@ -1305,10 +1303,10 @@ export function createServer(
 									unsavedCalls.add(callId);
 									throw error;
 								}
-								notifyTurn(id, turnId);
+								notifyAgent(id, agentId);
 							},
 						},
-						turnConfig,
+						agentConfig,
 						runTool,
 					);
 				} catch (error) {
@@ -1322,15 +1320,15 @@ export function createServer(
 							: "toolExecutionStopped";
 					const unfinished = database
 						.prepare(
-							"SELECT id FROM tool_calls WHERE turn_id=? AND status IN ('waiting','running')",
+							"SELECT id FROM tool_calls WHERE model_call_id IN (SELECT id FROM model_calls WHERE agent_id=?) AND status IN ('waiting','running')",
 						)
-						.all(turnId);
+						.all(agentId);
 					try {
 						database
 							.prepare(
-								"UPDATE tool_calls SET status='interrupted',reason=? WHERE turn_id=? AND status IN ('waiting','running')",
+								"UPDATE tool_calls SET status='interrupted',reason=? WHERE model_call_id IN (SELECT id FROM model_calls WHERE agent_id=?) AND status IN ('waiting','running')",
 							)
-							.run(reason, turnId);
+							.run(reason, agentId);
 					} catch {
 						for (const call of unfinished) unsavedTools.add(Number(call.id));
 					}
@@ -1342,14 +1340,14 @@ export function createServer(
 						: null;
 					database
 						.prepare(
-							"UPDATE turns SET status=?,assistant_content=COALESCE(?,assistant_content),error_code=?,error_details=? WHERE id=?",
+							"UPDATE agents SET status=?,assistant_content=COALESCE(?,assistant_content),error_code=?,error_details=? WHERE id=?",
 						)
 						.run(
 							failure ? "failed" : "succeeded",
 							answer ?? null,
 							savedError?.code ?? null,
 							null,
-							turnId,
+							agentId,
 						);
 					database.exec("COMMIT");
 				} catch (error) {
@@ -1357,10 +1355,10 @@ export function createServer(
 					throw error;
 				}
 			} catch (error) {
-				if (acceptedTurnId !== undefined) {
+				if (acceptedAgentId !== undefined) {
 					// Keep unsaved failures visible without claiming the result was persisted.
-					unsavedTurns.add(acceptedTurnId);
-					console.error("Accepted Turn persistence failed", error);
+					unsavedAgents.add(acceptedAgentId);
+					console.error("Accepted Agent persistence failed", error);
 				} else
 					json(
 						response,
@@ -1374,8 +1372,8 @@ export function createServer(
 			} finally {
 				if (locked) {
 					busy.delete(id);
-					if (!closed && acceptedTurnId !== undefined)
-						notifyTurn(id, acceptedTurnId);
+					if (!closed && acceptedAgentId !== undefined)
+						notifyAgent(id, acceptedAgentId);
 				}
 			}
 			return;

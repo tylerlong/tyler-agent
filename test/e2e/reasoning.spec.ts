@@ -202,7 +202,7 @@ test("thinking reads retry and two pages catch up pending content with independe
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${chat.id}`);
 	let failed = true;
-	await page.route("**/api/turns/*/reasoning?callOrdinal=*", async (route) => {
+	await page.route("**/api/agents/*/reasoning?callOrdinal=*", async (route) => {
 		if (failed) {
 			await route.fulfill({
 				status: 500,
@@ -253,7 +253,7 @@ test("thinking reads retry and two pages catch up pending content with independe
 	await expect(other.getByRole("log")).toContainText("body only live");
 	await firstFold.click();
 	await expect(page.getByRole("log")).toContainText("body only live");
-	await page.unroute("**/api/turns/*/reasoning?callOrdinal=*");
+	await page.unroute("**/api/agents/*/reasoning?callOrdinal=*");
 	app.disconnectClients();
 	stream.push(
 		frame("response.reasoning_text.delta", {

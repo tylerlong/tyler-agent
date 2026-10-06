@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 test("two SSE clients see creations and language changes; reconnection reads current shared state", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-sse-"));
@@ -43,7 +43,7 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 			assert(response.body);
 			const reader = response.body.getReader();
 			let buffer = "";
-			async function next(kind?: "turn" | "changed") {
+			async function next(kind?: "agent" | "changed") {
 				while (true) {
 					while (!buffer.includes("\n\n")) {
 						const chunk = await reader.read();
@@ -55,8 +55,8 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 					buffer = buffer.slice(end + 2);
 					if (
 						!kind ||
-						(kind === "turn"
-							? frame.startsWith("event: turn")
+						(kind === "agent"
+							? frame.startsWith("event: agent")
 							: frame === "data: changed")
 					)
 						return frame;
@@ -130,14 +130,14 @@ test("two SSE clients see creations and language changes; reconnection reads cur
 			body: JSON.stringify({ modelId: "test", prompt: "question" }),
 		});
 		assert.equal(accepted.status, 202);
-		const { turnId } = await accepted.json();
-		await Promise.all([first.next("turn"), second.next("turn")]);
+		const { agentId } = await accepted.json();
+		await Promise.all([first.next("agent"), second.next("agent")]);
 		const active = await agree(chat.id);
 		assert.equal(active.chat.busy, true);
 		assert.equal(typeof active.projects[0].chats[0].lastQuestionAt, "number");
 		release();
-		assert.equal((await waitForTurn(base, turnId)).status, "succeeded");
-		await Promise.all([first.next("turn"), second.next("turn")]);
+		assert.equal((await waitForAgent(base, agentId)).status, "succeeded");
+		await Promise.all([first.next("agent"), second.next("agent")]);
 		const shared = (await agree(chat.id)).chat;
 		assert.equal(shared.busy, false);
 		assert.equal(shared.messages.length, 2);

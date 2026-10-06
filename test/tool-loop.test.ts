@@ -14,9 +14,9 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import type { ToolExecutor } from "../src/count-files.ts";
 import { createServer } from "../src/server.ts";
+import { waitForAgent, waitForIdle } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
-import { waitForIdle, waitForTurn } from "./turn-fixture.ts";
 
 const message = (text: string) => ({
 	id: "answer",
@@ -77,7 +77,7 @@ async function fixture(
 			base = `http://127.0.0.1:${address.port}`;
 		},
 		get,
-		wait: (id: number) => waitForTurn(base, id),
+		wait: (id: number) => waitForAgent(base, id),
 		waitForIdle: (id: number) => waitForIdle(base, id),
 		send,
 		project,
@@ -162,14 +162,14 @@ test("fresh database configures through HTTP and saves a complete tool loop", as
 			prompt: "count",
 		});
 		assert.equal(
-			(await waitForTurn(base, accepted.turnId)).status,
+			(await waitForAgent(base, accepted.agentId)).status,
 			"succeeded",
 		);
 		const history = await request(`/api/chats/${chat.id}`);
-		assert.equal(history.turns[0].answer, "one file");
-		assert.equal(history.turns[0].calls.length, 2);
-		assert.equal(history.turns[0].toolCalls[0].status, "succeeded");
-		const saved = await request(`/api/turns/${accepted.turnId}/tools`);
+		assert.equal(history.agents[0].answer, "one file");
+		assert.equal(history.agents[0].calls.length, 2);
+		assert.equal(history.agents[0].toolCalls[0].status, "succeeded");
+		const saved = await request(`/api/agents/${accepted.agentId}/tools`);
 		assert.equal(saved.toolCalls.length, 1);
 		assert.equal(JSON.parse(saved.toolCalls[0].result).count, 1);
 		assert.equal(calls, 2);
@@ -180,7 +180,7 @@ test("fresh database configures through HTTP and saves a complete tool loop", as
 	}
 });
 
-test("Turn counts a real tree and continues with complete protocol context while retaining earlier output", async () => {
+test("Agent counts a real tree and continues with complete protocol context while retaining earlier output", async () => {
 	const root = await mkdtemp(join(tmpdir(), "tool-tree-"));
 	await mkdir(join(root, "nested"));
 	await mkdir(join(root, ".hidden"));
@@ -241,13 +241,13 @@ test("Turn counts a real tree and continues with complete protocol context while
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
 		assert.equal(
-			(await f.wait((await accepted.json()).turnId)).status,
+			(await f.wait((await accepted.json()).agentId)).status,
 			"succeeded",
 		);
 		const history = await f.get(`/api/chats/${f.chat.id}`);
-		assert.equal(history.turns[0].status, "succeeded");
-		assert.equal(history.turns[0].answer, "Counting\n109 files");
-		const calls = (await f.get(`/api/turns/${history.turns[0].id}/calls`))
+		assert.equal(history.agents[0].status, "succeeded");
+		assert.equal(history.agents[0].answer, "Counting\n109 files");
+		const calls = (await f.get(`/api/agents/${history.agents[0].id}/calls`))
 			.calls;
 		assert.equal(calls.length, 2);
 		assert(calls.every((c: { status: string }) => c.status === "succeeded"));
@@ -349,7 +349,7 @@ test("Tool Results reject invalid scope and arguments and let the model correct 
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
 		assert.equal(
-			(await f.wait((await accepted.json()).turnId)).status,
+			(await f.wait((await accepted.json()).agentId)).status,
 			"succeeded",
 		);
 		assert.equal(request, 3);
@@ -373,7 +373,7 @@ test("a tool request with no target folders gets a scope error without gating te
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
 		assert.equal(
-			(await f.wait((await accepted.json()).turnId)).status,
+			(await f.wait((await accepted.json()).agentId)).status,
 			"succeeded",
 		);
 		assert.equal(request, 2);
@@ -405,15 +405,15 @@ for (const finalAnswer of [true, false])
 		try {
 			const response = await f.ask();
 			assert.equal(response.status, 202);
-			const turn = await f.wait((await response.json()).turnId);
-			if (!finalAnswer) assert.equal(turn.errorCode, "modelCallLimit");
-			assert.equal(turn.status, finalAnswer ? "succeeded" : "failed");
+			const agent = await f.wait((await response.json()).agentId);
+			if (!finalAnswer) assert.equal(agent.errorCode, "modelCallLimit");
+			assert.equal(agent.status, finalAnswer ? "succeeded" : "failed");
 			assert.match(
-				turn.answer,
+				agent.answer,
 				finalAnswer ? /finished at five/ : /step 1[\s\S]*step 5/,
 			);
 			assert.equal(
-				(await f.get(`/api/turns/${turn.id}/calls`)).calls.length,
+				(await f.get(`/api/agents/${agent.id}/calls`)).calls.length,
 				5,
 			);
 			assert.equal(request, 5);
@@ -443,7 +443,7 @@ for (const output of [
 			const accepted = await f.ask();
 			assert.equal(accepted.status, 202);
 			assert.equal(
-				(await f.wait((await accepted.json()).turnId)).status,
+				(await f.wait((await accepted.json()).agentId)).status,
 				"failed",
 			);
 			assert.equal(requests, 1);
@@ -470,7 +470,7 @@ for (const terminal of [
 			const accepted = await f.ask();
 			assert.equal(accepted.status, 202);
 			assert.equal(
-				(await f.wait((await accepted.json()).turnId)).status,
+				(await f.wait((await accepted.json()).agentId)).status,
 				"failed",
 			);
 			assert.equal(requests, 1);
@@ -496,14 +496,14 @@ test("remote continuation failure retains saved prior and partial output without
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
 		assert.equal(
-			(await f.wait((await accepted.json()).turnId)).status,
+			(await f.wait((await accepted.json()).agentId)).status,
 			"failed",
 		);
 		assert.equal(requests, 2);
-		const turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		assert.equal(turn.status, "failed");
-		assert.equal(turn.answer, "first\npartial second");
-		const calls = (await f.get(`/api/turns/${turn.id}/calls`)).calls;
+		const agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
+		assert.equal(agent.status, "failed");
+		assert.equal(agent.answer, "first\npartial second");
+		const calls = (await f.get(`/api/agents/${agent.id}/calls`)).calls;
 		assert.deepEqual(
 			calls.map((c: { status: string }) => c.status),
 			["succeeded", "failed"],
@@ -513,7 +513,7 @@ test("remote continuation failure retains saved prior and partial output without
 	}
 });
 
-test("an accepted Turn keeps its target scope and selected credentials while settings change", async () => {
+test("an accepted Agent keeps its target scope and selected credentials while settings change", async () => {
 	const base = await mkdtemp(join(tmpdir(), "tool-capture-"));
 	const root = join(base, "initial"),
 		later = join(base, "later");
@@ -549,7 +549,7 @@ test("an accepted Turn keeps its target scope and selected credentials while set
 	try {
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
-		const { turnId } = await accepted.json();
+		const { agentId } = await accepted.json();
 		await started;
 		assert.equal(
 			(
@@ -569,7 +569,7 @@ test("an accepted Turn keeps its target scope and selected credentials while set
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
 		assert.equal((await f.ask()).status, 409);
 		release();
-		assert.equal((await f.wait(turnId)).status, "succeeded");
+		assert.equal((await f.wait(agentId)).status, "succeeded");
 		assert.equal(requests, 2);
 	} finally {
 		release();
@@ -611,7 +611,7 @@ test("failed file-count execution returns actual status and bounded diagnostics,
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
 		assert.equal(
-			(await f.wait((await accepted.json()).turnId)).status,
+			(await f.wait((await accepted.json()).agentId)).status,
 			"succeeded",
 		);
 		assert.equal(requests, 2);
@@ -657,7 +657,7 @@ for (const mode of ["missing", "timeout"] as const)
 			const accepted = await f.ask();
 			assert.equal(accepted.status, 202);
 			assert.equal(
-				(await f.wait((await accepted.json()).turnId)).status,
+				(await f.wait((await accepted.json()).agentId)).status,
 				"succeeded",
 			);
 			assert.equal(requests, 2);
@@ -683,12 +683,12 @@ test("a completed final response must itself contain a usable answer", async () 
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
 		assert.equal(
-			(await f.wait((await accepted.json()).turnId)).status,
+			(await f.wait((await accepted.json()).agentId)).status,
 			"failed",
 		);
-		const turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		assert.equal(turn.answer, "partial");
-		assert.equal(turn.status, "failed");
+		const agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
+		assert.equal(agent.answer, "partial");
+		assert.equal(agent.status, "failed");
 	} finally {
 		await f.close();
 	}
@@ -716,36 +716,39 @@ test("a continuation persistence failure preserves prior calls and restart inter
 			"CREATE TRIGGER reject_continuation BEFORE INSERT ON model_calls WHEN EXISTS(SELECT 1 FROM model_calls) BEGIN SELECT RAISE(ABORT,'rejected'); END",
 		);
 		db.exec(
-			"CREATE TRIGGER reject_failure BEFORE UPDATE OF status ON turns WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'rejected'); END",
+			"CREATE TRIGGER reject_failure BEFORE UPDATE OF status ON agents WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'rejected'); END",
 		);
 		const accepted = await f.ask();
 		assert.equal(accepted.status, 202);
-		await f.waitForIdle((await accepted.json()).turnId);
+		await f.waitForIdle((await accepted.json()).agentId);
 		assert.equal(requests, 1);
-		let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		assert.equal(turn.status, "failed");
-		assert.equal(turn.errorCode, "answerWriteFailed");
+		let agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
+		assert.equal(agent.status, "failed");
+		assert.equal(agent.errorCode, "answerWriteFailed");
 		assert.equal(
-			db.prepare("SELECT status FROM turns WHERE id=?").get(turn.id)?.status,
+			db.prepare("SELECT status FROM agents WHERE id=?").get(agent.id)?.status,
 			"pending",
 		);
-		assert.equal(turn.answer, "saved first");
-		assert.equal((await f.get(`/api/turns/${turn.id}/calls`)).calls.length, 1);
-		const savedTools = (await f.get(`/api/turns/${turn.id}/tools`)).toolCalls;
+		assert.equal(agent.answer, "saved first");
+		assert.equal(
+			(await f.get(`/api/agents/${agent.id}/calls`)).calls.length,
+			1,
+		);
+		const savedTools = (await f.get(`/api/agents/${agent.id}/tools`)).toolCalls;
 		assert.equal(savedTools[0].status, "succeeded");
 		assert.equal(savedTools[0].result, "saved independently");
 		assert.equal(executions, 1);
 		db.exec("DROP TRIGGER reject_continuation; DROP TRIGGER reject_failure");
 		await f.restart();
-		turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		assert.equal(turn.status, "failed");
-		assert.equal(turn.errorCode, "modelInterrupted");
+		agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
+		assert.equal(agent.status, "failed");
+		assert.equal(agent.errorCode, "modelInterrupted");
 		assert.deepEqual(
-			(await f.get(`/api/turns/${turn.id}/tools`)).toolCalls,
+			(await f.get(`/api/agents/${agent.id}/tools`)).toolCalls,
 			savedTools,
 		);
 		assert.equal(executions, 1);
-		assert.equal(turn.answer, "saved first");
+		assert.equal(agent.answer, "saved first");
 		assert.equal(requests, 1);
 	} finally {
 		db.close();
@@ -764,7 +767,7 @@ for (const status of ["in_progress", "incomplete"])
 			const accepted = await f.ask();
 			assert.equal(accepted.status, 202);
 			assert.equal(
-				(await f.wait((await accepted.json()).turnId)).status,
+				(await f.wait((await accepted.json()).agentId)).status,
 				"failed",
 			);
 			assert.equal(requests, 1);
@@ -814,17 +817,17 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 					}),
 			),
 		);
-		let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		while (turn.output.length < 4) {
+		let agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
+		while (agent.output.length < 4) {
 			await new Promise((resolve) => setImmediate(resolve));
-			turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
+			agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
 		}
 		assert.deepEqual(
-			turn.output.map((item: { callOrdinal: number }) => item.callOrdinal),
+			agent.output.map((item: { callOrdinal: number }) => item.callOrdinal),
 			[1, 1, 2, 2],
 		);
 		assert.deepEqual(
-			turn.calls.map((call: { ordinal: number; status: string }) => [
+			agent.calls.map((call: { ordinal: number; status: string }) => [
 				call.ordinal,
 				call.status,
 			]),
@@ -833,21 +836,22 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 				[2, "pending"],
 			],
 		);
-		const metadata = (await f.get(`/api/turns/${turn.id}/calls?kind=metadata`))
-			.calls;
+		const metadata = (
+			await f.get(`/api/agents/${agent.id}/calls?kind=metadata`)
+		).calls;
 		assert.deepEqual(
 			metadata.map((call: { id: number }) => call.id),
-			turn.calls.map((call: { id: number }) => call.id),
+			agent.calls.map((call: { id: number }) => call.id),
 		);
 		assert(
 			metadata.every(
 				(call: object) => !("requestBody" in call) && !("responseBody" in call),
 			),
 		);
-		for (const savedCall of turn.calls) {
+		for (const savedCall of agent.calls) {
 			const request = (
 				await f.get(
-					`/api/turns/${turn.id}/calls?kind=request&callId=${savedCall.id}`,
+					`/api/agents/${agent.id}/calls?kind=request&callId=${savedCall.id}`,
 				)
 			).calls;
 			assert.equal(request.length, 1);
@@ -855,7 +859,7 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			assert.equal(request[0].responseBody, null);
 			assert.equal(JSON.parse(request[0].requestBody).model, "tool-model");
 		}
-		const details = (await f.get(`/api/turns/${turn.id}/reasoning`)).output;
+		const details = (await f.get(`/api/agents/${agent.id}/reasoning`)).output;
 		assert.deepEqual(
 			details.map((item: { callOrdinal: number }) => item.callOrdinal),
 			[1, 2],
@@ -867,36 +871,36 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			["first thinking", "second thinking"],
 		);
 		const onlySecond = (
-			await f.get(`/api/turns/${turn.id}/reasoning?callOrdinal=2`)
+			await f.get(`/api/agents/${agent.id}/reasoning?callOrdinal=2`)
 		).output;
 		assert.deepEqual(onlySecond, [details[1]]);
 		for (const suffix of ["callId=0", "callId=bogus", "kind=bogus"])
 			assert.equal(
-				(await f.get(`/api/turns/${turn.id}/calls?${suffix}`)).code,
+				(await f.get(`/api/agents/${agent.id}/calls?${suffix}`)).code,
 				"invalidInput",
 			);
 		assert.equal(
-			(await f.get(`/api/turns/${turn.id}/reasoning?callOrdinal=0`)).code,
+			(await f.get(`/api/agents/${agent.id}/reasoning?callOrdinal=0`)).code,
 			"invalidInput",
 		);
 		assert.equal(
-			(await f.get(`/api/turns/${turn.id}/calls?callId=999999`)).code,
+			(await f.get(`/api/agents/${agent.id}/calls?callId=999999`)).code,
 			"notFound",
 		);
 		second.close();
 		const submitted = await pending;
 		assert.equal(submitted.status, 202);
 		do {
-			turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		} while (turn.status === "pending");
-		assert.equal(turn.status, "failed");
+			agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
+		} while (agent.status === "pending");
+		assert.equal(agent.status, "failed");
 		assert.deepEqual(
-			turn.calls.map((call: { status: string }) => call.status),
+			agent.calls.map((call: { status: string }) => call.status),
 			["succeeded", "failed"],
 		);
 		const response = (
 			await f.get(
-				`/api/turns/${turn.id}/calls?kind=response&callId=${turn.calls[1].id}`,
+				`/api/agents/${agent.id}/calls?kind=response&callId=${agent.calls[1].id}`,
 			)
 		).calls;
 		assert.equal(response.length, 1);
@@ -904,24 +908,24 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 		assert.doesNotMatch(response[0].responseBody, /first thinking/);
 		assert.equal(response[0].requestBody, null);
 		await f.restart();
-		const saved = (await f.get(`/api/turns/${turn.id}`)).turns[0];
-		assert.deepEqual(saved.calls, turn.calls);
-		assert.deepEqual(saved.output, turn.output);
+		const saved = (await f.get(`/api/agents/${agent.id}`)).agents[0];
+		assert.deepEqual(saved.calls, agent.calls);
+		assert.deepEqual(saved.output, agent.output);
 		assert.deepEqual(
-			(await f.get(`/api/turns/${turn.id}/reasoning`)).output,
+			(await f.get(`/api/agents/${agent.id}/reasoning`)).output,
 			details,
 		);
 		assert.equal(requests, 2);
 		assert.equal((await f.ask()).status, 202);
-		let later = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+		let later = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 		while (later.status === "pending")
-			later = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			later = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 		assert.equal(later.calls[0].ordinal, 1);
-		assert(later.calls[0].id > turn.calls[1].id);
+		assert(later.calls[0].id > agent.calls[1].id);
 		assert.equal(
 			(
 				await f.get(
-					`/api/turns/${later.id}/calls?kind=request&callId=${turn.calls[0].id}`,
+					`/api/agents/${later.id}/calls?kind=request&callId=${agent.calls[0].id}`,
 				)
 			).code,
 			"notFound",
@@ -983,12 +987,12 @@ test("independent tool records expose ordered waiting/running calls, preserve re
 		},
 	);
 	try {
-		const { turnId } = await (await f.ask()).json();
+		const { agentId } = await (await f.ask()).json();
 		await running;
-		const turn = (await f.get(`/api/turns/${turnId}`)).turns[0];
-		assert.equal(turn.status, "pending");
+		const agent = (await f.get(`/api/agents/${agentId}`)).agents[0];
+		assert.equal(agent.status, "pending");
 		assert.deepEqual(
-			turn.toolCalls.map((call: { status: string }) => call.status),
+			agent.toolCalls.map((call: { status: string }) => call.status),
 			["running", "waiting"],
 		);
 		assert.equal(execution, 1);
@@ -996,11 +1000,11 @@ test("independent tool records expose ordered waiting/running calls, preserve re
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
 		assert.equal((await f.ask()).status, 409);
 		assert(
-			turn.toolCalls.every(
+			agent.toolCalls.every(
 				(call: object) => !("arguments" in call) && !("result" in call),
 			),
 		);
-		const pending = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		const pending = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 		assert.equal(pending[0].name, "inspect_[REDACTED]");
 		assert.equal(JSON.parse(pending[0].arguments).path, "[REDACTED]");
 		assert.equal(pending[0].result, null);
@@ -1009,8 +1013,8 @@ test("independent tool records expose ordered waiting/running calls, preserve re
 			[1, 2],
 		);
 		release();
-		assert.equal((await f.wait(turnId)).status, "succeeded");
-		const saved = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		assert.equal((await f.wait(agentId)).status, "succeeded");
+		const saved = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 		assert.equal(saved.length, 3);
 		assert.equal(new Set(saved.map((call: { id: number }) => call.id)).size, 3);
 		assert.equal(saved[0].callId, saved[2].callId);
@@ -1032,20 +1036,20 @@ test("independent tool records expose ordered waiting/running calls, preserve re
 		);
 		db.close();
 		assert.deepEqual(
-			(await f.get(`/api/turns/${turnId}/tools?toolId=${saved[1].id}`))
+			(await f.get(`/api/agents/${agentId}/tools?toolId=${saved[1].id}`))
 				.toolCalls,
 			[saved[1]],
 		);
 		for (const toolId of ["0", "bogus", "-1", "1.5", "9007199254740992"])
 			assert.equal(
-				(await f.get(`/api/turns/${turnId}/tools?toolId=${toolId}`)).code,
+				(await f.get(`/api/agents/${agentId}/tools?toolId=${toolId}`)).code,
 				"invalidInput",
 			);
 		assert.equal(
-			(await f.get(`/api/turns/${turnId}/tools?toolId=999999`)).code,
+			(await f.get(`/api/agents/${agentId}/tools?toolId=999999`)).code,
 			"notFound",
 		);
-		assert.equal((await f.get("/api/turns/999999/tools")).code, "notFound");
+		assert.equal((await f.get("/api/agents/999999/tools")).code, "notFound");
 		assert.equal(
 			(
 				await f.send(
@@ -1057,12 +1061,12 @@ test("independent tool records expose ordered waiting/running calls, preserve re
 			200,
 		);
 		assert.deepEqual(
-			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
 			saved,
 		);
 		await f.restart();
 		assert.deepEqual(
-			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
 			saved,
 		);
 		assert.equal(execution, 3);
@@ -1089,11 +1093,11 @@ test("tool execution failures are explicit, redact actual errors, and remain sav
 		}),
 	);
 	try {
-		const { turnId } = await (await f.ask()).json();
-		const turn = await f.wait(turnId);
-		assert.equal(turn.status, "failed");
-		assert.equal(turn.toolCalls[0].status, "failed");
-		const saved = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		const { agentId } = await (await f.ask()).json();
+		const agent = await f.wait(agentId);
+		assert.equal(agent.status, "failed");
+		assert.equal(agent.toolCalls[0].status, "failed");
+		const saved = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 		assert.equal(
 			saved[0].result,
 			'{"error":{"message":"[REDACTED] failed"},"details":[1,2]}',
@@ -1101,7 +1105,7 @@ test("tool execution failures are explicit, redact actual errors, and remain sav
 		assert.equal(requests, 2);
 		await f.restart();
 		assert.deepEqual(
-			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
 			saved,
 		);
 	} finally {
@@ -1142,10 +1146,10 @@ test("restart interrupts waiting and running tools without replay and preserves 
 		},
 	);
 	try {
-		const { turnId } = await (await f.ask()).json();
+		const { agentId } = await (await f.ask()).json();
 		await running;
 		await f.restart();
-		const calls = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		const calls = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 		assert.deepEqual(
 			calls.map((c: { status: string }) => c.status),
 			["succeeded", "interrupted", "interrupted"],
@@ -1156,14 +1160,14 @@ test("restart interrupts waiting and running tools without replay and preserves 
 			assert.equal(call.reason, "toolRestartInterrupted");
 			assert.equal(typeof call.arguments, "string");
 		}
-		assert.equal((await f.wait(turnId)).status, "failed");
+		assert.equal((await f.wait(agentId)).status, "failed");
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, false);
 		release();
 		await new Promise<void>((r) => setImmediate(r));
 		assert.equal(requests, 1);
 		assert.equal(executions, 2);
 		assert.deepEqual(
-			(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+			(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
 			calls,
 		);
 	} finally {
@@ -1207,16 +1211,16 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 			},
 		);
 		try {
-			const { turnId } = await (await f.ask()).json();
-			const turn = await f.wait(turnId);
-			assert.equal(turn.status, "failed");
-			assert.equal(turn.errorCode, "toolWriteFailed");
+			const { agentId } = await (await f.ask()).json();
+			const agent = await f.wait(agentId);
+			assert.equal(agent.status, "failed");
+			assert.equal(agent.errorCode, "toolWriteFailed");
 			assert.equal(requests, 1);
 			assert.equal(
 				executions,
 				boundary === "result" || boundary === "terminal" ? 1 : 0,
 			);
-			const calls = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+			const calls = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 			assert.equal(calls.length, boundary === "establish" ? 0 : 2);
 			for (const call of calls) {
 				assert.equal(call.status, "interrupted");
@@ -1230,7 +1234,7 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 			db.close();
 			await f.restart();
 			assert.deepEqual(
-				(await f.get(`/api/turns/${turnId}/tools`)).toolCalls,
+				(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
 				calls,
 			);
 			assert.equal(requests, 1);
@@ -1265,9 +1269,9 @@ test("unwritable tool finalization reports save failure without keeping running 
 		},
 	);
 	try {
-		const { turnId } = await (await f.ask()).json();
-		await f.wait(turnId);
-		const tools = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		const { agentId } = await (await f.ask()).json();
+		await f.wait(agentId);
+		const tools = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 		assert.deepEqual(
 			tools.map((c: { status: string }) => c.status),
 			["interrupted", "interrupted"],
@@ -1280,7 +1284,7 @@ test("unwritable tool finalization reports save failure without keeping running 
 		);
 		const history = await f.get(`/api/chats/${f.chat.id}`);
 		assert.deepEqual(
-			history.turns[0].toolCalls.map((c: { status: string }) => c.status),
+			history.agents[0].toolCalls.map((c: { status: string }) => c.status),
 			["interrupted", "interrupted"],
 		);
 		const db = new DatabaseSync(f.databasePath);
@@ -1294,7 +1298,7 @@ test("unwritable tool finalization reports save failure without keeping running 
 		db.exec("DROP TRIGGER fail_all_tool_updates");
 		db.close();
 		await f.restart();
-		const restarted = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		const restarted = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 		assert(
 			restarted.every(
 				(c: { status: string; reason: string; result: null }) =>
@@ -1325,9 +1329,9 @@ test("fifth response records unexecuted requests and no fabricated Tool Result",
 		},
 	);
 	try {
-		const { turnId } = await (await f.ask()).json();
-		assert.equal((await f.wait(turnId)).errorCode, "modelCallLimit");
-		const tools = (await f.get(`/api/turns/${turnId}/tools`)).toolCalls;
+		const { agentId } = await (await f.ask()).json();
+		assert.equal((await f.wait(agentId)).errorCode, "modelCallLimit");
+		const tools = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
 		assert.equal(tools.length, 5);
 		assert.equal(tools[4].status, "not_executed");
 		assert.equal(tools[4].reason, "modelCallLimit");

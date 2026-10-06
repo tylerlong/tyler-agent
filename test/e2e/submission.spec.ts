@@ -19,7 +19,7 @@ test("ambiguous acknowledgement keeps Send disabled while busy reconciliation is
 		const NativeEventSource = window.EventSource;
 		window.EventSource = class extends NativeEventSource {
 			addEventListener(type, listener, options) {
-				if (type !== "turn") return super.addEventListener(type, listener, options);
+				if (type !== "agent") return super.addEventListener(type, listener, options);
 			}
 			set onmessage(listener) {}
 			get onmessage() { return null; }

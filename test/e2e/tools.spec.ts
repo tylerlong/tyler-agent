@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { completedBody, frame } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
-test("a tool turn retains output and exposes both communications while Send stays busy", async ({
+test("a tool agent retains output and exposes both communications while Send stays busy", async ({
 	page,
 	context,
 	app,
@@ -62,7 +62,7 @@ test("a tool turn retains output and exposes both communications while Send stay
 			).json();
 			const calls = await (
 				await page.request.get(
-					`${app.url}/api/turns/${history.turns[0].id}/calls?kind=request`,
+					`${app.url}/api/agents/${history.agents[0].id}/calls?kind=request`,
 				)
 			).json();
 			return calls.calls.length;

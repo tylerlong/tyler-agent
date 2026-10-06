@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 test("edits preserve identity/history and persist atomically, including missing unchanged folders", async () => {
 	const folder = await mkdtemp(join(tmpdir(), "agent-edit-"));
@@ -130,7 +130,7 @@ test("edits preserve identity/history and persist atomically, including missing 
 		release();
 		const accepted = await pending;
 		assert.equal(accepted.status, 202);
-		await waitForTurn(await base(), (await accepted.json()).turnId);
+		await waitForAgent(await base(), (await accepted.json()).agentId);
 		const history = await (await request(`/api/chats/${c.id}`)).json();
 		assert.equal(history.messages.length, 2);
 		assert.equal(

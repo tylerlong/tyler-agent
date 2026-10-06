@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { waitForAgent, waitForIdle } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, frame } from "./model-fixture.ts";
-import { waitForIdle, waitForTurn } from "./turn-fixture.ts";
 
 const item = (id: string, text: string) => ({
 	id,
@@ -60,7 +60,7 @@ async function fixture(fake: typeof fetch) {
 		chat,
 		post,
 		get,
-		wait: (id: number) => waitForTurn(base, id),
+		wait: (id: number) => waitForAgent(base, id),
 		waitForIdle: (id: number) => waitForIdle(base, id),
 		events: (signal: AbortSignal) => fetch(`${base}/api/events`, { signal }),
 		restart: async () => {
@@ -133,15 +133,15 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 			prompt: "question",
 		});
 		assert.equal(pending.status, 202);
-		const acceptedId = (await pending.json()).turnId;
+		const acceptedId = (await pending.json()).agentId;
 		const [acceptedA, acceptedB] = await Promise.all([a(), b()]);
 		assert.equal(acceptedA, acceptedB);
-		assert.match(acceptedA, /event: turn/);
+		assert.match(acceptedA, /event: agent/);
 		const notification = JSON.parse(acceptedA.split("data: ")[1]);
 		assert.equal(notification.chatId, f.chat.id);
-		const turnId = notification.turnId;
+		const agentId = notification.agentId;
 		assert.equal(
-			(await f.get(`/api/turns/${turnId}`)).turns[0].status,
+			(await f.get(`/api/agents/${agentId}`)).agents[0].status,
 			"pending",
 		);
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
@@ -154,15 +154,15 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 		const split = bytes.indexOf(0xe4) + 1;
 		stream.enqueue(bytes.slice(0, split));
 		stream.enqueue(bytes.slice(split));
-		let saved = await f.get(`/api/turns/${turnId}`);
+		let saved = await f.get(`/api/agents/${agentId}`);
 		do {
 			await a();
-			saved = await f.get(`/api/turns/${turnId}`);
-		} while (saved.turns[0].output[0]?.content[0]?.text !== "中文");
+			saved = await f.get(`/api/agents/${agentId}`);
+		} while (saved.agents[0].output[0]?.content[0]?.text !== "中文");
 		assert.equal(saved.busy, true);
-		const calls = (await f.get(`/api/turns/${turnId}/calls`)).calls;
+		const calls = (await f.get(`/api/agents/${agentId}/calls`)).calls;
 		assert.equal(calls[0].responseBody, prefix);
-		assert.match(await b(), /event: turn/);
+		assert.match(await b(), /event: agent/);
 		const suffix =
 			delta(" second", 0, 1) +
 			frame("response.output_item.added", {
@@ -186,10 +186,10 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 				},
 			});
 		stream.enqueue(new TextEncoder().encode(suffix));
-		while ((await f.get(`/api/turns/${turnId}`)).turns[0].output.length < 2)
+		while ((await f.get(`/api/agents/${agentId}`)).agents[0].output.length < 2)
 			await new Promise((resolve) => setImmediate(resolve));
 		assert.equal(
-			(await f.get(`/api/turns/${turnId}`)).turns[0].status,
+			(await f.get(`/api/agents/${agentId}`)).agents[0].status,
 			"pending",
 		);
 		const final = completedBody({
@@ -211,7 +211,7 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 		stream.enqueue(new TextEncoder().encode(final));
 		stream.close();
 		assert.equal((await f.wait(acceptedId)).status, "succeeded");
-		const result = (await f.get(`/api/turns/${turnId}`)).turns[0];
+		const result = (await f.get(`/api/agents/${agentId}`)).agents[0];
 		assert.equal(result.status, "succeeded");
 		assert.deepEqual(
 			result.output.map(
@@ -269,18 +269,18 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 				prompt: "failed question",
 			});
 			assert.equal(response.status, 202);
-			const completedTurn = await f.wait((await response.json()).turnId);
+			const completedAgent = await f.wait((await response.json()).agentId);
 			assert.doesNotMatch(
-				JSON.stringify(completedTurn),
+				JSON.stringify(completedAgent),
 				/private provider body|broken/,
 			);
 			const history = await f.get(`/api/chats/${f.chat.id}`);
-			const turn = history.turns.at(-1);
-			assert.equal(turn.status, "failed");
-			assert.equal(turn.output[0].content[0].text, "partial");
+			const agent = history.agents.at(-1);
+			assert.equal(agent.status, "failed");
+			assert.equal(agent.output[0].content[0].text, "partial");
 			assert.equal(history.busy, false);
 			assert.equal(
-				(await f.get(`/api/turns/${turn.id}/calls`)).calls[0].responseBody,
+				(await f.get(`/api/agents/${agent.id}/calls`)).calls[0].responseBody,
 				raw,
 			);
 		}
@@ -292,7 +292,7 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 			});
 			assert.equal(accepted.status, 202);
 			assert.equal(
-				(await f.wait((await accepted.json()).turnId)).status,
+				(await f.wait((await accepted.json()).agentId)).status,
 				"succeeded",
 			);
 		}
@@ -303,7 +303,7 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 			});
 			assert.equal(accepted.status, 202);
 			assert.equal(
-				(await f.wait((await accepted.json()).turnId)).status,
+				(await f.wait((await accepted.json()).agentId)).status,
 				"succeeded",
 			);
 		}
@@ -345,7 +345,7 @@ for (const failedWrite of ["progress", "terminal"])
 				});
 				assert.equal(accepted.status, 202);
 				assert.equal(
-					(await f.wait((await accepted.json()).turnId)).status,
+					(await f.wait((await accepted.json()).agentId)).status,
 					"failed",
 				);
 			}
@@ -356,7 +356,7 @@ for (const failedWrite of ["progress", "terminal"])
 				prompt: "accepted",
 			});
 			assert.equal(pending.status, 202);
-			const acceptedId = (await pending.json()).turnId;
+			const acceptedId = (await pending.json()).agentId;
 			while (!stream) await new Promise((resolve) => setImmediate(resolve));
 			const raw =
 				frame("unknown.event", { echo: "stream-secret" }) +
@@ -372,27 +372,27 @@ for (const failedWrite of ["progress", "terminal"])
 			const split = raw.indexOf("stream-secret") + 7;
 			stream.enqueue(new TextEncoder().encode(raw.slice(0, split)));
 			stream.enqueue(new TextEncoder().encode(raw.slice(split)));
-			let turn = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			let agent = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 			do {
 				await new Promise((resolve) => setImmediate(resolve));
-				turn = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
-			} while (turn.output[0]?.content[0]?.text !== "saved");
-			const calls = (await f.get(`/api/turns/${turn.id}/calls`)).calls;
+				agent = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
+			} while (agent.output[0]?.content[0]?.text !== "saved");
+			const calls = (await f.get(`/api/agents/${agent.id}/calls`)).calls;
 			assert.equal(
 				calls[0].responseBody,
 				raw.replaceAll("stream-secret", "[REDACTED]"),
 			);
 			assert.doesNotMatch(JSON.stringify(calls), /stream-secret/);
-			assert.doesNotMatch(JSON.stringify(turn), /stream-secret/);
+			assert.doesNotMatch(JSON.stringify(agent), /stream-secret/);
 			assert.doesNotMatch(
 				String(
-					db.prepare("SELECT output_json FROM turns WHERE id=?").get(turn.id)
+					db.prepare("SELECT output_json FROM agents WHERE id=?").get(agent.id)
 						?.output_json,
 				),
 				/stream-secret/,
 			);
 			db.exec(
-				"CREATE TRIGGER reject_progress BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'write rejected'); END",
+				"CREATE TRIGGER reject_progress BEFORE UPDATE ON agents BEGIN SELECT RAISE(ABORT,'write rejected'); END",
 			);
 			stream.enqueue(
 				new TextEncoder().encode(
@@ -406,24 +406,24 @@ for (const failedWrite of ["progress", "terminal"])
 			);
 			stream.close();
 			await f.waitForIdle(acceptedId);
-			const retained = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			const retained = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 			assert.equal(retained.status, "failed");
 			assert.equal(retained.errorCode, "answerWriteFailed");
 			assert.equal(
-				db.prepare("SELECT status FROM turns WHERE id=?").get(retained.id)
+				db.prepare("SELECT status FROM agents WHERE id=?").get(retained.id)
 					?.status,
 				"pending",
 			);
 			assert.equal(retained.output[0].content[0].text, "saved");
 			assert.equal(retained.calls[0].status, "failed");
 			assert.equal(
-				(await f.get(`/api/turns/${turn.id}`)).turns[0].calls[0].status,
+				(await f.get(`/api/agents/${agent.id}`)).agents[0].calls[0].status,
 				"failed",
 			);
 			for (const kind of ["metadata", "request", "response", ""]) {
 				const call = (
 					await f.get(
-						`/api/turns/${turn.id}/calls${kind ? `?kind=${kind}&callId=${calls[0].id}` : ""}`,
+						`/api/agents/${agent.id}/calls${kind ? `?kind=${kind}&callId=${calls[0].id}` : ""}`,
 					)
 				).calls[0];
 				assert.equal(call.status, "failed");
@@ -437,10 +437,10 @@ for (const failedWrite of ["progress", "terminal"])
 			await f.restart();
 			const history = await f.get(`/api/chats/${f.chat.id}`);
 			assert.equal(history.busy, false);
-			assert.equal(history.turns.at(-1).errorCode, "modelInterrupted");
-			assert.equal(history.turns.at(-1).output[0].content[0].text, "saved");
+			assert.equal(history.agents.at(-1).errorCode, "modelInterrupted");
+			assert.equal(history.agents.at(-1).output[0].content[0].text, "saved");
 			assert.equal(
-				(await f.get(`/api/turns/${turn.id}/calls`)).calls[0].responseBody,
+				(await f.get(`/api/agents/${agent.id}/calls`)).calls[0].responseBody,
 				calls[0].responseBody,
 			);
 			assert.equal(requests, 1);
@@ -479,36 +479,36 @@ for (const httpStatus of [200, 503])
 				prompt: "question",
 			});
 			assert.equal(pending.status, 202);
-			const acceptedId = (await pending.json()).turnId;
+			const acceptedId = (await pending.json()).agentId;
 			while (!stream) await new Promise((resolve) => setImmediate(resolve));
 			const raw =
 				httpStatus === 200
 					? delta("saved answer")
 					: "partial stream-secret body";
 			stream.enqueue(new TextEncoder().encode(raw));
-			let saved = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+			let saved = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 			while (
-				(await f.get(`/api/turns/${saved.id}/calls`)).calls[0].responseBody !==
+				(await f.get(`/api/agents/${saved.id}/calls`)).calls[0].responseBody !==
 				raw.replaceAll("stream-secret", "[REDACTED]")
 			) {
 				await new Promise((resolve) => setImmediate(resolve));
-				saved = (await f.get(`/api/chats/${f.chat.id}`)).turns.at(-1);
+				saved = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 			}
 			stream.error(new Error("private upstream body stream-secret"));
-			const completedTurn = await f.wait(acceptedId);
-			assert.equal(completedTurn.status, "failed");
+			const completedAgent = await f.wait(acceptedId);
+			assert.equal(completedAgent.status, "failed");
 			assert.doesNotMatch(
-				JSON.stringify(completedTurn),
+				JSON.stringify(completedAgent),
 				/private upstream body|stream-secret/,
 			);
 			const history = await f.get(`/api/chats/${f.chat.id}`);
 			assert.equal(history.busy, false);
-			assert.equal(history.turns.at(-1).status, "failed");
+			assert.equal(history.agents.at(-1).status, "failed");
 			assert.equal(
-				history.turns.at(-1).output[0]?.content[0]?.text,
+				history.agents.at(-1).output[0]?.content[0]?.text,
 				httpStatus === 200 ? "saved answer" : undefined,
 			);
-			const call = (await f.get(`/api/turns/${saved.id}/calls`)).calls[0];
+			const call = (await f.get(`/api/agents/${saved.id}/calls`)).calls[0];
 			assert.equal(
 				call.responseBody,
 				raw.replaceAll("stream-secret", "[REDACTED]"),
@@ -551,7 +551,7 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 			prompt: "think",
 		});
 		assert.equal(pending.status, 202);
-		const acceptedId = (await pending.json()).turnId;
+		const acceptedId = (await pending.json()).agentId;
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		stream.enqueue(
 			new TextEncoder().encode(
@@ -571,12 +571,12 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 			),
 		);
 		let history = await f.get(`/api/chats/${f.chat.id}`);
-		while (history.turns[0]?.output.length !== 5) {
+		while (history.agents[0]?.output.length !== 5) {
 			await new Promise((resolve) => setImmediate(resolve));
 			history = await f.get(`/api/chats/${f.chat.id}`);
 		}
-		const id = history.turns[0].id;
-		const ordered = history.turns[0].output;
+		const id = history.agents[0].id;
+		const ordered = history.agents[0].output;
 		assert.deepEqual(
 			ordered.map((item: { type: string }) => item.type),
 			["reasoning", "message", "reasoning", "message", "reasoning"],
@@ -588,11 +588,11 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 		assert.equal(ordered[1].content[0].text, "answer one");
 		assert.doesNotMatch(JSON.stringify(history), /later body|ciphertext|brief/);
 		assert.doesNotMatch(
-			JSON.stringify(await f.get(`/api/turns/${id}`)),
+			JSON.stringify(await f.get(`/api/agents/${id}`)),
 			/later body|ciphertext|brief/,
 		);
 		assert.equal(
-			(await f.get(`/api/turns/${id}/reasoning`)).output[0].content[0].text,
+			(await f.get(`/api/agents/${id}/reasoning`)).output[0].content[0].text,
 			"body",
 		);
 		stream.enqueue(
@@ -611,23 +611,26 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 					}),
 			),
 		);
-		let details = await f.get(`/api/turns/${id}/reasoning`);
+		let details = await f.get(`/api/agents/${id}/reasoning`);
 		while (details.output[0].content[0].text !== "body grows!") {
 			await new Promise((resolve) => setImmediate(resolve));
-			details = await f.get(`/api/turns/${id}/reasoning`);
+			details = await f.get(`/api/agents/${id}/reasoning`);
 		}
 		assert.equal(details.output[0].content[1].text, "brief grows!");
-		assert.equal((await f.get(`/api/turns/${id}`)).turns[0].status, "pending");
+		assert.equal(
+			(await f.get(`/api/agents/${id}`)).agents[0].status,
+			"pending",
+		);
 		stream.close();
 		assert.equal((await f.wait(acceptedId)).status, "failed");
 		await f.restart();
-		assert.equal((await f.get(`/api/turns/${id}`)).turns[0].status, "failed");
+		assert.equal((await f.get(`/api/agents/${id}`)).agents[0].status, "failed");
 		assert.equal(
-			(await f.get(`/api/turns/${id}/reasoning`)).output[0].content[0].text,
+			(await f.get(`/api/agents/${id}/reasoning`)).output[0].content[0].text,
 			"body grows!",
 		);
 		assert.equal(
-			(await f.get(`/api/turns/${id}/reasoning`)).output.at(-1).content.length,
+			(await f.get(`/api/agents/${id}/reasoning`)).output.at(-1).content.length,
 			0,
 		);
 	} finally {
@@ -659,8 +662,8 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 			prompt: "recover",
 		});
 		assert.equal(submitted.status, 202);
-		const acceptedId = (await submitted.json()).turnId;
-		const turnId = JSON.parse((await initial()).split("data: ")[1]).turnId;
+		const acceptedId = (await submitted.json()).agentId;
+		const agentId = JSON.parse((await initial()).split("data: ")[1]).agentId;
 		while (!stream) await new Promise((resolve) => setImmediate(resolve));
 		first.abort();
 		const raw =
@@ -671,23 +674,24 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 				delta: "durable thinking",
 			}) + delta("durable answer", 1);
 		stream.enqueue(new TextEncoder().encode(raw));
-		while ((await f.get(`/api/turns/${turnId}`)).turns[0].output.length < 2)
+		while ((await f.get(`/api/agents/${agentId}`)).agents[0].output.length < 2)
 			await new Promise((resolve) => setImmediate(resolve));
 		const next = await f.events(reconnect.signal).then(events);
 		assert.equal(await next(), ": connected");
-		const recovered = await f.get(`/api/turns/${turnId}`);
+		const recovered = await f.get(`/api/agents/${agentId}`);
 		assert.equal(recovered.busy, true);
-		assert.equal(recovered.turns[0].status, "pending");
+		assert.equal(recovered.agents[0].status, "pending");
 		assert.equal(
-			recovered.turns[0].output[1].content[0].text,
+			recovered.agents[0].output[1].content[0].text,
 			"durable answer",
 		);
 		assert.equal(
-			(await f.get(`/api/turns/${turnId}/reasoning`)).output[0].content[0].text,
+			(await f.get(`/api/agents/${agentId}/reasoning`)).output[0].content[0]
+				.text,
 			"durable thinking",
 		);
 		assert.equal(
-			(await f.get(`/api/turns/${turnId}/calls`)).calls[0].responseBody,
+			(await f.get(`/api/agents/${agentId}/calls`)).calls[0].responseBody,
 			raw,
 		);
 		assert.equal(
@@ -701,7 +705,7 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 		);
 		stream.close();
 		assert.equal((await f.wait(acceptedId)).status, "failed");
-		assert.equal((await f.get(`/api/turns/${turnId}`)).busy, false);
+		assert.equal((await f.get(`/api/agents/${agentId}`)).busy, false);
 		assert.equal(requests, 1);
 	} finally {
 		first.abort();
@@ -710,7 +714,7 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 	}
 });
 
-test("a Turn finalization write failure keeps a successfully saved Model Call succeeded", async () => {
+test("a Agent finalization write failure keeps a successfully saved Model Call succeeded", async () => {
 	const raw = completedBody({
 		status: "completed",
 		output: [item("m0", "saved")],
@@ -722,7 +726,7 @@ test("a Turn finalization write failure keeps a successfully saved Model Call su
 	const db = new DatabaseSync(f.path);
 	try {
 		db.exec(
-			"CREATE TRIGGER reject_final BEFORE UPDATE ON turns WHEN NEW.status != 'pending' BEGIN SELECT RAISE(ABORT,'write rejected'); END",
+			"CREATE TRIGGER reject_final BEFORE UPDATE ON agents WHEN NEW.status != 'pending' BEGIN SELECT RAISE(ABORT,'write rejected'); END",
 		);
 		const accepted = await (
 			await f.post(`/api/chats/${f.chat.id}`, {
@@ -730,12 +734,12 @@ test("a Turn finalization write failure keeps a successfully saved Model Call su
 				prompt: "answer",
 			})
 		).json();
-		await f.waitForIdle(accepted.turnId);
-		const turn = (await f.get(`/api/chats/${f.chat.id}`)).turns[0];
-		assert.equal(turn.status, "failed");
-		assert.equal(turn.errorCode, "answerWriteFailed");
-		assert.equal(turn.calls[0].status, "succeeded");
-		const call = (await f.get(`/api/turns/${turn.id}/calls?kind=response`))
+		await f.waitForIdle(accepted.agentId);
+		const agent = (await f.get(`/api/chats/${f.chat.id}`)).agents[0];
+		assert.equal(agent.status, "failed");
+		assert.equal(agent.errorCode, "answerWriteFailed");
+		assert.equal(agent.calls[0].status, "succeeded");
+		const call = (await f.get(`/api/agents/${agent.id}/calls?kind=response`))
 			.calls[0];
 		assert.equal(call.status, "succeeded");
 		assert.equal(call.error, null);
@@ -769,12 +773,12 @@ test("Model Call saves SSE events without comments and survives restart", async 
 				prompt: "question",
 			})
 		).json();
-		assert.equal((await f.wait(accepted.turnId)).status, "succeeded");
-		const calls = await f.get(`/api/turns/${accepted.turnId}/calls`);
+		assert.equal((await f.wait(accepted.agentId)).status, "succeeded");
+		const calls = await f.get(`/api/agents/${accepted.agentId}/calls`);
 		assert.equal(calls.calls[0].responseBody, expected);
 		await f.restart();
 		assert.equal(
-			(await f.get(`/api/turns/${accepted.turnId}/calls`)).calls[0]
+			(await f.get(`/api/agents/${accepted.agentId}/calls`)).calls[0]
 				.responseBody,
 			expected,
 		);
@@ -861,8 +865,8 @@ for (const scenario of [
 					prompt: "question",
 				})
 			).json();
-			assert.equal((await f.wait(accepted.turnId)).status, "failed");
-			const call = (await f.get(`/api/turns/${accepted.turnId}/calls`))
+			assert.equal((await f.wait(accepted.agentId)).status, "failed");
+			const call = (await f.get(`/api/agents/${accepted.agentId}/calls`))
 				.calls[0];
 			assert.equal(call.responseBody, scenario.expected);
 			assert.equal(call.httpStatus, scenario.status);
@@ -897,7 +901,7 @@ test("pending SSE records exclude comments and protect split credentials before 
 		).json();
 		async function expectBody(body: string | null) {
 			for (let attempt = 0; attempt < 100; attempt++) {
-				const call = (await f.get(`/api/turns/${accepted.turnId}/calls`))
+				const call = (await f.get(`/api/agents/${accepted.agentId}/calls`))
 					.calls[0];
 				assert.equal(call.status, "pending");
 				if (call.responseBody === body) return;
@@ -912,14 +916,15 @@ test("pending SSE records exclude comments and protect split credentials before 
 		stream.enqueue(new TextEncoder().encode("secret\n: trailing"));
 		await expectBody("data: [REDACTED]\n");
 		stream.error(new Error("interrupted stream-secret"));
-		assert.equal((await f.wait(accepted.turnId)).status, "failed");
-		const call = (await f.get(`/api/turns/${accepted.turnId}/calls`)).calls[0];
+		assert.equal((await f.wait(accepted.agentId)).status, "failed");
+		const call = (await f.get(`/api/agents/${accepted.agentId}/calls`))
+			.calls[0];
 		assert.equal(call.responseBody, "data: [REDACTED]\n");
 		assert.equal(call.httpStatus, 200);
 		assert(!call.error.includes("stream-secret"));
 		await f.restart();
 		assert.equal(
-			(await f.get(`/api/turns/${accepted.turnId}/calls`)).calls[0]
+			(await f.get(`/api/agents/${accepted.agentId}/calls`)).calls[0]
 				.responseBody,
 			"data: [REDACTED]\n",
 		);

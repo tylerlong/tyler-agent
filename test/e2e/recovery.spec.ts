@@ -18,8 +18,8 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 	await page.addInitScript(`
 		const listen = EventSource.prototype.addEventListener;
 		EventSource.prototype.addEventListener = function(type, listener, options) {
-			return listen.call(this, type, type === "turn" ? (event) => {
-				if (!window.missTurnEvents) listener(event);
+			return listen.call(this, type, type === "agent" ? (event) => {
+				if (!window.missAgentEvents) listener(event);
 			} : listener, options);
 		};
 	`);
@@ -49,7 +49,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 	const started = new Promise<void>((resolve) => {
 		arrived = resolve;
 	});
-	await page.route("**/api/turns/*", async (route) => {
+	await page.route("**/api/agents/*", async (route) => {
 		const response = await route.fetch();
 		arrived();
 		await held;
@@ -64,7 +64,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 		}),
 	);
 	await started;
-	await page.evaluate("window.missTurnEvents = true");
+	await page.evaluate("window.missAgentEvents = true");
 	stream.push(
 		completedBody({
 			output: [
@@ -85,7 +85,7 @@ test("a late targeted snapshot cannot undo newer focus recovery", async ({
 		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
 	).toBeEnabled();
 	const delivered = page.waitForResponse((response) =>
-		/\/api\/turns\/\d+$/.test(response.url()),
+		/\/api\/agents\/\d+$/.test(response.url()),
 	);
 	release();
 	await delivered;
@@ -166,7 +166,7 @@ test("pending cached thinking and raw records recover on focus, visibility, reco
 	}
 	let block = true;
 	for (const browserPage of [page, other])
-		await browserPage.route("**/api/turns/*", (route) =>
+		await browserPage.route("**/api/agents/*", (route) =>
 			block ? route.abort() : route.continue(),
 		);
 	const advance = async (text: string) => {
@@ -183,7 +183,7 @@ test("pending cached thinking and raw records recover on focus, visibility, reco
 				async () =>
 					(
 						await (
-							await page.request.get(`${app.url}/api/turns/1/reasoning`)
+							await page.request.get(`${app.url}/api/agents/1/reasoning`)
 						).json()
 					).output[0].content[0].text,
 			)
@@ -291,7 +291,7 @@ test("late thinking and communication successes or errors cannot replace newer c
 			release = resolve;
 		});
 		const arrived = new Set<string>();
-		await page.route("**/api/turns/*/*", async (route) => {
+		await page.route("**/api/agents/*/*", async (route) => {
 			const path = new URL(route.request().url()).pathname;
 			if (arrived.has(path)) return route.continue();
 			const saved = await route.fetch();
@@ -327,7 +327,7 @@ test("late thinking and communication successes or errors cannot replace newer c
 		await expect(log).toContainText(` ${latest}`);
 		await expect(response.locator("pre").last()).toContainText(latest);
 		await expect(log).not.toContainText("Unable to read");
-		await page.unroute("**/api/turns/*/*");
+		await page.unroute("**/api/agents/*/*");
 	}
 	stream.end();
 	await submitted;

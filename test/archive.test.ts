@@ -4,9 +4,9 @@ import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 test("archive flags remain independent, enforce read-only and persist without stopping answers", async () => {
 	const folder = await mkdtemp(join(tmpdir(), "agent-archive-"));
@@ -95,7 +95,7 @@ test("archive flags remain independent, enforce read-only and persist without st
 		release();
 		const accepted = await answer;
 		assert.equal(accepted.status, 202);
-		await waitForTurn(url, (await accepted.json()).turnId);
+		await waitForAgent(url, (await accepted.json()).agentId);
 		const history = await (await request(`/api/chats/${chat.id}`)).json();
 		assert.equal(history.busy, false);
 		assert.equal(history.messages[1].content, "Answer");

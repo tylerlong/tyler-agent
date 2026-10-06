@@ -1,10 +1,10 @@
-import { expect, test } from "./fixtures.ts";
 import {
+	chatPicker,
 	expectEffort,
-	openTurnPicker,
+	openChatPicker,
 	selectEffort,
-	turnPicker,
-} from "./turn-picker.ts";
+} from "./chat-picker.ts";
+import { expect, test } from "./fixtures.ts";
 
 test("desktop boundary preserves drafts, modal addition and focus without preference writes", async ({
 	page,
@@ -25,7 +25,7 @@ test("desktop boundary preserves drafts, modal addition and focus without prefer
 	const notice = page.getByRole("dialog", { name: "Enlarge your window" });
 	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
 	await expect(notice).toBeHidden();
-	await expect(turnPicker(page)).toContainText(" · Default");
+	await expect(chatPicker(page)).toContainText(" · Default");
 	await expectEffort(page, "");
 	await selectEffort(page, "high");
 	await prompt.fill("Future draft");
@@ -140,7 +140,7 @@ test("running work finishes behind notice; maximum sidebar and long model keep c
 	const content = page.getByRole("region", { name: "Chat", exact: true });
 	await prompt.fill("Second question");
 	await expect(send).toBeInViewport();
-	await expect(turnPicker(page)).toBeInViewport();
+	await expect(chatPicker(page)).toBeInViewport();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
 		1280,
 	);
@@ -251,7 +251,7 @@ test("combined picker remains bounded with a long enabled list and exposes Reaso
 			await page.setViewportSize(size);
 			const prompt = page.getByLabel("Prompt", { exact: true });
 			const before = await prompt.boundingBox();
-			const popup = await openTurnPicker(page);
+			const popup = await openChatPicker(page);
 			await expect(popup).toBeInViewport();
 			await expect(
 				popup.getByRole("radio", { name: longName, exact: true }),

@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { completedBody, completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 async function complete(base: string, submitted: Promise<Response>) {
 	const response = await submitted;
 	assert.equal(response.status, 202);
-	const { turnId } = await response.json();
-	return waitForTurn(base, turnId);
+	const { agentId } = await response.json();
+	return waitForAgent(base, agentId);
 }
 
 test("chat histories are isolated; busy rejects duplicates and allows parallel chats; failures release busy", async () => {
@@ -130,7 +130,7 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 		);
 		const saved = await (await fetch(`${base}/api/chats/${a.id}`)).json();
 		assert.equal(saved.messages.length, 6);
-		assert.equal(saved.turns.at(-1).status, "failed");
+		assert.equal(saved.agents.at(-1).status, "failed");
 		assert.equal(saved.busy, false);
 		fail = false;
 		assert.equal(
@@ -208,7 +208,7 @@ test("all model and database failures preserve complete history and release chat
 			const db = new DatabaseSync(path);
 			if (mode === "db")
 				db.exec(
-					"CREATE TRIGGER reject_turn BEFORE INSERT ON turns BEGIN SELECT RAISE(ABORT,'write failed'); END",
+					"CREATE TRIGGER reject_turn BEFORE INSERT ON agents BEGIN SELECT RAISE(ABORT,'write failed'); END",
 				);
 			try {
 				assert.equal(
@@ -223,8 +223,8 @@ test("all model and database failures preserve complete history and release chat
 				);
 				const state = await (await fetch(url + route)).json();
 				assert.equal(
-					state.turns.filter(
-						(turn: { status: string }) => turn.status === "succeeded",
+					state.agents.filter(
+						(agent: { status: string }) => agent.status === "succeeded",
 					).length,
 					1,
 				);
@@ -246,7 +246,7 @@ test("all model and database failures preserve complete history and release chat
 		server = createServer(fake, path).listen(0, "127.0.0.1");
 		url = await base();
 		const state = await (await fetch(url + route)).json();
-		assert.equal(state.turns.length, 5);
+		assert.equal(state.agents.length, 5);
 		assert.equal(state.busy, false);
 	} finally {
 		server.closeAllConnections();
@@ -255,7 +255,7 @@ test("all model and database failures preserve complete history and release chat
 	}
 });
 
-test("turn communication is exact, redacted, independently readable and survives interrupted completion", async () => {
+test("agent communication is exact, redacted, independently readable and survives interrupted completion", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-records-"));
 	const path = join(directory, "db.sqlite");
 	let mode = "hold";
@@ -325,15 +325,15 @@ test("turn communication is exact, redacted, independently readable and survives
 		});
 		while (!release) await new Promise((resolve) => setImmediate(resolve));
 		let history = await get(route);
-		const turnId = history.turns[0].id;
-		assert.equal(history.turns[0].status, "pending");
+		const agentId = history.agents[0].id;
+		assert.equal(history.agents[0].status, "pending");
 		assert.doesNotMatch(
 			JSON.stringify(history),
 			/record-secret|requestBody|responseBody/,
 		);
-		let calls = (await get(`/api/turns/${turnId}/calls`)).calls;
+		let calls = (await get(`/api/agents/${agentId}/calls`)).calls;
 		assert.equal(calls.length, 1);
-		assert.equal(calls[0].turnId, turnId);
+		assert.equal(calls[0].agentId, agentId);
 		assert.equal(calls[0].responseBody, null);
 		assert.equal(calls[0].method, "POST");
 		assert.equal(calls[0].url, "https://openrouter.ai/api/v1/responses");
@@ -342,7 +342,7 @@ test("turn communication is exact, redacted, independently readable and survives
 		]);
 		release();
 		assert.equal((await complete(url, first)).status, "succeeded");
-		calls = (await get(`/api/turns/${turnId}/calls`)).calls;
+		calls = (await get(`/api/agents/${agentId}/calls`)).calls;
 		assert.equal(
 			calls[0].responseBody,
 			raw.replaceAll("record-secret", "[REDACTED]"),
@@ -350,12 +350,13 @@ test("turn communication is exact, redacted, independently readable and survives
 		assert.equal(calls[0].httpStatus, 200);
 		assert.equal(calls[0].status, "succeeded");
 		assert.equal(typeof calls[0].durationMs, "number");
-		const requestOnly = (await get(`/api/turns/${turnId}/calls?kind=request`))
+		const requestOnly = (await get(`/api/agents/${agentId}/calls?kind=request`))
 			.calls[0];
 		assert.equal(requestOnly.requestBody, calls[0].requestBody);
 		assert.equal(requestOnly.responseBody, null);
-		const responseOnly = (await get(`/api/turns/${turnId}/calls?kind=response`))
-			.calls[0];
+		const responseOnly = (
+			await get(`/api/agents/${agentId}/calls?kind=response`)
+		).calls[0];
 		assert.equal(responseOnly.requestBody, null);
 		assert.equal(responseOnly.responseBody, calls[0].responseBody);
 		assert.equal((await fetch(`${url}/api/debug`)).status, 404);
@@ -374,9 +375,9 @@ test("turn communication is exact, redacted, independently readable and survives
 			history = await get(route);
 			if (mode === "bad")
 				assert.doesNotMatch(JSON.stringify(history), /not JSON/);
-			const failed = history.turns.at(-1);
+			const failed = history.agents.at(-1);
 			assert.equal(failed.status, "failed");
-			const call = (await get(`/api/turns/${failed.id}/calls`)).calls[0];
+			const call = (await get(`/api/agents/${failed.id}/calls`)).calls[0];
 			assert.equal(call.status, "failed");
 			assert.equal(
 				call.httpStatus,
@@ -429,7 +430,7 @@ test("turn communication is exact, redacted, independently readable and survives
 		assert.equal(count, before);
 		db.exec("DROP TRIGGER reject_request");
 		db.exec(
-			"CREATE TRIGGER reject_complete BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'no result write');END",
+			"CREATE TRIGGER reject_complete BEFORE UPDATE ON agents BEGIN SELECT RAISE(ABORT,'no result write');END",
 		);
 		assert.equal(
 			(
@@ -441,16 +442,16 @@ test("turn communication is exact, redacted, independently readable and survives
 			"failed",
 		);
 		history = await get(route);
-		const interrupted = history.turns.at(-1);
+		const interrupted = history.agents.at(-1);
 		assert.equal(interrupted.status, "failed");
 		assert.equal(interrupted.errorCode, "answerWriteFailed");
 		assert.equal(
-			db.prepare("SELECT status FROM turns WHERE id=?").get(interrupted.id)
+			db.prepare("SELECT status FROM agents WHERE id=?").get(interrupted.id)
 				?.status,
 			"pending",
 		);
 		assert.equal(
-			(await get(`/api/turns/${interrupted.id}/calls`)).calls[0].responseBody,
+			(await get(`/api/agents/${interrupted.id}/calls`)).calls[0].responseBody,
 			null,
 		);
 		db.exec("DROP TRIGGER reject_complete");
@@ -463,10 +464,10 @@ test("turn communication is exact, redacted, independently readable and survives
 		);
 		url = await base();
 		history = await get(route);
-		assert.equal(history.turns.at(-1).errorCode, "modelInterrupted");
+		assert.equal(history.agents.at(-1).errorCode, "modelInterrupted");
 		assert.equal(history.busy, false);
 		assert.equal(count, sent);
-		const interruptedCall = (await get(`/api/turns/${interrupted.id}/calls`))
+		const interruptedCall = (await get(`/api/agents/${interrupted.id}/calls`))
 			.calls[0];
 		assert.equal(interruptedCall.status, "failed");
 		assert.equal(interruptedCall.responseBody, null);
@@ -477,7 +478,7 @@ test("turn communication is exact, redacted, independently readable and survives
 			body: JSON.stringify({ archived: true }),
 		});
 		assert.equal(
-			(await get(`/api/turns/${turnId}/calls`)).calls[0].responseBody,
+			(await get(`/api/agents/${agentId}/calls`)).calls[0].responseBody,
 			raw.replaceAll("record-secret", "[REDACTED]"),
 		);
 	} finally {

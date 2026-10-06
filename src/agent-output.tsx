@@ -15,8 +15,8 @@ const downloads = new Map<
 >();
 const folds = new Map<string, boolean>();
 
-export function TurnOutput({
-	turnId,
+export function AgentOutput({
+	agentId,
 	callId,
 	ordinal,
 	status,
@@ -24,7 +24,7 @@ export function TurnOutput({
 	revision,
 	onLayoutChange,
 }: {
-	turnId: number;
+	agentId: number;
 	callId: number;
 	ordinal: number;
 	status: string;
@@ -34,7 +34,7 @@ export function TurnOutput({
 }) {
 	const { t } = useTranslation();
 	useLayoutEffect(onLayoutChange);
-	const cacheKey = `${turnId}-${callId}`;
+	const cacheKey = `${agentId}-${callId}`;
 	const [download, setDownload] = useState(() => downloads.get(cacheKey));
 	const [choices, setChoices] = useState(() => new Map(folds));
 	const [error, setError] = useState(false);
@@ -44,7 +44,7 @@ export function TurnOutput({
 	);
 	const expanded = reasoning.some(
 		(item) =>
-			choices.get(`${turnId}-${callId}-${item.index}`) ?? status === "pending",
+			choices.get(`${agentId}-${callId}-${item.index}`) ?? status === "pending",
 	);
 	useEffect(() => {
 		const cached = downloads.get(cacheKey);
@@ -57,7 +57,7 @@ export function TurnOutput({
 		)
 			return;
 		let current = true;
-		void fetch(`/api/turns/${turnId}/reasoning?callOrdinal=${ordinal}`)
+		void fetch(`/api/agents/${agentId}/reasoning?callOrdinal=${ordinal}`)
 			.then(async (response) => {
 				if (!response.ok) throw new Error("Read failed");
 				const data = await response.json();
@@ -74,7 +74,7 @@ export function TurnOutput({
 			current = false;
 		};
 	}, [
-		turnId,
+		agentId,
 		cacheKey,
 		ordinal,
 		status,
@@ -97,7 +97,7 @@ export function TurnOutput({
 				<div
 					key={item.index}
 					data-output-index={item.index}
-					data-reading-anchor={`${turnId}-output-${item.index}`}
+					data-reading-anchor={`${agentId}-output-${item.index}`}
 				>
 					{item.content
 						.filter(
@@ -106,7 +106,7 @@ export function TurnOutput({
 						.map((part) => (
 							<div
 								key={`${part.index}-${part.type}`}
-								data-reading-anchor={`${turnId}-output-${item.index}-${part.type}-${part.index}`}
+								data-reading-anchor={`${agentId}-output-${item.index}-${part.type}-${part.index}`}
 							>
 								{part.text}
 							</div>
@@ -115,7 +115,7 @@ export function TurnOutput({
 			);
 		}
 		if (item.type !== "reasoning" || !item.content.length) return null;
-		const key = `${turnId}-${callId}-${item.index}`;
+		const key = `${agentId}-${callId}-${item.index}`;
 		const open = choices.get(key) ?? status === "pending";
 		const content = download?.output.find(
 			(value) => value.index === item.index,
@@ -124,7 +124,7 @@ export function TurnOutput({
 			<div
 				key={item.index}
 				data-output-index={item.index}
-				data-reading-anchor={`${turnId}-output-${item.index}`}
+				data-reading-anchor={`${agentId}-output-${item.index}`}
 				className="my-2 rounded border border-neutral-200 p-3"
 			>
 				<button
@@ -144,7 +144,7 @@ export function TurnOutput({
 						{content?.map((part) => (
 							<div
 								key={`${part.index}-${part.type}`}
-								data-reading-anchor={`${turnId}-output-${item.index}-${part.type}-${part.index}`}
+								data-reading-anchor={`${agentId}-output-${item.index}-${part.type}-${part.index}`}
 							>
 								<strong>
 									{t(

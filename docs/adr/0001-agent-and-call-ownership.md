@@ -40,3 +40,5 @@ Agent 不另存完整历史上下文：当前 prompt 属于 Agent，既有成功
 3. 按 Model Call 保存有序输出及调用错误，按单一外键读取 Tool Call；执行循环逐次读取当前配置与工具范围。
 4. 统一代码、HTTP、事件、界面、测试和 README 中的 Agent 命名；只读 Chat 隐藏输入区域并避免入口补齐写入。
 5. 使用临时数据库和假的模型响应验证归属、顺序、默认补齐、只读界面及既有工具循环；实施阶段再重建已获授权的开发数据库，不调用付费模型进行验证。
+
+统一 Agent 接口使用 `/api/agents/:id` 及其 calls、tools、reasoning 读取入口，接纳返回 HTTP 202 与 `agentId`，历史集合使用 `agents`，实时事件使用 `agent`，选项使用 `chatOptions`。Tool Call 只保存 `model_call_id`；读取时沿 Model Call 派生任务 ID。活动取最近 Agent 接纳时间，无任务的 Chat 与无 Chat 的 Project 保留创建时间兜底及 ID 排序；不因完成或编辑更新。新 schema 要求空数据库；普通启动拒绝未知 schema，不自动删除或升级。实施验证使用临时数据库，开发数据库在收尾时单独重建。

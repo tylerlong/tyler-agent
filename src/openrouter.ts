@@ -127,7 +127,7 @@ export async function requestModel(
 		if (round === 4)
 			throw new ModelError(
 				"modelCallLimit",
-				"Turn reached the five model request limit",
+				"Agent reached the five model request limit",
 			);
 		input.push(...response.protocol);
 		for (const [index, call] of response.tools.entries()) {
@@ -147,7 +147,7 @@ export async function requestModel(
 	}
 	throw new ModelError(
 		"modelCallLimit",
-		"Turn reached the five model request limit",
+		"Agent reached the five model request limit",
 	);
 }
 async function requestOnce(

@@ -171,7 +171,47 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		server.emit("close");
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 11);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 12);
+		assert.deepEqual(
+			db
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+				)
+				.all()
+				.map((row) => row.name),
+			[
+				"agents",
+				"chats",
+				"folders",
+				"managed_models",
+				"model_calls",
+				"projects",
+				"settings",
+				"tool_calls",
+			],
+		);
+		assert.equal(
+			db
+				.prepare("PRAGMA table_info(chats)")
+				.all()
+				.some((column) => column.name === "last_question_at"),
+			false,
+		);
+		assert.deepEqual(
+			db
+				.prepare("PRAGMA foreign_key_list(tool_calls)")
+				.all()
+				.map((key) => [key.from, key.table]),
+			[["model_call_id", "model_calls"]],
+		);
+		assert.deepEqual(
+			db
+				.prepare("PRAGMA foreign_key_list(model_calls)")
+				.all()
+				.map((key) => [key.from, key.table]),
+			[["agent_id", "agents"]],
+		);
+
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
 			{
@@ -205,16 +245,16 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		]);
 		db.exec(`INSERT INTO projects(name,created_at) VALUES('Saved',1);
 			INSERT INTO chats(project_id,name,created_at) VALUES(1,'Chat',2);
-			INSERT INTO turns(chat_id,user_content,assistant_content,status,created_at) VALUES(1,'Question','部分回答','pending',3);
-			INSERT INTO model_calls(turn_id,url,method,requested_at,request_body,status,response_body) VALUES(1,'https://example.test','POST','now','{}','pending','data: partial');
+			INSERT INTO agents(chat_id,prompt,assistant_content,status,created_at) VALUES(1,'Question','部分回答','pending',3);
+			INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status,response_body) VALUES(1,'https://example.test','POST','now','{}','pending','data: partial');
 			UPDATE settings SET sidebar_width=410.5,language='zh-CN' WHERE id=1;`);
 		assert.equal(
-			db.prepare("SELECT output_json FROM turns").get()?.output_json,
+			db.prepare("SELECT output_json FROM agents").get()?.output_json,
 			"[]",
 		);
-		db.prepare("UPDATE turns SET output_json=? WHERE id=1").run(output);
+		db.prepare("UPDATE agents SET output_json=? WHERE id=1").run(output);
 		assert.throws(
-			() => db.prepare("UPDATE turns SET output_json=?").run("{}"),
+			() => db.prepare("UPDATE agents SET output_json=?").run("{}"),
 			/CHECK/,
 		);
 		db.close();
@@ -227,7 +267,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 			{
 				...saved
 					.prepare(
-						"SELECT assistant_content,output_json,status,error_code FROM turns",
+						"SELECT assistant_content,output_json,status,error_code FROM agents",
 					)
 					.get(),
 			},
@@ -314,7 +354,7 @@ test("unsupported, invalid, corrupt and read-only databases fail without resetti
 		const invalid = join(directory, "invalid.sqlite");
 		createServer(fetch, invalid).emit("close");
 		const invalidDb = new DatabaseSync(invalid);
-		invalidDb.exec("ALTER TABLE turns DROP COLUMN output_json");
+		invalidDb.exec("ALTER TABLE agents DROP COLUMN output_json");
 		invalidDb.close();
 		assert.throws(
 			() => createServer(fetch, invalid),

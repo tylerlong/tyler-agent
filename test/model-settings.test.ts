@@ -6,8 +6,8 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { openDatabase } from "../src/database.ts";
 import { createServer } from "../src/server.ts";
+import { waitForAgent } from "./agent-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 const catalogModel = (id: string, name = id, reasoning?: unknown) => ({
 	id,
@@ -198,7 +198,7 @@ test("fresh database has empty model settings with no environment fallback", asy
 		db.exec(
 			"INSERT INTO projects(id,name,created_at) VALUES(1,'Project',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1)",
 		);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 11);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 12);
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
 			{
@@ -331,12 +331,12 @@ test("accepted call keeps captured key/model through replacement and removal, wi
 		release?.();
 		const accepted = await pending;
 		assert.equal(accepted.status, 202);
-		await waitForTurn(base, (await accepted.json()).turnId);
+		await waitForAgent(base, (await accepted.json()).agentId);
 		const history = await (await request(`/api/chats/${chat.id}`)).json();
-		assert.equal(history.turns[0].question, "Question [REDACTED]");
-		assert.equal(history.turns[0].answer, "Echo [REDACTED]");
+		assert.equal(history.agents[0].question, "Question [REDACTED]");
+		assert.equal(history.agents[0].answer, "Echo [REDACTED]");
 		const communication = await (
-			await request(`/api/turns/${history.turns[0].id}/calls`)
+			await request(`/api/agents/${history.agents[0].id}/calls`)
 		).text();
 		assert.doesNotMatch(communication, /old-secret/);
 		assert.match(communication, /old-model/);

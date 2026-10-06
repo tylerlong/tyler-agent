@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
 test("history restores a same-request pair across all statuses and pages, skipping unreadable calls only", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-options-"));
@@ -30,34 +30,34 @@ test("history restores a same-request pair across all statuses and pages, skippi
 		const options = (query = "") =>
 			fetch(base + route + query)
 				.then((response) => response.json())
-				.then((body) => body.turnOptions);
+				.then((body) => body.chatOptions);
 		assert.deepEqual(await options(), {
 			modelId: "test",
 			reasoningEffort: null,
 		});
 		const db = new DatabaseSync(path);
 		try {
-			const turn = (status: string) =>
+			const agent = (status: string) =>
 				Number(
 					db
 						.prepare(
-							"INSERT INTO turns(chat_id,user_content,status,created_at) VALUES (?,'Q',?,0)",
+							"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,'Q',?,0)",
 						)
 						.run(chat.id, status).lastInsertRowid,
 				);
 			const call = (id: number, body: string, status = "failed") =>
 				db
 					.prepare(
-						"INSERT INTO model_calls(turn_id,url,method,requested_at,request_body,status) VALUES (?,'url','POST','now',?,?)",
+						"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status) VALUES (?,'url','POST','now',?,?)",
 					)
 					.run(id, body, status);
-			const oldest = turn("failed");
+			const oldest = agent("failed");
 			call(
 				oldest,
 				JSON.stringify({ model: "old", reasoning: { effort: "high" } }),
 			);
 			for (let i = 0; i < 12; i++) {
-				const id = turn("failed");
+				const id = agent("failed");
 				call(id, i % 2 ? "{" : JSON.stringify({ model: " " }));
 			}
 			assert.deepEqual(await options(), {
@@ -68,7 +68,7 @@ test("history restores a same-request pair across all statuses and pages, skippi
 				modelId: "old",
 				reasoningEffort: "high",
 			});
-			const pending = turn("pending");
+			const pending = agent("pending");
 			call(
 				pending,
 				JSON.stringify({ model: "test", reasoning: { effort: "unsupported" } }),
@@ -84,7 +84,7 @@ test("history restores a same-request pair across all statuses and pages, skippi
 				reasoningEffort: null,
 			});
 			call(
-				turn("succeeded"),
+				agent("succeeded"),
 				JSON.stringify({ model: "test", reasoning: { effort: "low" } }),
 				"succeeded",
 			);
@@ -187,7 +187,7 @@ test("chosen model/effort are validated before acceptance and immutable through 
 				assert.equal((await request(route, "POST", body)).status, 400);
 			}
 			assert.equal(
-				db.prepare("SELECT COUNT(*) AS count FROM turns").get()?.count,
+				db.prepare("SELECT COUNT(*) AS count FROM agents").get()?.count,
 				0,
 			);
 			assert.equal(requests.length, 0);
@@ -197,7 +197,7 @@ test("chosen model/effort are validated before acceptance and immutable through 
 				reasoningEffort: "high",
 			});
 			await start;
-			assert.deepEqual((await (await request(route)).json()).turnOptions, {
+			assert.deepEqual((await (await request(route)).json()).chatOptions, {
 				modelId: "chosen",
 				reasoningEffort: "high",
 			});
@@ -212,19 +212,21 @@ test("chosen model/effort are validated before acceptance and immutable through 
 			const accepted = await pending;
 			assert.equal(accepted.status, 202);
 			assert.equal(
-				(await waitForTurn(base, (await accepted.json()).turnId)).status,
+				(await waitForAgent(base, (await accepted.json()).agentId)).status,
 				"failed",
 			);
 			assert.deepEqual(requests[0].reasoning, { effort: "high" });
 			assert.equal(requests[0].model, "chosen");
 			const history = await (await request(route)).json();
-			assert.equal(history.turns[0].question, "Q [REDACTED]");
-			assert.deepEqual(history.turnOptions, {
+			assert.equal(history.agents[0].question, "Q [REDACTED]");
+			assert.deepEqual(history.chatOptions, {
 				modelId: "chosen",
 				reasoningEffort: "high",
 			});
 			assert.doesNotMatch(
-				await (await request(`/api/turns/${history.turns[0].id}/calls`)).text(),
+				await (
+					await request(`/api/agents/${history.agents[0].id}/calls`)
+				).text(),
 				/"test"/,
 			);
 			fail = false;
@@ -234,7 +236,7 @@ test("chosen model/effort are validated before acceptance and immutable through 
 				reasoningEffort: null,
 			});
 			assert.equal(plain.status, 202);
-			await waitForTurn(base, (await plain.json()).turnId);
+			await waitForAgent(base, (await plain.json()).agentId);
 			assert(!("reasoning" in requests[1]));
 			const gateway = await request(route, "POST", {
 				prompt: "Q",
@@ -242,9 +244,9 @@ test("chosen model/effort are validated before acceptance and immutable through 
 				reasoningEffort: "xhigh",
 			});
 			assert.equal(gateway.status, 202);
-			await waitForTurn(base, (await gateway.json()).turnId);
+			await waitForAgent(base, (await gateway.json()).agentId);
 			assert.deepEqual(requests[2].reasoning, { effort: "xhigh" });
-			assert.deepEqual((await (await request(route)).json()).turnOptions, {
+			assert.deepEqual((await (await request(route)).json()).chatOptions, {
 				modelId: "gateway",
 				reasoningEffort: "xhigh",
 			});

@@ -4,17 +4,17 @@ import { useTranslation } from "react-i18next";
 import type { ManagedModel } from "./database.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
 
-export type TurnOptions = {
+export type ChatOptions = {
 	modelId: string | null;
 	reasoningEffort: string | null;
 };
 function reasoningEfforts(model: ManagedModel | undefined) {
 	return model ? (supportedReasoningEfforts(model) ?? []) : [];
 }
-export function normalizeTurnOptions(
-	options: TurnOptions,
+export function normalizeChatOptions(
+	options: ChatOptions,
 	models: ManagedModel[],
-): TurnOptions {
+): ChatOptions {
 	const model = models.find((model) => model.id === options.modelId);
 	if (!model)
 		return options.modelId === null && options.reasoningEffort === null
@@ -25,21 +25,21 @@ export function normalizeTurnOptions(
 		? options
 		: { ...options, reasoningEffort: null };
 }
-export function validTurnOptions(options: TurnOptions, models: ManagedModel[]) {
+export function validChatOptions(options: ChatOptions, models: ManagedModel[]) {
 	return (
 		options.modelId !== null &&
-		normalizeTurnOptions(options, models) === options
+		normalizeChatOptions(options, models) === options
 	);
 }
-export function TurnOptionPicker({
+export function ChatOptionPicker({
 	options,
 	models,
 	change,
 	disabled = false,
 }: {
-	options: TurnOptions;
+	options: ChatOptions;
 	models: ManagedModel[];
-	change: (options: TurnOptions) => void;
+	change: (options: ChatOptions) => void;
 	disabled?: boolean;
 }) {
 	const { t } = useTranslation();
@@ -203,7 +203,7 @@ export function TurnOptionPicker({
 							options.modelId,
 							(modelId) =>
 								change(
-									normalizeTurnOptions(
+									normalizeChatOptions(
 										{ modelId, reasoningEffort: options.reasoningEffort },
 										models,
 									),

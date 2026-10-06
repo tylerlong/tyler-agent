@@ -163,9 +163,8 @@ test("all terminal kinds copy complete generic display including absent and empt
 		[3, "interrupted", null, "toolSaveFailed"],
 	] as const)
 		db.prepare(
-			"INSERT INTO tool_calls(turn_id,model_call_id,call_id,name,arguments,ordinal,status,result,reason) VALUES(?,?,?,?,?,?,?,?,?)",
+			"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status,result,reason) VALUES(?,?,?,?,?,?,?,?)",
 		).run(
-			saved.turn_id,
 			saved.model_call_id,
 			"same",
 			`arbitrary_${index}`,

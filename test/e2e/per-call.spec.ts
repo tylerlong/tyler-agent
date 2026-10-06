@@ -160,7 +160,7 @@ for (const language of ["en", "zh-CN"]) {
 		const db = new DatabaseSync(join(app.folder, "db.sqlite"));
 		try {
 			db.exec(
-				"CREATE TRIGGER reject_progress BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'write rejected'); END",
+				"CREATE TRIGGER reject_progress BEFORE UPDATE ON agents BEGIN SELECT RAISE(ABORT,'write rejected'); END",
 			);
 			stream.push(
 				frame("response.output_text.delta", {
@@ -202,7 +202,7 @@ for (const language of ["en", "zh-CN"]) {
 			const calls = (
 				await (
 					await page.request.get(
-						`${app.url}/api/turns/${accepted.turnId}/calls`,
+						`${app.url}/api/agents/${accepted.agentId}/calls`,
 					)
 				).json()
 			).calls;

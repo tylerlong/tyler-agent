@@ -1,15 +1,15 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { APIRequestContext } from "@playwright/test";
-import { expect, test } from "./fixtures.ts";
 import {
+	chatPicker,
 	expectEffort,
 	expectModel,
-	openTurnPicker,
+	openChatPicker,
 	selectEffort,
 	selectModel,
-	turnPicker,
-} from "./turn-picker.ts";
+} from "./chat-picker.ts";
+import { expect, test } from "./fixtures.ts";
 
 async function chats(request: APIRequestContext, url: string) {
 	const project = await (
@@ -58,7 +58,7 @@ test("model and effort choices stay local while busy and restore submitted histo
 	await hold.entered;
 	try {
 		await selectModel(page, "second");
-		await expect(turnPicker(page)).not.toContainText(" · ");
+		await expect(chatPicker(page)).not.toContainText(" · ");
 		await page.getByLabel("Prompt", { exact: true }).fill("Next draft");
 		await expect(
 			page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
@@ -423,7 +423,7 @@ test("restored unsupported effort silently resets to Default and model capabilit
 	await page.getByLabel("Prompt", { exact: true }).fill("Use restored default");
 	const send = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 	await expect(send).toBeEnabled();
-	let popup = await openTurnPicker(page);
+	let popup = await openChatPicker(page);
 	await expect(
 		popup.getByRole("radiogroup", { name: "Reasoning level" }).locator("label"),
 	).toHaveText(["Default", "low"]);
@@ -445,7 +445,7 @@ test("restored unsupported effort silently resets to Default and model capabilit
 		history.close();
 	}
 	await selectModel(page, "gateway");
-	popup = await openTurnPicker(page);
+	popup = await openChatPicker(page);
 	await expect(
 		popup.getByRole("radiogroup", { name: "Reasoning level" }).locator("label"),
 	).toHaveText(["Default", "minimal", "low", "medium", "high", "xhigh"]);
@@ -457,7 +457,7 @@ test("restored unsupported effort silently resets to Default and model capabilit
 	await selectModel(page, "gateway");
 	await expectEffort(page, "low");
 	await selectModel(page, "second");
-	await expect(turnPicker(page)).not.toContainText(" · ");
+	await expect(chatPicker(page)).not.toContainText(" · ");
 	await page.getByLabel("Prompt", { exact: true }).fill("Next draft");
 	await expect(send).toBeEnabled();
 });
@@ -477,8 +477,8 @@ test("combined picker applies immediately, keeps focus on keyboard dismissal and
 		)
 			posts.push(request.url());
 	});
-	const trigger = turnPicker(page);
-	const popup = await openTurnPicker(page);
+	const trigger = chatPicker(page);
+	const popup = await openChatPicker(page);
 	const high = popup.getByRole("radio", { name: "high", exact: true });
 	await high.focus();
 	await high.press("Enter");
@@ -513,7 +513,7 @@ test("catalog capability changes normalize the current draft without rewriting s
 	const { first } = await chats(page.request, app.url);
 	await page.goto(`${app.url}/?chat=${first.id}`);
 	await selectEffort(page, "high");
-	await page.getByLabel("Prompt", { exact: true }).fill("First high turn");
+	await page.getByLabel("Prompt", { exact: true }).fill("First high agent");
 	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await page.getByLabel("Prompt", { exact: true }).fill("Preserve my draft");

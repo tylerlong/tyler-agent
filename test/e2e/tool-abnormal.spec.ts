@@ -84,8 +84,8 @@ test("restart removes running and waiting loading and rereads interrupted histor
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
-	expect(history.turns).toHaveLength(1);
-	expect(history.turns[0].calls).toHaveLength(1);
+	expect(history.agents).toHaveLength(1);
+	expect(history.agents[0].calls).toHaveLength(1);
 });
 
 for (const boundary of ["establish", "start", "result", "terminal"]) {
@@ -150,7 +150,7 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 		const history = await (
 			await page.request.get(`${app.url}/api/chats/${chat.id}`)
 		).json();
-		expect(history.turns[0].calls).toHaveLength(1);
+		expect(history.agents[0].calls).toHaveLength(1);
 		await page.reload();
 		await expect(cards).toHaveCount(boundary === "establish" ? 0 : 2);
 		if (boundary !== "establish") {
@@ -204,8 +204,8 @@ test("fifth model response shows localized unexecuted tools without result or lo
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
-	expect(history.turns[0].calls).toHaveLength(5);
-	expect(history.turns[0].toolCalls[4].status).toBe("not_executed");
+	expect(history.agents[0].calls).toHaveLength(5);
+	expect(history.agents[0].toolCalls[4].status).toBe("not_executed");
 	await page.reload();
 	await expect(cards.nth(4).locator("summary")).toContainText("Not executed");
 	await cards.nth(4).locator("summary").click();
@@ -250,8 +250,8 @@ test("later model failure leaves a saved successful tool result readable across 
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
-	expect(history.turns[0].status).toBe("failed");
-	expect(history.turns[0].toolCalls[0].status).toBe("succeeded");
+	expect(history.agents[0].status).toBe("failed");
+	expect(history.agents[0].toolCalls[0].status).toBe("succeeded");
 	await app.restart();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(card.locator("summary")).toHaveText("Tool Call · inspect");

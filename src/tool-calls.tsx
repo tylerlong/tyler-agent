@@ -10,7 +10,7 @@ import { useTranslation } from "react-i18next";
 
 export type ToolCall = {
 	id: number;
-	turnId: number;
+	agentId: number;
 	modelCallId: number;
 	callId: string;
 	name: string;
@@ -103,7 +103,7 @@ export function ToolCallCard({
 		render((value) => value + 1);
 		try {
 			const response = await fetch(
-				`/api/turns/${call.turnId}/tools?toolId=${call.id}`,
+				`/api/agents/${call.agentId}/tools?toolId=${call.id}`,
 			);
 			if (!response.ok) throw new Error("Unable to read tool record");
 			const data = await response.json();
@@ -117,7 +117,7 @@ export function ToolCallCard({
 				render((value) => value + 1);
 			}
 		}
-	}, [call.turnId, call.id, record]);
+	}, [call.agentId, call.id, record]);
 	useEffect(() => {
 		if (
 			(record.open || record.content) &&
@@ -149,7 +149,7 @@ export function ToolCallCard({
 	const loading = (
 		<span
 			role="status"
-			aria-label={t("turnPending")}
+			aria-label={t("agentPending")}
 			className="inline-block h-4 w-4 shrink-0 rounded-full border-2 border-neutral-300 border-t-neutral-600 motion-safe:animate-spin"
 		/>
 	);

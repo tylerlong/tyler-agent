@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
-import { waitForTurn } from "./turn-fixture.ts";
 
-test("HTTP submission acknowledges its durable pending turn before the held model completes", {
+test("HTTP submission acknowledges its durable pending agent before the held model completes", {
 	timeout: 10000,
 }, async () => {
-	const directory = await mkdtemp(join(tmpdir(), "accepted-turn-"));
+	const directory = await mkdtemp(join(tmpdir(), "accepted-agent-"));
 	const path = join(directory, "db.sqlite");
 	let release: (() => void) | undefined;
 	let calls = 0;
@@ -49,26 +49,26 @@ test("HTTP submission acknowledges its durable pending turn before the held mode
 		});
 		assert.equal(response.status, 202);
 		const accepted = await response.json();
-		assert.deepEqual(Object.keys(accepted), ["turnId"]);
-		assert.equal(typeof accepted.turnId, "number");
+		assert.deepEqual(Object.keys(accepted), ["agentId"]);
+		assert.equal(typeof accepted.agentId, "number");
 		const db = new DatabaseSync(path);
 		try {
 			assert.deepEqual(
 				{
 					...db
-						.prepare("SELECT chat_id,user_content,status FROM turns WHERE id=?")
-						.get(accepted.turnId),
+						.prepare("SELECT chat_id,prompt,status FROM agents WHERE id=?")
+						.get(accepted.agentId),
 				},
-				{ chat_id: chat.id, user_content: "question", status: "pending" },
+				{ chat_id: chat.id, prompt: "question", status: "pending" },
 			);
 		} finally {
 			db.close();
 		}
 		const pending = await (
-			await fetch(`${base}/api/turns/${accepted.turnId}`)
+			await fetch(`${base}/api/agents/${accepted.agentId}`)
 		).json();
 		assert.equal(pending.busy, true);
-		assert.equal(pending.turns[0].status, "pending");
+		assert.equal(pending.agents[0].status, "pending");
 		assert.equal(
 			(
 				await post(`/api/chats/${chat.id}`, {
@@ -80,8 +80,8 @@ test("HTTP submission acknowledges its durable pending turn before the held mode
 		);
 		while (!release) await new Promise((resolve) => setImmediate(resolve));
 		release();
-		const turn = await waitForTurn(base, accepted.turnId);
-		assert.equal(turn.status, "succeeded");
+		const agent = await waitForAgent(base, accepted.agentId);
+		assert.equal(agent.status, "succeeded");
 		assert.equal(calls, 1);
 	} finally {
 		release?.();

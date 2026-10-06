@@ -53,17 +53,17 @@ test("composer stays visible while reading, paging and returning to a chat prese
 		.filter({ hasText: "Question 16." })
 		.first();
 	const before = await question.boundingBox();
-	await page.getByRole("button", { name: "Load earlier turns" }).click();
+	await page.getByRole("button", { name: "Load earlier agents" }).click();
 	await expect(page.getByRole("log")).toContainText("Question 6.");
 	await expect
 		.poll(async () => (await question.boundingBox())?.y)
 		.toBeCloseTo(before?.y ?? 0, 0);
-	const turnId = (await question.getAttribute("data-message-id"))?.split(
+	const agentId = (await question.getAttribute("data-message-id"))?.split(
 		"-",
 	)[0];
 	const request = page
 		.getByRole("log")
-		.locator(`[data-message-id="${turnId}-assistant"] details`)
+		.locator(`[data-message-id="${agentId}-assistant"] details`)
 		.filter({ has: page.locator("summary", { hasText: /^Request 1$/ }) });
 	await request.locator("summary").click();
 	await expect(request.locator("pre")).toContainText('"model"');
@@ -255,7 +255,7 @@ test("returning to a previously non-scrollable chat keeps its original position"
 		.toBeGreaterThan(0);
 });
 
-test("growth and folding above an answer in the same turn preserve its reading anchor", async ({
+test("growth and folding above an answer in the same agent preserve its reading anchor", async ({
 	page,
 	app,
 }) => {
