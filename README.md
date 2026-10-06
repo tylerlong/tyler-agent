@@ -133,7 +133,7 @@ pnpm exec playwright show-trace test-results/<失败用例目录>/trace.zip
 
 归档后只读：project 不能改名、更新文件夹或创建 chat；chat 自身或父 project 任一归档时不能改名或提交新问题，server 同样拒绝这些操作。只读 chat 隐藏整个 prompt 区域（模型、思考强度、输入框及发送控件），保留历史、当前任务状态及恢复提示；查看历史无需模型或 API key，也不会强制打开 Settings。仍可查看历史和恢复。恢复 project 保留各 chat 原标记；父 project 归档时可恢复已单独归档的 chat，但它仍因父状态只读，需要恢复 project 才可继续使用。
 
-归档允许在回答或保存进行中执行，已接纳的操作继续完成、保存及同步，不取消请求。当前选中 chat 不自动切换或清空，主区域保留历史、提示只读原因，已开始的回答继续更新。现有编辑及提问草稿保留；恢复后重新判断可用操作。编辑、归档及恢复经 SSE 同步所有页面，选择、未提交草稿及 Archived 折叠只属于本页；刷新后 Archived 重新折叠，重启保留所有已提交的归档状态和历史。
+归档允许在回答或保存进行中执行，已接纳的操作继续完成、保存及同步，不取消请求。当前选中 chat 不自动切换或清空，主区域保留历史、提示只读原因，已开始的回答继续更新。现有编辑及提问草稿保留；恢复后重新判断可用操作。编辑、归档及恢复经 SSE 同步所有页面，当前查看的 Chat、未提交草稿及 Archived 折叠只属于本页；刷新后 Archived 重新折叠，重启保留所有已提交的归档状态和历史。
 
 侧栏的 New project 默认透明无描边，标题行、+ / ⋯ 图标按钮及菜单项有浅灰圆角 hover 反馈（禁用菜单项置灰）。⋯ 使用原生 Popover：点击外部关闭，打开其他菜单关闭旧菜单，选择动作立即关闭后执行。菜单与 ⋯ 下方右对齐，靠近底部时向上避让，不被侧栏裁切。+ 提供“New chat”悬停提示。
 
@@ -163,7 +163,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 ## 本地只读文件计数
 
-可提问“目标文件夹中有多少个非隐藏文件”，或指定其子目录。模型使用唯一工具 `count_files(path)`，`path` 必须是绝对目录路径，位于该项目任一目标文件夹的解析后范围内。每次仅统计所选目录；多个目标文件夹没有主次，模型可分别调用。零目标文件夹项目仍可保存并纯文本聊天，工具请求会返回范围错误。工具范围在 Agent 接纳时捕获，期间修改项目文件夹不改变已接受的任务。
+可提问“目标文件夹中有多少个非隐藏文件”，或指定其子目录。模型使用唯一工具 `count_files(path)`，`path` 必须是绝对目录路径，位于该项目任一目标文件夹的解析后范围内。每次仅统计所选目录；多个目标文件夹没有主次，模型可分别调用。零目标文件夹项目仍可保存并纯文本聊天，工具请求会返回范围错误。工具每次执行前读取 Project 当前目标文件夹，修改范围会影响尚未执行的工具；已经保存的结果不改变。
 
 服务通过固定的现成命令递归统计普通文件，只返回所选路径和整数数量，不返回文件清单，没有 100 文件上限。后代点文件和点目录不计入，不按其它系统隐藏属性筛选，不跟随后代符号链接；已配置根可以是目录符号链接，按解析后的路径检查与执行。空目录返回零，遍历失败不冒充零或部分成功。工具不创建、修改或删除用户文件及目录；正常 Agent/Model Call 数据仍保存到应用数据库。
 
@@ -188,7 +188,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 ## 保存Agent与模型通信
 
-通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供只读 `count_files(path)` 工具和该 Agent 接纳时捕获的项目目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功或失败后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。每次 Model Call 保存自身 output_json，按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
+通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供只读 `count_files(path)` 工具和调用开始时读取的 Project 当前目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功或失败后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。每次 Model Call 保存自身 output_json，按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
 
 Agent 与 Model Call 分别保存；实际 OpenRouter 调用始终录制，每次调用的 Request/Response 围绕该次输出展示，工具参数与结果仍保留在原始通信中，并额外通过独立 Tool Call 卡片查看。通信记录保留 URL、method、请求时间、原始请求/响应正文、实际 HTTP 状态、耗时或调用错误，不保存 headers。凭据在写入数据库和返回浏览器之前脱敏；普通 JSON 和文本正文保持当时文本（仅凭据脱敏），完整成功上下文随请求保存。SSE Response 在保存入口移除行首冒号注释及纯注释区块，再脱敏保存；实际事件、未知字段、不可解析数据和有效尾部片段仍保留，只有注释时不保存正文。该规则覆盖进行中、成功和失败记录，不修改模型完成判定；保存清理后的正文和结构化增量后才通知浏览器，两个页面均可在完成前看到回答。凭据跨网络 chunk 也先脱敏。
 
@@ -206,7 +206,7 @@ OpenRouter 通信始终保存到 SQLite，已移除 terminal 通信日志、Sett
 
 ### 固定输入区与阅读位置
 
-右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，底部圆角输入区固定：Prompt 提示放在 placeholder，输入框从约 2 行随草稿增长/缩小，到约 8 行后内部滚动；框内右下角箭头发送按钮始终可见且尺寸固定；空白、只读、配置缺失或无效选择时禁用。Send 从点击发送开始到整个 Agent 成功或失败结束持续禁用。确认提交期间保留原文并暂时禁用原 Chat 的输入框；HTTP 202 确认后清空提交页原 Chat 的草稿并恢复编辑，可准备下一条草稿。执行成功、失败或中断不会清空或回填下一条草稿。接受前拒绝保留原文并恢复编辑，按当前条件重新判断 Send；确认网络失败同样保留原文、恢复编辑并核对历史和 busy，未收到确认不代表拒绝。可以切换 Chat，确认不影响后来选中 Chat 或其它页面的草稿；对话选项仍可编辑，不改变已捕获请求，不自动重试。底部控件始终留在输入区；左侧固定头尾及列表滚动保持独立。加载更早记录、文本增量增长及展开/折叠保持正在阅读的内容锚点，即使已展开的思考或通信正文很长。
+右侧标题、文件夹信息、问答及 Request/Response 在内容区独立滚动，可写 Chat 的底部圆角输入区固定；只读 Chat 隐藏整个输入区。Prompt 提示放在 placeholder，输入框从约 2 行随草稿增长/缩小，到约 8 行后内部滚动；框内右下角箭头发送按钮始终可见且尺寸固定；空白、配置缺失或无效选择时禁用。Send 从点击发送开始到整个 Agent 成功或失败结束持续禁用。确认提交期间保留原文并暂时禁用原 Chat 的输入框；HTTP 202 确认后清空提交页原 Chat 的草稿并恢复编辑，可准备下一条草稿。执行成功、失败或中断不会清空或回填下一条草稿。接受前拒绝保留原文并恢复编辑，按当前条件重新判断 Send；确认网络失败同样保留原文、恢复编辑并核对历史和 busy，未收到确认不代表拒绝。可以切换 Chat，确认不影响后来选中 Chat 或其它页面的草稿；对话选项仍可编辑，不改变已捕获请求，不自动重试。底部控件始终留在输入区；左侧固定头尾及列表滚动保持独立。加载更早记录、文本增量增长及展开/折叠保持正在阅读的内容锚点，即使已展开的思考或通信正文很长。
 
 首次打开 chat 显示最新内容，自己提交后跟随到底部（包括进行中与回答完成）。其他页面产生的新内容或状态变化只在本来位于底部时跟随，阅读旧内容时不跳转。每个 chat 的阅读位置仅保存在当前页面；切走再返回恢复原位置，即使期间新增Agent，也不强制跳到最新。已下载历史、草稿和通信展开状态继续保留；整页刷新后重新加载最新 10 个并显示底部，不使用 localStorage 或 cookie 保存阅读位置。
 
@@ -216,10 +216,10 @@ Each writable Project keeps its + action. An expanded Project with no visible no
 
 每个可写项目保留 +；展开且没有可见未归档对话时，另显示新建对话按钮，包括仅有归档对话的项目。有对话或折叠时隐藏行内入口，归档项目不提供创建。两种入口都打开标明所属项目的原创建框，仅点击创建后保存，取消保留草稿，创建项目不自动创建对话。首页提示在所属项目内选择或创建；无可写项目时提示侧栏新建项目，仍可访问已归档数据。项目初始加载、可重试读取失败和成功空列表分别显示，失败保留已有列表。所选对话只有在成功加载空历史后才提示输入第一个问题；加载与失败分别显示，可重试，缓存和部分内容保留。归档对话继续显示只读及恢复提示；未知对话 ID 返回首页。
 
-The lower-right Send button stays visible at a fixed size, including empty drafts. Whitespace, read-only state, unavailable configuration or invalid options disable it. It disables immediately on submission and throughout the whole Agent, then recomputes availability after success, failure or rejection. Prompt stays visible and temporarily disabled until submission confirmation. Acceptance clears only the originating page and Chat draft and restores editing; later execution outcomes preserve the next draft. Rejection or lost acknowledgment preserves the original text; lost acknowledgment refreshes history and busy without automatically retrying. Chat Options edits save immediately; subsequent Model Calls use the latest saved choices. Fixed footer space prevents visibility or enabled-state changes from moving the input, while multiline drafts still grow and shrink normally.
+Writable Chats keep the lower-right Send button visible at a fixed size, including empty drafts. Read-only Chats hide the entire composer. Whitespace, unavailable configuration or invalid options disable Send. It disables immediately on submission and throughout the whole Agent, then recomputes availability after success, failure or rejection. Prompt stays visible and temporarily disabled until submission confirmation. Acceptance clears only the originating page and Chat draft and restores editing; later execution outcomes preserve the next draft. Rejection or lost acknowledgment preserves the original text; lost acknowledgment refreshes history and busy without automatically retrying. Chat Options edits save immediately; subsequent Model Calls use the latest saved choices. Fixed footer space prevents visibility or enabled-state changes from moving the input, while multiline drafts still grow and shrink normally.
 
 Agent identity: each accepted prompt creates an Agent in its Chat. Model Calls reference `agents` via `agent_id`; Tool Calls store only `model_call_id` and derive task ownership through that call. Chat and Project activity derives from Agent acceptance times, with creation-time fallback and descending ID ties; finishing answers, editing names or options, reading, archiving and restoring do not change activity.
 
-The new schema requires a fresh database. Old schemas are rejected without migration or automatic deletion. Verification uses isolated temporary databases and fake model responses; the authorized development database rebuild belongs to the final implementation step.
+The new schema requires a fresh database. Old schemas are rejected without migration or automatic deletion. Verification uses isolated temporary databases and fake model responses; the authorized development database rebuild is performed once at final delivery.
 
 Model Call 保存可读输出、调用错误码与错误文本；Agent 仅保存 prompt、生命周期和任务自身错误码，失败摘要从所属失败调用派生。调用次数上限不会改写已成功的 Model Call。按需思考读取使用 `GET /api/agents/:id/reasoning?callId=<local-model-call-id>` 并校验所属 Agent；阅读缓存、界面 key 和滚动锚点使用稳定本地调用 ID，服务方 ID 与显示编号不确定归属。刷新、重启和分页保留已保存的部分输出及 Tool Result，不重试模型或重放工具。
