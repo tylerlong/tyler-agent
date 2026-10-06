@@ -9,8 +9,8 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
-import { AgentCalls } from "./agent-calls.tsx";
-import { AgentOutput, type ReaderItem } from "./agent-output.tsx";
+import { AgentContent, type AgentDetail } from "./agent-content.tsx";
+import type { ReaderItem } from "./agent-output.tsx";
 import {
 	ChatOptionPicker,
 	type ChatOptions,
@@ -21,7 +21,8 @@ import type { ModelSettings } from "./database.ts";
 import i18n from "./i18n.ts";
 import { ModelConfiguration } from "./model-configuration.tsx";
 import { createSettingState } from "./setting-state.ts";
-import { type ToolCall, ToolCallCard } from "./tool-calls.tsx";
+import { TaskView, urlAgent } from "./task-view.tsx";
+
 import "./style.css";
 
 type Chat = {
@@ -369,17 +370,14 @@ function App() {
 	const [projectsLoaded, setProjectsLoaded] = useState(false);
 	const [projectsError, setProjectsError] = useState<ApiError | null>(null);
 	const [selected, setSelected] = useState<number | null>(urlChat);
+	const [selectedAgent, setSelectedAgent] = useState<number | null>(urlAgent);
+	const taskSelectedRef = useRef(selectedAgent);
+	taskSelectedRef.current = selectedAgent;
 	const selectedRef = useRef(selected);
 	selectedRef.current = selected;
 	type ChatState = {
 		id: number;
-		agents: {
-			id: number;
-			status: string;
-			calls: { id: number; ordinal: number; status: string }[];
-			toolCalls: ToolCall[];
-			output: ReaderItem[];
-		}[];
+		agents: AgentDetail[];
 		messages: {
 			id: string;
 			role: string;
@@ -412,7 +410,7 @@ function App() {
 	const restoreReadingPosition = useCallback(() => {
 		const content = chatContent.current;
 		const id = selectedRef.current;
-		if (!content || id === null) return;
+		if (!content || id === null || taskSelectedRef.current !== null) return;
 		const saved = readingPositions.current[id];
 		if (!saved || saved.bottom) {
 			content.scrollTop = content.scrollHeight;
@@ -551,7 +549,11 @@ function App() {
 	}, []);
 	const changeSelectedChat = useCallback((id: number | null) => {
 		const previous = selectedRef.current;
-		if (previous !== null && previous !== id) {
+		if (
+			previous !== null &&
+			previous !== id &&
+			taskSelectedRef.current === null
+		) {
 			const saved = readingPositions.current[previous];
 			readingPositions.current[previous] = {
 				...saved,
@@ -568,6 +570,8 @@ function App() {
 	function selectChat(id: number) {
 		const url = new URL(location.href);
 		url.searchParams.set("chat", String(id));
+		url.searchParams.delete("agent");
+		setSelectedAgent(null);
 		history.pushState(null, "", url);
 		changeSelectedChat(id);
 	}
@@ -648,6 +652,7 @@ function App() {
 			const read = ++readSequence.current;
 			try {
 				const data: ChatState = await api(`/api/agents/${agentId}`);
+				if (data.agents[0]?.parentAgentId != null) return;
 				if ((agentReads.current[agentId] ?? 0) > read) return;
 				if (cacheRef.current[chatId] || selectedRef.current === chatId)
 					mergeChat(chatId, data, false, read, true);
@@ -689,7 +694,10 @@ function App() {
 		void refreshChat();
 	}, [selected, refreshChat]);
 	useEffect(() => {
-		const pop = () => changeSelectedChat(urlChat());
+		const pop = () => {
+			changeSelectedChat(urlChat());
+			setSelectedAgent(urlAgent());
+		};
 		window.addEventListener("popstate", pop);
 		return () => window.removeEventListener("popstate", pop);
 	}, [changeSelectedChat]);
@@ -1473,9 +1481,9 @@ function App() {
 				<section
 					ref={chatContent}
 					aria-label={t("chat")}
-					className="min-h-0 flex-1 overflow-auto overscroll-contain px-6 py-10 [overflow-anchor:none]"
+					className={`${selectedAgent !== null ? "hidden" : ""} min-h-0 flex-1 overflow-auto overscroll-contain px-6 py-10 [overflow-anchor:none]`}
 					onScroll={(event) => {
-						if (selected === null) return;
+						if (selected === null || taskSelectedRef.current !== null) return;
 						const content = event.currentTarget;
 						const top = content.getBoundingClientRect().top;
 						const anchors = [
@@ -1560,7 +1568,7 @@ function App() {
 						</p>
 					)}
 
-					{project && chat && (
+					{project && chat && selectedAgent === null && (
 						<div className="mx-auto max-w-2xl">
 							<p className="text-neutral-600">{project.name}</p>
 							<h2 className="mt-2 text-xl font-medium">{chat.name}</h2>
@@ -1633,108 +1641,51 @@ function App() {
 												{t(message.role === "user" ? "you" : "agent")}
 												{t("labelSeparator")}
 											</strong>
-											{message.role === "assistant"
-												? chatState.agents
-														.find(
-															(agent) =>
-																agent.id === Number(message.id.split("-")[0]),
+											{message.role === "assistant" ? (
+												<AgentContent
+													agent={chatState.agents.find(
+														(agent) =>
+															agent.id === Number(message.id.split("-")[0]),
+													)}
+													revision={message.revision ?? 0}
+													onLayoutChange={restoreReadingPosition}
+													stopping={stopping.has(
+														Number(message.id.split("-")[0]),
+													)}
+													stopError={
+														stopErrors[Number(message.id.split("-")[0])]
+															? errorText(
+																	stopErrors[Number(message.id.split("-")[0])],
+																)
+															: undefined
+													}
+													onStop={() =>
+														void stopAgent(
+															chat.id,
+															Number(message.id.split("-")[0]),
 														)
-														?.calls.map((call) => (
-															<div key={call.id} data-model-call-id={call.id}>
-																<AgentCalls
-																	onLayoutChange={restoreReadingPosition}
-																	agentId={Number(message.id.split("-")[0])}
-																	callId={call.id}
-																	ordinal={call.ordinal}
-																	kind="request"
-																	status={call.status}
-																	revision={message.revision ?? 0}
-																/>
-																<AgentOutput
-																	onLayoutChange={restoreReadingPosition}
-																	agentId={Number(message.id.split("-")[0])}
-																	callId={call.id}
-																	status={call.status}
-																	output={(message.output ?? []).filter(
-																		(item) => item.callId === call.id,
-																	)}
-																	revision={message.revision ?? 0}
-																/>
-																<AgentCalls
-																	onLayoutChange={restoreReadingPosition}
-																	agentId={Number(message.id.split("-")[0])}
-																	callId={call.id}
-																	ordinal={call.ordinal}
-																	kind="response"
-																	status={call.status}
-																	revision={message.revision ?? 0}
-																/>
-																{chatState.agents
-																	.find(
-																		(agent) =>
-																			agent.id ===
-																			Number(message.id.split("-")[0]),
-																	)
-																	?.toolCalls.filter(
-																		(tool) => tool.modelCallId === call.id,
-																	)
-																	.map((tool) => (
-																		<ToolCallCard
-																			key={tool.id}
-																			call={tool}
-																			onLayoutChange={restoreReadingPosition}
-																		/>
-																	))}
-															</div>
-														))
-												: message.content}
-											{message.role === "assistant" &&
-												message.status === "pending" && (
-													<span>
-														<span role="status">
-															{t(
-																stopping.has(Number(message.id.split("-")[0]))
-																	? "agentStopping"
-																	: "agentPending",
-															)}
-														</span>{" "}
+													}
+												/>
+											) : (
+												<>
+													{message.content}
+													<div className="mt-2">
 														<button
 															type="button"
 															className={button}
-															disabled={stopping.has(
-																Number(message.id.split("-")[0]),
-															)}
-															onClick={() =>
-																void stopAgent(
-																	chat.id,
-																	Number(message.id.split("-")[0]),
-																)
-															}
+															onClick={() => {
+																const id = Number(message.id.split("-")[0]);
+																const url = new URL(location.href);
+																url.searchParams.set("agent", String(id));
+																history.pushState(null, "", url);
+																setSelectedAgent(id);
+															}}
 														>
-															{t("stopAgent")}
+															{t("taskTree")}
 														</button>
-														{stopErrors[Number(message.id.split("-")[0])] && (
-															<span role="alert">
-																{errorText(
-																	stopErrors[Number(message.id.split("-")[0])],
-																)}
-															</span>
-														)}
-													</span>
-												)}
-											{message.role === "assistant" &&
-												message.status === "cancelled" && (
-													<span role="status">{t("agentCancelled")}</span>
-												)}
-											{message.role === "assistant" &&
-												message.status === "failed" && (
-													<span role="status">
-														{message.content && <>{t("agentIncomplete")} </>}
-														{t(message.errorCode ?? "modelRequestFailed")}
-														{message.errorDetails &&
-															`\n${message.errorDetails}`}
-													</span>
-												)}
+													</div>
+												</>
+											)}
 										</div>
 									))}
 							</div>
@@ -1750,7 +1701,16 @@ function App() {
 						</div>
 					)}
 				</section>
-				{project && chat && !readOnly && (
+				{selectedAgent !== null && (
+					<TaskView
+						agentId={selectedAgent}
+						onSelect={setSelectedAgent}
+						onChat={(id) => {
+							selectChat(id);
+						}}
+					/>
+				)}
+				{project && chat && !readOnly && selectedAgent === null && (
 					<div className="shrink-0 border-t border-neutral-200 px-6 py-4">
 						<form className="mx-auto max-w-2xl" onSubmit={submit}>
 							<div className="rounded-2xl border border-neutral-300 bg-white p-3 focus-within:border-neutral-500">

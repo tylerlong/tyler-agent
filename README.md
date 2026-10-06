@@ -231,7 +231,7 @@ Model Call 保存可读输出、调用错误码与错误文本；Agent 仅保存
 
 每个子任务成功、失败或取消后，运行服务将 Agent ID、真实状态、全部已有可读输出及实际错误作为普通输入自动交给直接父模型，包括失败时的部分输出。没有等待或轮询工具，也不因流式文字触发父模型调用。父任务在子任务仍运行时保持 pending 和 Chat busy；父自身失败或达到上限仍等待后代结束，通知不会重启已失败的循环。子任务失败不自动取消兄弟或使父任务失败。
 
-八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 的“执行上限”提供两个持久化正整数：每 Agent Model Calls 默认 16，每根树累计后代默认 32。`GET /api/execution-limits` 读取当前值，`PATCH /api/execution-limits` 接受 `modelCallLimit` 与/或 `subAgentLimit`，拒绝非正整数。修改或重启后后续模型请求、子任务创建读取当前值；已发请求与已创建任务继续执行。降低到已用数量以下阻止新工作；失败调用计入执行者，所有层级、成功/失败/取消后代仍累计计数，根不计、终态不退名额，无效参数或配置不创建子任务。最后允许的 Model Call 请求工具时保留请求并标记未执行，以 `modelCallLimit` 停止自身循环，不为子任务通知越限调用。任务树界面由后续子票交付。
+八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 的“执行上限”提供两个持久化正整数：每 Agent Model Calls 默认 16，每根树累计后代默认 32。`GET /api/execution-limits` 读取当前值，`PATCH /api/execution-limits` 接受 `modelCallLimit` 与/或 `subAgentLimit`，拒绝非正整数。修改或重启后后续模型请求、子任务创建读取当前值；已发请求与已创建任务继续执行。降低到已用数量以下阻止新工作；失败调用计入执行者，所有层级、成功/失败/取消后代仍累计计数，根不计、终态不退名额，无效参数或配置不创建子任务。最后允许的 Model Call 请求工具时保留请求并标记未执行，以 `modelCallLimit` 停止自身循环，不为子任务通知越限调用。任务树与详情见下方说明。
 
 
 此 schema 更新仍要求新的临时或明确指定数据库；普通启动不会迁移或删除旧数据。重启保留部分记录并标记未结束工作为失败/中断，不重放模型、工具或通知。
@@ -243,3 +243,11 @@ Each running root Agent has a Stop button in chat history, including archived re
 运行中的根 Agent 在对话历史中提供停止按钮，归档只读对话中也可使用。点击后立即显示正在停止；实际请求、工具和后代清理结束前仍保持 pending 和对话 busy。保留已保存的部分输出与记录，未完成任务进入 cancelled，已结束任务保留原结果。停止不会恢复归档、开放输入或配置编辑、清空下一条草稿或重试模型。
 
 `POST /api/agents/:id/cancel` stops the target subtree and returns its terminal status, saved readable output and error only after cleanup. A model can call `cancel_sub_agent({agent_id})` for one of its direct children, stopping that child and descendants while the parent and siblings continue. Ordinary user cancellation still notifies the direct parent; the same terminal result already delivered by the cancellation tool is not delivered twice.
+
+### 任务树与 Agent 详情 / Task tree and Agent details
+
+Each root prompt in Chat history has a **Task tree** button. The tree shows recursive children with their own Pending, Succeeded, Failed or Cancelled state. Expand a node to see deeper descendants; select any node to use the same Agent output, thinking, Tool Call and lazy communication view as root history. The detail shows the full prompt, explicit context and unmodified creation arguments, including model/reasoning overrides. A successful `create_sub_agent` Tool Call means the child was created; its own tree status shows whether its execution succeeded.
+
+Use the task path, sibling links or **Back to chat** to navigate. The selected Agent is encoded in the URL, so refresh and reconnect restore its persisted tree and details. Task details have no prompt composer. **Stop** acts on the selected pending Agent and its descendants, including in archived Chats; siblings and parents continue, and Cancelled appears only after cleanup. Child updates do not enter root history, change recent activity or release Chat busy.
+
+对话历史中每个根 prompt 的“任务树”可展开递归后代并查看各自状态。点击节点复用根任务的输出、思考、Tool 卡片和按需通信读取，详情展示完整 prompt、显式背景及原始创建参数（包括模型与思考强度覆盖）。创建工具成功只代表子任务已创建，不代表子任务执行成功。任务路径、兄弟链接和“返回对话”用于导航；URL 保存所选 Agent，刷新或重连恢复持久化关系。子任务详情无追加输入；“停止”只取消所选进行中节点及后代，归档中仍可用，清理结束后才显示已取消。

@@ -244,11 +244,13 @@ export function createServer(
 		agentId: number,
 	): {
 		chatId: number;
+		projectId: number;
 		rootAgentId: number;
 		parentAgentId: number | null;
 		createdByToolCallId: number | null;
 		question: string;
 		context: string;
+		creationArguments: Record<string, unknown> | null;
 	} => {
 		const row = database
 			.prepare(
@@ -259,11 +261,17 @@ export function createServer(
 		if (row.chat_id !== null)
 			return {
 				chatId: Number(row.chat_id),
+				projectId: Number(
+					database
+						.prepare("SELECT project_id FROM chats WHERE id=?")
+						.get(row.chat_id)?.project_id,
+				),
 				rootAgentId: agentId,
 				parentAgentId: null,
 				createdByToolCallId: null,
 				question: String(row.prompt),
 				context: "",
+				creationArguments: null,
 			};
 		const creator = database
 			.prepare(
@@ -279,6 +287,7 @@ export function createServer(
 			createdByToolCallId: Number(row.created_by_tool_call_id),
 			question: args.prompt,
 			context: args.context ?? "",
+			creationArguments: args,
 		};
 	};
 	const children = (agentId: number) =>
@@ -1592,6 +1601,40 @@ export function createServer(
 					caughtError(error, "agentCancelFailed"),
 				);
 			}
+			return;
+		}
+		const treeRoute = path.match(/^\/api\/agents\/(\d+)\/tree$/);
+		if (treeRoute && request.method === "GET") {
+			const agentId = Number(treeRoute[1]);
+			if (!database.prepare("SELECT id FROM agents WHERE id=?").get(agentId)) {
+				json(response, 404, errorBody("notFound"));
+				return;
+			}
+			const { rootAgentId, chatId, projectId } = agentSource(agentId);
+			json(response, 200, {
+				rootAgentId,
+				chatId,
+				projectId,
+				agents: [rootAgentId, ...descendants(rootAgentId)].map((id) => {
+					const row = database
+						.prepare(
+							"SELECT id,status,created_at AS createdAt,error_code AS errorCode FROM agents WHERE id=?",
+						)
+						.get(id);
+					const { question, parentAgentId, createdByToolCallId } =
+						agentSource(id);
+					return {
+						...row,
+						...persistenceError(id),
+						question,
+						parentAgentId,
+						createdByToolCallId,
+						rootAgentId,
+						chatId,
+						projectId,
+					};
+				}),
+			});
 			return;
 		}
 		const agentRoute = path.match(/^\/api\/agents\/(\d+)$/);

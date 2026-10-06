@@ -84,6 +84,168 @@ async function fixture(fake: typeof fetch, execute?: ToolExecutor) {
 }
 const userPrompt = (input: { role?: string; content?: string }[]) =>
 	input.find((item) => item.role === "user")?.content;
+
+test("task tree and shared details derive recursive creation sources after restart", async () => {
+	const f = await fixture(async () => {
+		assert.fail("Reading persisted tasks must not request a model");
+	});
+	try {
+		const db = new DatabaseSync(f.path);
+		const root = Number(
+			db
+				.prepare(
+					"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,?,'pending',1)",
+				)
+				.run(f.chat.id, "Root full prompt").lastInsertRowid,
+		);
+		const call = (agentId: number, text: string) =>
+			Number(
+				db
+					.prepare(
+						"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status,response_body,output_json) VALUES (?,'https://example.test','POST','now','request','succeeded','response',?)",
+					)
+					.run(
+						agentId,
+						JSON.stringify([
+							{
+								id: "message",
+								type: "message",
+								index: 0,
+								content: [{ type: "output_text", text, index: 0 }],
+							},
+						]),
+					).lastInsertRowid,
+			);
+		const rootCall = call(root, "root output");
+		const args = {
+			prompt: "Child full prompt\nsecond line",
+			context: "Explicit background",
+			model_id: "child-model",
+			reasoning_effort: null,
+		};
+		const tool = (callId: number, ordinal: number, args: unknown) =>
+			Number(
+				db
+					.prepare(
+						"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status,result) VALUES (?,'provider-id','create_sub_agent',?,?,'succeeded','{\"agent_id\":2,\"status\":\"pending\"}')",
+					)
+					.run(callId, JSON.stringify(args), ordinal).lastInsertRowid,
+			);
+		const child = (toolId: number, status: string) =>
+			Number(
+				db
+					.prepare(
+						"INSERT INTO agents(created_by_tool_call_id,status,created_at) VALUES (?,?,2)",
+					)
+					.run(toolId, status).lastInsertRowid,
+			);
+		const creator = tool(rootCall, 0, args);
+		const first = child(creator, "succeeded");
+		const childCall = call(first, "child output");
+		const grandCreator = tool(childCall, 0, {
+			prompt: "Grandchild",
+			reasoning_effort: "high",
+		});
+		const grandchild = child(grandCreator, "failed");
+		const second = child(tool(rootCall, 1, { prompt: "Sibling" }), "cancelled");
+		const otherRoot = Number(
+			db
+				.prepare(
+					"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,'unrelated','succeeded',3)",
+				)
+				.run(f.chat.id).lastInsertRowid,
+		);
+		const tree = await f.get(`/api/agents/${grandchild}/tree`);
+		assert.equal(tree.rootAgentId, root);
+		assert.equal(tree.chatId, f.chat.id);
+		assert.equal(tree.projectId, f.chat.projectId);
+		assert.deepEqual(
+			tree.agents.map(
+				(agent: { id: number; parentAgentId: number; status: string }) => [
+					agent.id,
+					agent.parentAgentId,
+					agent.status,
+				],
+			),
+			[
+				[root, null, "pending"],
+				[first, root, "succeeded"],
+				[grandchild, first, "failed"],
+				[second, root, "cancelled"],
+			],
+		);
+		assert(
+			!tree.agents.some((agent: { id: number }) => agent.id === otherRoot),
+		);
+		assert(
+			tree.agents.every(
+				(agent: Record<string, unknown>) =>
+					!("output" in agent) && !("calls" in agent),
+			),
+		);
+		const detail = await f.get(`/api/agents/${first}`);
+		assert.equal(detail.agentBusy, false);
+		assert.equal(detail.agents[0].question, args.prompt);
+		assert.equal(detail.agents[0].context, args.context);
+		assert.deepEqual(detail.agents[0].creationArguments, args);
+		assert.equal(detail.agents[0].createdByToolCallId, creator);
+		assert.equal(detail.agents[0].projectId, f.chat.projectId);
+		assert.equal(detail.agents[0].answer, "child output");
+		assert.deepEqual(
+			detail.agents[0].calls.map((c: { id: number }) => c.id),
+			[childCall],
+		);
+		const communication = await f.get(
+			`/api/agents/${first}/calls?callId=${childCall}`,
+		);
+		assert.equal(communication.calls[0].requestBody, "request");
+		assert.equal(communication.calls[0].responseBody, "response");
+		const creation = await f.get(
+			`/api/agents/${first}/tools?toolId=${grandCreator}`,
+		);
+		assert.equal(creation.toolCalls[0].status, "succeeded");
+		assert.equal(
+			(await f.get(`/api/agents/${grandchild}`)).agents[0].status,
+			"failed",
+		);
+		assert.equal((await f.get(`/api/agents/${second}`)).agents[0].context, "");
+		assert.deepEqual(
+			(await f.get(`/api/agents/${first}/calls?callId=${rootCall}`)).code,
+			"notFound",
+		);
+		assert.equal(
+			(await f.get(`/api/agents/${first}/tools?toolId=${creator}`)).code,
+			"notFound",
+		);
+		assert.equal(
+			(await f.get(`/api/agents/${first}/reasoning?callId=${rootCall}`)).code,
+			"notFound",
+		);
+		const history = await f.get(`/api/chats/${f.chat.id}`);
+		assert.deepEqual(
+			history.agents.map((agent: { id: number }) => agent.id),
+			[root, otherRoot],
+		);
+		assert.equal(history.messages.length, 4);
+		assert.equal(
+			(await f.get(`/api/agents/${root}`)).agents[0].creationArguments,
+			null,
+		);
+		assert.equal((await f.get("/api/agents/99999/tree")).code, "notFound");
+		db.prepare("UPDATE agents SET status='succeeded' WHERE id=?").run(root);
+		db.close();
+		const saved = await f.get(`/api/agents/${root}/tree`);
+		await f.restart();
+		assert.deepEqual(await f.get(`/api/agents/${grandchild}/tree`), saved);
+		assert.deepEqual(
+			(await f.get(`/api/agents/${first}`)).agents[0].creationArguments,
+			args,
+		);
+	} finally {
+		await f.close();
+	}
+});
+
 async function until(check: () => Promise<boolean>) {
 	for (let attempt = 0; attempt < 1000; attempt++) {
 		if (await check()) return;
