@@ -567,3 +567,91 @@ test("task preview keeps newer terminal data when an old unmounted read finishes
 		await page.request.post(`${app.url}/api/agents/${accepted.agentId}/cancel`);
 	}
 });
+
+test("failed Stop after task detail remount clears stopping and permits retry", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Stop race", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Remount" },
+		})
+	).json();
+	app.rawStreamModel();
+	const { agentId } = await (
+		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+			data: { prompt: "Held task" },
+		})
+	).json();
+	let release!: () => void, entered!: () => void;
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const started = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	await page.route(`**/api/agents/${agentId}/cancel`, async (route) => {
+		entered();
+		await held;
+		await route.fulfill({ status: 503, body: "Unavailable" });
+	});
+	try {
+		await page.goto(`${app.url}/?chat=${chat.id}&agent=${agentId}`);
+		const detail = page.getByRole("region", {
+			name: "Agent details",
+			exact: true,
+		});
+		const stop = detail.getByRole("button", { name: "Stop", exact: true });
+		await stop.click();
+		await started;
+		await expect(stop).toBeDisabled();
+		await page
+			.getByRole("button", { name: "Back to chat", exact: true })
+			.click();
+		await page.getByRole("button", { name: "Task tree", exact: true }).click();
+		await expect(stop).toBeDisabled();
+		release();
+		await expect(detail.getByRole("alert")).toHaveText(
+			"Unable to stop Agent. Please retry.",
+		);
+		await expect(stop).toBeEnabled();
+		await expect(detail).not.toContainText("Stopping…");
+		await page
+			.getByRole("button", { name: "Back to chat", exact: true })
+			.click();
+		await page.getByRole("button", { name: "Task tree", exact: true }).click();
+		await expect(detail.getByRole("alert")).toHaveText(
+			"Unable to stop Agent. Please retry.",
+		);
+		await expect(stop).toBeEnabled();
+		await page.unroute(`**/api/agents/${agentId}/cancel`);
+		let finish!: () => void;
+		const retry = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		await page.route(`**/api/agents/${agentId}/cancel`, async (route) => {
+			await retry;
+			await route.continue();
+		});
+		await stop.click();
+		await expect(stop).toBeDisabled();
+		await page
+			.getByRole("button", { name: "Back to chat", exact: true })
+			.click();
+		await page.getByRole("button", { name: "Task tree", exact: true }).click();
+		await expect(stop).toBeDisabled();
+		finish();
+		await expect(detail.getByRole("heading", { level: 2 })).toContainText(
+			"Cancelled",
+		);
+	} finally {
+		release();
+		await page.unroute(`**/api/agents/${agentId}/cancel`);
+		await page.request.post(`${app.url}/api/agents/${agentId}/cancel`);
+	}
+});

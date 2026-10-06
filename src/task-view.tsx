@@ -4,6 +4,7 @@ import {
 	useLayoutEffect,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
@@ -31,7 +32,17 @@ const taskPositions: Record<
 > = {};
 const expandedNodes = new Set<number>();
 const initializedRoots = new Set<number>();
-const cancellationRequests = new Set<number>();
+const cancellations = new Map<number, "stopping" | "agentCancelFailed">();
+const cancellationListeners = new Set<() => void>();
+const subscribeCancellation = (listener: () => void) => {
+	cancellationListeners.add(listener);
+	return () => {
+		cancellationListeners.delete(listener);
+	};
+};
+const notifyCancellation = () => {
+	for (const listener of cancellationListeners) listener();
+};
 const button =
 	"rounded-md border border-neutral-300 px-3 py-2 hover:bg-neutral-100 disabled:opacity-50";
 
@@ -65,9 +76,9 @@ export function TaskView({
 	);
 	const treeRead = useRef(0);
 	const revealedAgent = useRef<number | null>(null);
-	const [stopping, setStopping] = useState(new Set(cancellationRequests));
-	const stopRequests = useRef(cancellationRequests);
-	const [stopErrors, setStopErrors] = useState<Record<number, string>>({});
+	const cancellation = useSyncExternalStore(subscribeCancellation, () =>
+		cancellations.get(agentId),
+	);
 	const [expanded, setExpanded] = useState(new Set(expandedNodes));
 	const content = useRef<HTMLElement>(null);
 	const positions = useRef(taskPositions);
@@ -137,9 +148,10 @@ export function TaskView({
 		}
 	}, []);
 	useEffect(() => {
+		if (cancellation === "stopping") return;
 		void refresh(agentId);
 		void refreshTree(agentId);
-	}, [agentId, refresh, refreshTree]);
+	}, [agentId, cancellation, refresh, refreshTree]);
 	useEffect(() => {
 		const sync = () => {
 			void refresh(selected.current);
@@ -178,22 +190,21 @@ export function TaskView({
 	}
 	async function stop() {
 		const id = agentId;
-		if (stopRequests.current.has(id)) return;
-		stopRequests.current.add(id);
-		setStopping(new Set(stopRequests.current));
-		setStopErrors((current) => ({ ...current, [id]: "" }));
+		if (cancellations.get(id) === "stopping") return;
+		cancellations.set(id, "stopping");
+		notifyCancellation();
+		let failed = false;
 		try {
 			const response = await fetch(`/api/agents/${id}/cancel`, {
 				method: "POST",
 			});
 			if (!response.ok) throw new Error();
 		} catch {
-			setStopErrors((current) => ({ ...current, [id]: "agentCancelFailed" }));
+			failed = true;
 		} finally {
-			await refresh(id);
-			await refreshTree(selected.current);
-			stopRequests.current.delete(id);
-			setStopping(new Set(stopRequests.current));
+			if (failed) cancellations.set(id, "agentCancelFailed");
+			else cancellations.delete(id);
+			notifyCancellation();
 		}
 	}
 	const label = (node: TreeNode) =>
@@ -386,9 +397,11 @@ export function TaskView({
 							<AgentContent
 								agent={value.agent}
 								revision={value.revision}
-								stopping={stopping.has(agentId)}
+								stopping={cancellation === "stopping"}
 								stopError={
-									stopErrors[agentId] ? t(stopErrors[agentId]) : undefined
+									cancellation === "agentCancelFailed"
+										? t(cancellation)
+										: undefined
 								}
 								onStop={() => void stop()}
 								onLayoutChange={restore}
