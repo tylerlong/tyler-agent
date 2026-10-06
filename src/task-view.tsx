@@ -45,6 +45,7 @@ export function TaskView({
 	onChat: (id: number) => void;
 }) {
 	const { t } = useTranslation();
+	const mounted = useRef(true);
 	const selected = useRef(agentId);
 	selected.current = agentId;
 	const [tree, setTree] = useState<TaskTree | null>(null);
@@ -89,13 +90,14 @@ export function TaskView({
 	}, []);
 	useLayoutEffect(restore);
 	const refresh = useCallback(async (id: number) => {
+		if (!mounted.current) return;
 		const read = (reads.current.get(id) ?? 0) + 1;
 		reads.current.set(id, read);
 		try {
 			const response = await fetch(`/api/agents/${id}`);
 			if (!response.ok) throw new Error("taskReadFailed");
 			const data = await response.json();
-			if (reads.current.get(id) !== read) return;
+			if (!mounted.current || reads.current.get(id) !== read) return;
 			taskRecords[id] = { agent: data.agents[0], revision: read };
 			setCache((current) => ({
 				...current,
@@ -160,6 +162,7 @@ export function TaskView({
 		window.addEventListener("focus", sync);
 		document.addEventListener("visibilitychange", visible);
 		return () => {
+			mounted.current = false;
 			events.close();
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", visible);

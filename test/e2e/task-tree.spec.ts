@@ -450,3 +450,120 @@ for (const language of ["en", "zh-CN"]) {
 		});
 	}
 }
+
+test("task preview keeps newer terminal data when an old unmounted read finishes", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Cache", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Read race" },
+		})
+	).json();
+	const root = app.rawStreamModel();
+	const child = app.rawStreamModel();
+	app.rawStreamModel();
+	const accepted = await (
+		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+			data: { prompt: "Root cache task" },
+		})
+	).json();
+	root.push(completedBody({ output: [creation("Cache child")] }));
+	root.end();
+	const [childId] = await children(page, app.url, accepted.agentId, 1);
+	partial(child, "Old partial preview");
+	let releaseOld!: () => void, oldEntered!: () => void;
+	const oldGate = new Promise<void>((resolve) => {
+		releaseOld = resolve;
+	});
+	const entered = new Promise<void>((resolve) => {
+		oldEntered = resolve;
+	});
+	let releaseFresh!: () => void, freshEntered!: () => void;
+	const freshGate = new Promise<void>((resolve) => {
+		releaseFresh = resolve;
+	});
+	const freshStarted = new Promise<void>((resolve) => {
+		freshEntered = resolve;
+	});
+	let phase: "old" | "current" | "preview" = "old";
+	const oldReads: Promise<void>[] = [];
+	await page.route(`**/api/agents/${childId}`, async (route) => {
+		const readPhase = phase;
+		const response = await route.fetch();
+		if (readPhase === "old") {
+			let done!: () => void;
+			oldReads.push(
+				new Promise<void>((resolve) => {
+					done = resolve;
+				}),
+			);
+			oldEntered();
+			await oldGate;
+			await route.fulfill({ response });
+			done();
+		} else if (readPhase === "preview") {
+			freshEntered();
+			await freshGate;
+			await route.fulfill({ response });
+		} else await route.fulfill({ response });
+	});
+	try {
+		await page.goto(`${app.url}/?chat=${chat.id}&agent=${childId}`);
+		await entered;
+		const back = page.getByRole("button", {
+			name: "Back to chat",
+			exact: true,
+		});
+		await back.click();
+		phase = "current";
+		child.push(completedBody({ output: [answer("New terminal result")] }));
+		child.end();
+		await expect
+			.poll(
+				async () =>
+					(
+						await (
+							await page.request.get(`${app.url}/api/agents/${childId}`)
+						).json()
+					).agents[0].status,
+			)
+			.toBe("succeeded");
+		const reopen = async () => {
+			await page
+				.getByRole("button", { name: "Task tree", exact: true })
+				.click();
+			await page
+				.getByRole("region", { name: "Task tree", exact: true })
+				.getByRole("button", { name: new RegExp(`#${childId} Cache child`) })
+				.click();
+		};
+		await reopen();
+		const detail = page.getByRole("region", {
+			name: "Agent details",
+			exact: true,
+		});
+		await expect(detail).toContainText("New terminal result");
+		releaseOld();
+		await Promise.all(oldReads);
+		// A completed same-origin fetch follows the held response before remounting.
+		await page.evaluate(() =>
+			fetch("/api/projects").then((response) => response.json()),
+		);
+		await back.click();
+		phase = "preview";
+		await reopen();
+		await freshStarted;
+		await expect(detail).toContainText("New terminal result");
+		await expect(detail).not.toContainText("Old partial preview");
+	} finally {
+		releaseOld();
+		releaseFresh();
+		await page.request.post(`${app.url}/api/agents/${accepted.agentId}/cancel`);
+	}
+});
