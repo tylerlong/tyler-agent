@@ -42,6 +42,7 @@ async function countFiles(
 	name: string,
 	argumentsText: string,
 	roots: string[],
+	signal?: AbortSignal,
 ): Promise<ToolResult> {
 	if (name !== "count_files") return failure("validation", "Unknown tool name");
 	let args: unknown;
@@ -92,6 +93,7 @@ async function countFiles(
 			"The resolved path is outside configured target folders",
 		);
 
+	signal?.throwIfAborted();
 	return new Promise((resolve) => {
 		// Each file produces one constant byte, regardless of its filename.
 		const child = spawn("find", [
@@ -111,6 +113,10 @@ async function countFiles(
 			"{}",
 			"+",
 		]);
+		const abort = () => {
+			child.kill("SIGKILL");
+		};
+		signal?.addEventListener("abort", abort, { once: true });
 		let count = 0;
 		let stdout = Buffer.alloc(0);
 		let stderr = Buffer.alloc(0);
@@ -140,9 +146,11 @@ async function countFiles(
 			timedOut = true;
 			child.kill("SIGKILL");
 		}, 15_000);
-		child.on("close", (exitStatus, signal) => {
+		child.on("close", (exitStatus, processSignal) => {
 			clearTimeout(timeout);
+			signal?.removeEventListener("abort", abort);
 			if (
+				!signal?.aborted &&
 				!processError &&
 				!timedOut &&
 				exitStatus === 0 &&
@@ -156,6 +164,7 @@ async function countFiles(
 				error: {
 					kind: "execution",
 					message: (
+						(signal?.aborted ? "File counting cancelled" : undefined) ??
 						processError?.message ??
 						(timedOut
 							? "File counting timed out"
@@ -163,7 +172,7 @@ async function countFiles(
 								? "File counting returned invalid output"
 								: "File counting command failed")
 					).slice(0, 4096),
-					...(!processError ? { exitStatus, signal } : {}),
+					...(!processError ? { exitStatus, signal: processSignal } : {}),
 					stdout: stdout.toString("utf8"),
 					stderr: stderr.toString("utf8"),
 					timedOut,
@@ -175,16 +184,29 @@ async function countFiles(
 }
 
 // Execution owns the success/error semantics; the record and UI never inspect result fields.
-export type ToolExecution = { status: "succeeded" | "failed"; result: string };
+export type ToolExecution = {
+	status: "succeeded" | "failed" | "interrupted";
+	result: string;
+};
 export type ToolExecutor = (
 	name: string,
 	argumentsText: string,
 	roots: string[],
+	signal?: AbortSignal,
 ) => Promise<ToolExecution>;
-export const executeTool: ToolExecutor = async (name, argumentsText, roots) => {
-	const result = await countFiles(name, argumentsText, roots);
+export const executeTool: ToolExecutor = async (
+	name,
+	argumentsText,
+	roots,
+	signal,
+) => {
+	const result = await countFiles(name, argumentsText, roots, signal);
 	return {
-		status: "error" in result ? "failed" : "succeeded",
+		status: signal?.aborted
+			? "interrupted"
+			: "error" in result
+				? "failed"
+				: "succeeded",
 		result: JSON.stringify(result),
 	};
 };

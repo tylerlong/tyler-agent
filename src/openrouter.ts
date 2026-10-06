@@ -115,7 +115,20 @@ export const createSubAgentTool = {
 		additionalProperties: false,
 	},
 };
+export const cancelSubAgentTool = {
+	type: "function",
+	name: "cancel_sub_agent",
+	description:
+		"Stop a directly created sub-agent and all its descendants. Returns its actual terminal status, existing output and errors only after execution and cleanup have stopped.",
+	parameters: {
+		type: "object",
+		properties: { agent_id: { type: "integer" } },
+		required: ["agent_id"],
+		additionalProperties: false,
+	},
+};
 export type AgentLoop = {
+	signal?: AbortSignal;
 	targetFolders: () => string[];
 	limit: () => number;
 	pending: () => boolean;
@@ -135,6 +148,7 @@ export async function requestModel(
 	let previous: OutputItem[] = [];
 	const usedSecrets = new Set<string>();
 	for (let round = 0; ; round++) {
+		loop?.signal?.throwIfAborted();
 		if (round >= (loop?.limit() ?? 16))
 			throw new ModelError(
 				"modelCallLimit",
@@ -159,9 +173,11 @@ export async function requestModel(
 			},
 			currentConfig,
 			[...usedSecrets],
+			loop?.signal,
 		);
 		previous = [...previous, ...current];
 		input.push(...response.protocol);
+		loop?.signal?.throwIfAborted();
 		if (!response.tools.length) {
 			if (loop?.pending()) await loop.wait();
 			const events = loop?.events() ?? [];
@@ -177,6 +193,7 @@ export async function requestModel(
 				"Agent reached the model request limit",
 			);
 		for (const [index, call] of response.tools.entries()) {
+			loop?.signal?.throwIfAborted();
 			record?.toolStarted?.(index + 1);
 			const result = await execute(
 				call.name,
@@ -185,8 +202,10 @@ export async function requestModel(
 					? loop.targetFolders()
 					: ((typeof config === "function" ? config() : config)
 							?.targetFolders ?? []),
+				loop?.signal,
 			);
 			record?.toolFinished?.(index + 1, result);
+			loop?.signal?.throwIfAborted();
 			input.push({
 				type: "function_call_output",
 				call_id: call.call_id,
@@ -201,6 +220,7 @@ async function requestOnce(
 	record: Recorder,
 	config?: ModelConfig,
 	usedSecrets: string[] = [],
+	signal?: AbortSignal,
 ) {
 	const { apiKey, model, reasoningEffort } = config ?? {
 		apiKey: "",
@@ -235,8 +255,9 @@ async function requestOnce(
 	const body = JSON.stringify({
 		model,
 		input,
-		tools: [countFilesTool, createSubAgentTool],
+		tools: [countFilesTool, createSubAgentTool, cancelSubAgentTool],
 		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use count_files only for these folders or their subdirectories. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
+
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
 	});
@@ -419,6 +440,7 @@ async function requestOnce(
 				"content-type": "application/json",
 			},
 			body,
+			signal,
 		});
 		save("pending");
 		if (!upstream.body)
@@ -428,12 +450,19 @@ async function requestOnce(
 					? "OpenRouter returned an invalid response"
 					: "OpenRouter request failed",
 			);
+		signal?.throwIfAborted();
 		const reader = upstream.body.getReader();
+		let abortDone: Promise<void> | undefined;
+		const abort = () => {
+			abortDone = reader.cancel().catch(() => {});
+		};
+		signal?.addEventListener("abort", abort, { once: true });
 		const decoder = new TextDecoder();
 		let frames = "";
 		try {
 			for (;;) {
 				const { done, value } = await reader.read();
+				signal?.throwIfAborted();
 				const text = decoder.decode(value, { stream: !done });
 				raw += text;
 				if (upstream.ok) frames += text;
@@ -447,6 +476,8 @@ async function requestOnce(
 				if (done) break;
 			}
 		} finally {
+			signal?.removeEventListener("abort", abort);
+			await abortDone;
 			await reader.cancel().catch(() => {});
 			reader.releaseLock();
 		}
@@ -517,14 +548,17 @@ async function requestOnce(
 	} catch (error) {
 		// Persistence errors never trigger another write or model call.
 		if (error instanceof PersistenceError) throw error.cause;
+		const failure = signal?.aborted
+			? new ModelError("agentCancelled", "Agent cancelled")
+			: error;
 		save(
 			"failed",
-			error instanceof ModelError ? error.message : String(error),
+			failure instanceof ModelError ? failure.message : String(failure),
 			true,
-			error instanceof ModelError ? error.code : "modelRequestFailed",
+			failure instanceof ModelError ? failure.code : "modelRequestFailed",
 		);
-		throw error instanceof ModelError
-			? error
+		throw failure instanceof ModelError
+			? failure
 			: new ModelError("modelRequestFailed", "OpenRouter request failed");
 	}
 }

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
-import type { ToolExecutor } from "../src/count-files.ts";
+import { executeTool, type ToolExecutor } from "../src/count-files.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedResponse, frame } from "./model-fixture.ts";
@@ -1063,3 +1063,550 @@ for (const kind of ["model", "tree"])
 			await f.close();
 		}
 	});
+const cancelTool = (args: unknown, callId: string) => ({
+	...childTool(args, callId),
+	name: "cancel_sub_agent",
+});
+
+function blockedModel(
+	signal: AbortSignal | null | undefined,
+	cleanup = Promise.resolve(),
+) {
+	assert(signal, "Every model request receives its Agent cancellation signal");
+	return new Promise<Response>((_resolve, reject) => {
+		const abort = () => {
+			void cleanup.then(() => reject(signal.reason));
+		};
+		if (signal.aborted) abort();
+		else signal.addEventListener("abort", abort, { once: true });
+	});
+}
+
+for (const target of ["root", "middle"])
+	test(`local ${target} cancellation aborts its subtree and waits for streamed cleanup`, {
+		timeout: 15000,
+	}, async () => {
+		const cleanup = gate();
+		const signals = new Map<string, AbortSignal>();
+		const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
+		const f = await fixture(async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			const prompt = userPrompt(request.input);
+			assert(init?.signal);
+			if (prompt === "leaf" || prompt === "sibling") {
+				signals.set(prompt, init.signal);
+				return new Response(
+					new ReadableStream({
+						start(controller) {
+							streams.push(controller);
+							controller.enqueue(
+								new TextEncoder().encode(
+									frame("response.output_text.delta", {
+										item_id: prompt,
+										output_index: 0,
+										content_index: 0,
+										delta: `saved ${prompt} partial`,
+									}),
+								),
+							);
+						},
+						cancel: () => cleanup.promise,
+					}),
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			}
+			if (JSON.stringify(request.input).includes("function_call_output"))
+				return completedResponse({ output: [message("waiting")] });
+			return completedResponse({
+				output:
+					prompt === "tree"
+						? [
+								childTool({ prompt: "middle" }, "middle"),
+								childTool({ prompt: "sibling" }, "sibling"),
+							]
+						: [childTool({ prompt: "leaf" }, "leaf")],
+			});
+		});
+		try {
+			const rootId = await f.ask("tree");
+			await until(async () => signals.size === 2);
+			const rootTools = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
+			const middleId = JSON.parse(rootTools[0].result).agent_id;
+			const siblingId = JSON.parse(rootTools[1].result).agent_id;
+			const leafId = JSON.parse(
+				(await f.get(`/api/agents/${middleId}/tools`)).toolCalls[0].result,
+			).agent_id;
+			await until(async () =>
+				JSON.stringify(
+					(await f.get(`/api/agents/${leafId}`)).agents[0].output,
+				).includes("saved leaf partial"),
+			);
+			let finished = false;
+			const cancelled = f
+				.post(`/api/agents/${target === "root" ? rootId : middleId}/cancel`, {})
+				.then((response) => {
+					finished = true;
+					return response;
+				});
+			await until(async () => signals.get("leaf")?.aborted === true);
+			assert.equal(signals.get("sibling")?.aborted, target === "root");
+			assert.equal(
+				finished,
+				false,
+				"Cancellation does not finish before request cleanup",
+			);
+			assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
+			assert.equal(
+				(await f.get(`/api/agents/${rootId}`)).agents[0].status,
+				"pending",
+			);
+			assert.equal(
+				(await f.post(`/api/chats/${f.chat.id}`, { prompt: "too early" }))
+					.status,
+				409,
+			);
+			cleanup.release();
+			assert.equal((await cancelled).status, 200);
+			for (const id of [middleId, leafId]) {
+				const agent = (await f.get(`/api/agents/${id}`)).agents[0];
+				assert.equal(agent.status, "cancelled");
+			}
+			const leaf = (await f.get(`/api/agents/${leafId}`)).agents[0];
+			assert(JSON.stringify(leaf.output).includes("saved leaf partial"));
+			assert.equal(leaf.calls[0].status, "failed");
+			assert.equal(
+				(await f.get(`/api/agents/${leafId}/calls`)).calls[0].errorCode,
+				"agentCancelled",
+			);
+			if (target === "middle") {
+				assert.equal(
+					(await f.get(`/api/agents/${siblingId}`)).agents[0].status,
+					"pending",
+				);
+				assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
+				assert.equal(
+					(await f.post(`/api/agents/${rootId}/cancel`, {})).status,
+					200,
+				);
+			}
+			assert.equal((await f.wait(rootId)).status, "cancelled");
+			const before = await f.get(`/api/agents/${rootId}`);
+			assert.equal(
+				(await f.post(`/api/agents/${rootId}/cancel`, {})).status,
+				200,
+			);
+			assert.deepEqual(await f.get(`/api/agents/${rootId}`), before);
+		} finally {
+			cleanup.release();
+			for (const stream of streams) {
+				try {
+					stream.close();
+				} catch {}
+			}
+			await f.close();
+		}
+	});
+
+test("model cancellation accepts only direct children and returns one result without a duplicate notification", {
+	timeout: 15000,
+}, async () => {
+	const rootRelease = gate(),
+		middleRelease = gate();
+	const ids = new Map<string, number>();
+	const calls = new Map<string, number>();
+	const inputs: unknown[][] = [];
+	const signals: AbortSignal[] = [];
+	let middleValidated = false;
+	const f = await fixture(async (_url, init) => {
+		const request = JSON.parse(String(init?.body));
+		const prompt = userPrompt(request.input) as string;
+		const count = (calls.get(prompt) ?? 0) + 1;
+		calls.set(prompt, count);
+		if (prompt === "other root")
+			return completedResponse({ output: [message("terminal other root")] });
+		if (prompt === "leaf" || prompt === "sibling") {
+			assert(init?.signal);
+			signals.push(init.signal);
+			return blockedModel(init.signal);
+		}
+		if (prompt === "middle") {
+			if (count === 1)
+				return completedResponse({
+					output: [childTool({ prompt: "leaf" }, "leaf")],
+				});
+			if (count === 2) {
+				await middleRelease.promise;
+				return completedResponse({
+					output: ["middle", "root", "sibling"].map((key) =>
+						cancelTool({ agent_id: ids.get(key) }, `forbidden-${key}`),
+					),
+				});
+			}
+			const results = request.input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			assert.equal(results.length, 4);
+			for (const result of results.slice(1))
+				assert(JSON.parse(result.output).error);
+			middleValidated = true;
+			return blockedModel(init?.signal);
+		}
+		inputs.push(request.input);
+		if (count === 1)
+			return completedResponse({
+				output: [
+					childTool({ prompt: "middle" }, "middle"),
+					childTool({ prompt: "sibling" }, "sibling"),
+				],
+			});
+		if (count === 2) {
+			await rootRelease.promise;
+			return completedResponse({
+				output: [
+					...[
+						{},
+						{ agent_id: "1" },
+						{ agent_id: 1.5 },
+						{ agent_id: ids.get("middle"), extra: true },
+						{ agent_id: 999999 },
+						{ agent_id: ids.get("root") },
+						{ agent_id: ids.get("leaf") },
+						{ agent_id: ids.get("other") },
+					].map((args, index) => cancelTool(args, `invalid-${index}`)),
+					cancelTool({ agent_id: ids.get("middle") }, "cancel-middle"),
+					cancelTool({ agent_id: ids.get("middle") }, "cancel-middle-again"),
+					cancelTool({ agent_id: ids.get("sibling") }, "cancel-sibling"),
+				],
+			});
+		}
+		return completedResponse({
+			output: [message("cancelled children handled")],
+		});
+	});
+	try {
+		const otherProject = await (
+			await f.post("/api/projects", { name: "Other", folders: [] })
+		).json();
+		const otherChat = await (
+			await f.post(`/api/projects/${otherProject.id}/chats`, { name: "Other" })
+		).json();
+		ids.set(
+			"other",
+			(
+				await (
+					await f.post(`/api/chats/${otherChat.id}`, { prompt: "other root" })
+				).json()
+			).agentId,
+		);
+		const otherId = ids.get("other");
+		assert(otherId);
+		assert.equal((await f.wait(otherId)).status, "succeeded");
+		const rootId = await f.ask("root");
+		ids.set("root", rootId);
+		await until(async () => signals.length === 2);
+		const tools = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
+		ids.set("middle", JSON.parse(tools[0].result).agent_id);
+		ids.set("sibling", JSON.parse(tools[1].result).agent_id);
+		ids.set(
+			"leaf",
+			JSON.parse(
+				(await f.get(`/api/agents/${ids.get("middle")}/tools`)).toolCalls[0]
+					.result,
+			).agent_id,
+		);
+		middleRelease.release();
+		await until(async () => middleValidated);
+		assert(signals.every((signal) => !signal.aborted));
+		rootRelease.release();
+		assert.equal((await f.wait(rootId)).status, "succeeded");
+		const resultTools = (
+			await f.get(`/api/agents/${rootId}/tools`)
+		).toolCalls.slice(2);
+		assert.equal(resultTools.length, 11);
+		assert(
+			resultTools
+				.slice(0, 8)
+				.every(
+					(tool: { status: string; result: string }) =>
+						tool.status === "failed" && JSON.parse(tool.result).error,
+				),
+		);
+		assert(
+			resultTools
+				.slice(8)
+				.every((tool: { status: string }) => tool.status === "succeeded"),
+		);
+		for (const key of ["middle", "leaf", "sibling"])
+			assert.equal(
+				(await f.get(`/api/agents/${ids.get(key)}`)).agents[0].status,
+				"cancelled",
+			);
+		assert.equal(
+			(await f.get(`/api/agents/${ids.get("other")}`)).agents[0].status,
+			"succeeded",
+		);
+		assert.equal(inputs.length, 3);
+		assert(
+			!JSON.stringify(inputs.at(-1)).includes("[Runtime service:"),
+			"Cancellation Tool Result replaces its child terminal notification",
+		);
+	} finally {
+		middleRelease.release();
+		rootRelease.release();
+		await f.close();
+	}
+});
+
+test("cancellation signals an active tool and holds the chat until tool cleanup finishes", {
+	timeout: 15000,
+}, async () => {
+	const started = gate(),
+		aborted = gate(),
+		cleanup = gate();
+	let requests = 0;
+	let signal!: AbortSignal;
+	const f = await fixture(
+		async () => {
+			requests++;
+			return completedResponse({
+				output: [
+					{ ...childTool({}, "active-tool"), name: "count_files" },
+					{ ...childTool({}, "queued-tool"), name: "count_files" },
+				],
+			});
+		},
+		async (_name, _args, _roots, receivedSignal) => {
+			assert(receivedSignal);
+			signal = receivedSignal;
+			started.release();
+			signal.addEventListener("abort", aborted.release, { once: true });
+			await aborted.promise;
+			await cleanup.promise;
+			return {
+				status: "interrupted",
+				result: '{"error":{"message":"cancelled after cleanup"}}',
+			};
+		},
+	);
+	try {
+		const rootId = await f.ask("active tool");
+		await started.promise;
+		let returned = false;
+		const cancellation = f
+			.post(`/api/agents/${rootId}/cancel`, {})
+			.then((response) => {
+				returned = true;
+				return response;
+			});
+		await aborted.promise;
+		assert.equal(signal.aborted, true);
+		assert.equal(returned, false);
+		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
+		const running = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
+		assert.equal(running[0].status, "running");
+		cleanup.release();
+		assert.equal((await cancellation).status, 200);
+		assert.equal((await f.wait(rootId)).status, "cancelled");
+		const tools = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
+		assert.deepEqual(
+			tools.map((tool: { status: string }) => tool.status),
+			["interrupted", "interrupted"],
+		);
+		assert.equal(
+			JSON.parse(tools[0].result).error.message,
+			"cancelled after cleanup",
+		);
+		assert.equal(tools[1].result, null);
+		assert.equal(
+			requests,
+			1,
+			"Cancellation never starts a subsequent Model Call",
+		);
+	} finally {
+		aborted.release();
+		cleanup.release();
+		await f.close();
+	}
+});
+
+test("a failed child leaves its sibling running until the model explicitly cancels it", {
+	timeout: 15000,
+}, async () => {
+	const fail = gate(),
+		cancel = gate(),
+		cleanup = gate();
+	let siblingSignal!: AbortSignal;
+	let rootRequests = 0;
+	let notified = false;
+	let siblingId = 0;
+	const f = await fixture(
+		async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			const prompt = userPrompt(request.input);
+			if (prompt === "A") {
+				await fail.promise;
+				return new Response(
+					frame("response.output_text.delta", {
+						item_id: "A",
+						output_index: 0,
+						content_index: 0,
+						delta: "A usable partial",
+					}) +
+						frame("response.failed", {
+							response: { error: { message: "A failed" } },
+						}),
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			}
+			if (prompt === "B") {
+				if (!JSON.stringify(request.input).includes("function_call_output"))
+					return completedResponse({
+						output: [
+							{
+								...childTool({ path: "/unused" }, "B-tool"),
+								name: "count_files",
+							},
+						],
+					});
+				assert(init?.signal);
+				siblingSignal = init.signal;
+				return new Response(
+					new ReadableStream({
+						start(controller) {
+							controller.enqueue(
+								new TextEncoder().encode(
+									frame("response.output_text.delta", {
+										item_id: "B",
+										output_index: 0,
+										content_index: 0,
+										delta: "B usable partial",
+									}),
+								),
+							);
+						},
+						cancel: () => cleanup.promise,
+					}),
+					{ headers: { "content-type": "text/event-stream" } },
+				);
+			}
+			rootRequests++;
+			if (rootRequests === 1)
+				return completedResponse({
+					output: [
+						childTool({ prompt: "A" }, "A"),
+						childTool({ prompt: "B" }, "B"),
+					],
+				});
+			if (rootRequests === 2)
+				return completedResponse({ output: [message("waiting")] });
+			if (rootRequests === 3) {
+				assert(JSON.stringify(request.input).includes("A usable partial"));
+				assert(JSON.stringify(request.input).includes("failed"));
+				assert.equal(siblingSignal.aborted, false);
+				notified = true;
+				await cancel.promise;
+				return completedResponse({
+					output: [cancelTool({ agent_id: siblingId }, "cancel-B")],
+				});
+			}
+			assert.equal(rootRequests, 4);
+			const results = request.input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			assert.equal(JSON.parse(results.at(-1).output).status, "cancelled");
+			assert(JSON.stringify(results.at(-1)).includes("B usable partial"));
+			assert.deepEqual(
+				JSON.parse(results.at(-1).output).tool_calls.map(
+					(call: { status: string; result: string }) => ({
+						status: call.status,
+						result: call.result,
+					}),
+				),
+				[
+					{
+						status: "failed",
+						result: '{"error":{"message":"earlier B tool failure"}}',
+					},
+				],
+			);
+			return completedResponse({ output: [message("handled cancellation")] });
+		},
+		async () => ({
+			status: "failed",
+			result: '{"error":{"message":"earlier B tool failure"}}',
+		}),
+	);
+	try {
+		const rootId = await f.ask("A and B");
+		await until(async () => Boolean(siblingSignal) && rootRequests === 2);
+		siblingId = JSON.parse(
+			(await f.get(`/api/agents/${rootId}/tools`)).toolCalls[1].result,
+		).agent_id;
+		fail.release();
+		await until(async () => notified);
+		assert.equal(
+			(await f.get(`/api/agents/${siblingId}`)).agents[0].status,
+			"pending",
+		);
+		cancel.release();
+		await until(async () => siblingSignal.aborted);
+		assert.equal(rootRequests, 3);
+		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
+		cleanup.release();
+		assert.equal((await f.wait(rootId)).status, "succeeded");
+		assert.equal(
+			(await f.get(`/api/agents/${siblingId}`)).agents[0].status,
+			"cancelled",
+		);
+		assert.equal(rootRequests, 4);
+	} finally {
+		fail.release();
+		cancel.release();
+		cleanup.release();
+		await f.close();
+	}
+});
+
+test("cancelling count_files kills and reaps its active find process", {
+	timeout: 15000,
+}, async () => {
+	const directory = await mkdtemp(join(tmpdir(), "cancel-find-"));
+	const bin = join(directory, "bin");
+	const pidFile = join(directory, "pid");
+	await mkdir(bin);
+	await writeFile(
+		join(bin, "find"),
+		`#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec /bin/sleep 30\n`,
+		{ mode: 0o755 },
+	);
+	const previousPath = process.env.PATH;
+	const cancellation = new AbortController();
+	try {
+		process.env.PATH = bin;
+		const execution = executeTool(
+			"count_files",
+			JSON.stringify({ path: directory }),
+			[directory],
+			cancellation.signal,
+		);
+		let pid = 0;
+		await until(async () => {
+			try {
+				pid = Number(await readFile(pidFile, "utf8"));
+				return pid > 0;
+			} catch {
+				return false;
+			}
+		});
+		process.kill(pid, 0);
+		cancellation.abort();
+		const result = await execution;
+		assert.equal(result.status, "interrupted");
+		assert.equal(JSON.parse(result.result).error.signal, "SIGKILL");
+		assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+	} finally {
+		cancellation.abort();
+		process.env.PATH = previousPath;
+		await rm(directory, { recursive: true, force: true });
+	}
+});

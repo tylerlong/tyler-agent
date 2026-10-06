@@ -45,6 +45,10 @@ const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
 );
 const errorMessages: Record<string, string> = {
+	agentCancelled: "Agent cancelled",
+	agentCancelFailed: "Could not stop Agent",
+	invalidCancellationTarget:
+		"Only directly created sub-agents can be cancelled",
 	requestTooLarge: "Request is too large",
 	invalidInput: "Invalid input",
 	nameRequired: "Name must not be empty",
@@ -290,7 +294,14 @@ export function createServer(
 		]);
 	const running = new Map<
 		number,
-		{ events: unknown[]; wake?: () => void; done: Promise<void> }
+		{
+			events: unknown[];
+			wake?: () => void;
+			done: Promise<void>;
+			controller: AbortController;
+			suppressed: boolean;
+			stopped: boolean;
+		}
 	>();
 	const terminalResult = (agentId: number) => {
 		const row = database
@@ -303,11 +314,17 @@ export function createServer(
 		return {
 			agent_id: agentId,
 			status: result.status,
+			tool_calls: toolCalls(agentId, true),
 			output: agentOutput(agentId).map((item) => ({
 				...item,
 				content: readableParts(item),
 			})),
 			error: result.errorDetails ?? result.errorCode ?? null,
+			errors: database
+				.prepare(
+					"SELECT id AS modelCallId,error_code AS code,error AS message FROM model_calls WHERE agent_id=? AND status='failed' ORDER BY id",
+				)
+				.all(agentId),
 		};
 	};
 
@@ -489,11 +506,47 @@ export function createServer(
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
 	};
+	const cancelAgent = async (agentId: number, callerId?: number) => {
+		const source = agentSource(agentId);
+		if (callerId !== undefined && source.parentAgentId !== callerId)
+			throw new InputError("invalidCancellationTarget");
+		const targets = [agentId, ...descendants(agentId)];
+		if (callerId !== undefined) {
+			const target = running.get(agentId);
+			if (target) target.suppressed = true;
+		}
+		// Stop the whole subtree before awaiting any cleanup so no node can start new work.
+		for (const id of targets) {
+			const target = running.get(id);
+			if (target) {
+				target.controller.abort(
+					new ModelError("agentCancelled", "Agent cancelled"),
+				);
+				target.wake?.();
+			}
+		}
+		await Promise.all(targets.map((id) => running.get(id)?.done));
+		if (callerId !== undefined) {
+			const parent = running.get(callerId);
+			if (parent)
+				parent.events = parent.events.filter((event) => {
+					const content = (event as { content?: string }).content;
+					if (!content?.startsWith("[Runtime service:")) return true;
+					return !content.startsWith(
+						`[Runtime service: sub-agent terminal result] {"agent_id":${agentId},`,
+					);
+				});
+		}
+		return terminalResult(agentId);
+	};
 	const startAgent = (agentId: number) => {
 		const state = {
 			events: [] as unknown[],
 			wake: undefined as (() => void) | undefined,
 			done: Promise.resolve(),
+			controller: new AbortController(),
+			suppressed: false,
+			stopped: false,
 		};
 		running.set(agentId, state);
 		const source = agentSource(agentId);
@@ -511,10 +564,15 @@ export function createServer(
 				else {
 					const parent = running.get(source.parentAgentId);
 					if (parent) {
-						parent.events.push({
-							role: "user",
-							content: `[Runtime service: sub-agent terminal result] ${JSON.stringify(terminalResult(agentId))}`,
-						});
+						if (
+							!state.suppressed &&
+							!parent.stopped &&
+							!parent.controller.signal.aborted
+						)
+							parent.events.push({
+								role: "user",
+								content: `[Runtime service: sub-agent terminal result] ${JSON.stringify(terminalResult(agentId))}`,
+							});
 						parent.wake?.();
 						parent.wake = undefined;
 					}
@@ -525,7 +583,12 @@ export function createServer(
 	};
 	const runAgent = async (
 		agentId: number,
-		state: { events: unknown[]; wake?: () => void },
+		state: {
+			events: unknown[];
+			wake?: () => void;
+			controller: AbortController;
+			stopped: boolean;
+		},
 	) => {
 		const id = agentSource(agentId).chatId;
 		const apiKey = String(
@@ -675,8 +738,38 @@ export function createServer(
 					rememberKey(next.apiKey);
 					return next;
 				},
-				async (name, args, roots) => {
-					if (name !== "create_sub_agent") return runTool(name, args, roots);
+				async (name, args, roots, signal) => {
+					signal?.throwIfAborted();
+					if (name === "cancel_sub_agent") {
+						try {
+							const value = JSON.parse(args);
+							if (
+								!value ||
+								typeof value !== "object" ||
+								Array.isArray(value) ||
+								Object.keys(value).length !== 1 ||
+								!Number.isSafeInteger(value.agent_id) ||
+								value.agent_id <= 0
+							)
+								throw new InputError("invalidInput");
+							const result = await cancelAgent(value.agent_id, agentId);
+							return { status: "succeeded", result: JSON.stringify(result) };
+						} catch (error) {
+							return {
+								status: "failed",
+								result: JSON.stringify({
+									error: caughtError(
+										error instanceof SyntaxError
+											? new InputError("invalidInput")
+											: error,
+										"agentCancelFailed",
+									),
+								}),
+							};
+						}
+					}
+					if (name !== "create_sub_agent")
+						return runTool(name, args, roots, signal);
 					try {
 						const input: unknown = JSON.parse(args);
 						if (!input || typeof input !== "object" || Array.isArray(input))
@@ -760,6 +853,7 @@ export function createServer(
 					}
 				},
 				{
+					signal: state.controller.signal,
 					targetFolders: () => {
 						rememberKey(
 							String(
@@ -791,6 +885,7 @@ export function createServer(
 		} catch (error) {
 			failure = error;
 		}
+		state.stopped = true;
 		if (closed) return;
 		while (children(agentId).some((child) => running.has(Number(child.id)))) {
 			await new Promise<void>((resolve) => {
@@ -826,14 +921,20 @@ export function createServer(
 			database
 				.prepare("UPDATE agents SET status=?,error_code=? WHERE id=?")
 				.run(
-					failure ? "failed" : "succeeded",
-					(callId !== undefined &&
-						database
-							.prepare("SELECT status FROM model_calls WHERE id=?")
-							.get(callId)?.status === "failed") ||
-						(callId !== undefined && unsavedCalls.has(callId))
-						? null
-						: (savedError?.code ?? null),
+					state.controller.signal.aborted
+						? "cancelled"
+						: failure
+							? "failed"
+							: "succeeded",
+					state.controller.signal.aborted
+						? "agentCancelled"
+						: (callId !== undefined &&
+									database
+										.prepare("SELECT status FROM model_calls WHERE id=?")
+										.get(callId)?.status === "failed") ||
+								(callId !== undefined && unsavedCalls.has(callId))
+							? null
+							: (savedError?.code ?? null),
 					agentId,
 				);
 			database.exec("COMMIT");
@@ -1478,6 +1579,19 @@ export function createServer(
 						content: readableParts(item),
 					})),
 			});
+			return;
+		}
+		const cancelRoute = path.match(/^\/api\/agents\/(\d+)\/cancel$/);
+		if (cancelRoute && request.method === "POST") {
+			try {
+				json(response, 200, await cancelAgent(Number(cancelRoute[1])));
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError ? 404 : 500,
+					caughtError(error, "agentCancelFailed"),
+				);
+			}
 			return;
 		}
 		const agentRoute = path.match(/^\/api\/agents\/(\d+)$/);

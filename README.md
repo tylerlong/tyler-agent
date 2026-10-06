@@ -25,7 +25,7 @@ pnpm start --port 3001
 pnpm start --db /path/to/chat.sqlite
 ```
 
-相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v13 空数据库结构，不读取或迁移旧数据库。升级时请使用明确指定的新数据库路径；删除或重建实际开发库需要单独授权，应用启动不会自动清库。测试始终使用隔离临时数据库。
+相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v14 空数据库结构，不读取或迁移旧数据库。升级时请使用明确指定的新数据库路径；删除或重建实际开发库需要单独授权，应用启动不会自动清库。测试始终使用隔离临时数据库。
 
 ## 项目与对话
 
@@ -45,7 +45,7 @@ project 可以有零个或多个文件夹，无需选择目录即可创建。添
 
 提交接口在校验及保存 pending Agent的事务成功后立即返回 HTTP 202 和 `{ agentId }`，表示已接受，不包含最终回答或表示执行成功。模型/工具循环继续在 server 运行；关闭页面或断开确认连接不取消已接受任务。进度及终态通过现有 SSE 和 Agent/历史读取同步，busy 持续覆盖整个执行。接受前的拒绝属于提交错误；已接受任务的模型、工具循环或结果保存错误属于该 Agent，保存失败显示无法保存的错误，不声称未保存结果已保存。
 
-每个 chat 的提问与追问仅使用自己的成功历史。每次服务器已接受的问题成为持久化 Agent，历史显示进行中、成功或失败；失败保留问题和错误，但不会进入后续模型上下文。失败的问题保留在历史中，可手动复制后重新提交，每次重新提交产生新的 Agent。发送前写入失败不会调用模型；完成结果写入失败明确报错，不自动重发，也不声称结果已保存。busy 由 server 按 chat 保存：同 chat 请求进行中时所有页面禁止再次提交，server 返回 409；不同 chat（包括同项目）可以同时请求。侧栏使用 chat 行最右侧（操作菜单之后）的 16px 旋转圆环标记 server 已接受且尚未结束的 Agent；提交接受前不显示，成功或失败后消失。所有行预留状态位置，名称与菜单不会位移。未选中、同时运行及归档中的 chat 同样显示；折叠项目不额外汇总状态。圆环不可点击，提供本地化“运行中”无障碍状态，系统减少动态效果时改为静态圆环，无需 GIF 或动画库。目录之后失效也不阻止纯文本聊天。
+每个 chat 的提问与追问仅使用自己的成功历史。每次服务器已接受的问题成为持久化 Agent，历史显示进行中、成功或失败；失败保留问题和错误，但不会进入后续模型上下文。失败的问题保留在历史中，可手动复制后重新提交，每次重新提交产生新的 Agent。发送前写入失败不会调用模型；完成结果写入失败明确报错，不自动重发，也不声称结果已保存。busy 由 server 按 chat 保存：同 chat 请求进行中时所有页面禁止再次提交，server 返回 409；不同 chat（包括同项目）可以同时请求。侧栏使用 chat 行最右侧（操作菜单之后）的 16px 旋转圆环标记 server 已接受且尚未结束的 Agent；提交接受前不显示，成功、失败或取消后消失。所有行预留状态位置，名称与菜单不会位移。未选中、同时运行及归档中的 chat 同样显示；折叠项目不额外汇总状态。圆环不可点击，提供本地化“运行中”无障碍状态，系统减少动态效果时改为静态圆环，无需 GIF 或动画库。目录之后失效也不阻止纯文本聊天。
 
 Sidebar work status: a noninteractive 16px CSS ring appears after the chat actions menu while the server reports an ongoing Agent. Every row reserves the slot so names/actions stay aligned. It covers unselected, parallel and archived work and recovers through existing refresh/reconnect synchronization; there is no pre-acceptance or project aggregate indicator. Reduced-motion preference makes the localized Working status static.
 
@@ -188,7 +188,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 ## 保存Agent与模型通信
 
-通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供只读 `count_files(path)` 工具和调用开始时读取的 Project 当前目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功或失败后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。每次 Model Call 保存自身 output_json，按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
+通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供只读 `count_files(path)` 工具和调用开始时读取的 Project 当前目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功、失败或取消后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。每次 Model Call 保存自身 output_json，按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
 
 Agent 与 Model Call 分别保存；实际 OpenRouter 调用始终录制，每次调用的 Request/Response 围绕该次输出展示，工具参数与结果仍保留在原始通信中，并额外通过独立 Tool Call 卡片查看。通信记录保留 URL、method、请求时间、原始请求/响应正文、实际 HTTP 状态、耗时或调用错误，不保存 headers。凭据在写入数据库和返回浏览器之前脱敏；普通 JSON 和文本正文保持当时文本（仅凭据脱敏），完整成功上下文随请求保存。SSE Response 在保存入口移除行首冒号注释及纯注释区块，再脱敏保存；实际事件、未知字段、不可解析数据和有效尾部片段仍保留，只有注释时不保存正文。该规则覆盖进行中、成功和失败记录，不修改模型完成判定；保存清理后的正文和结构化增量后才通知浏览器，两个页面均可在完成前看到回答。凭据跨网络 chunk 也先脱敏。
 
@@ -229,8 +229,17 @@ Model Call 保存可读输出、调用错误码与错误文本；Agent 仅保存
 
 模型可调用 `create_sub_agent({prompt, context?, model_id?, reasoning_effort?})` 并行创建子任务，子任务可递归创建。prompt 必须为非空文本，context 默认空字符串；没有隐式祖先对话继承。子任务默认继承直接父 Agent 的有效模型与思考强度，并使用 Project 当前文件范围。可选 `model_id` 必须为 Settings 已配置模型 ID；请求说明提供当前 ID、名称和允许强度。省略 `reasoning_effort` 继承，显式 `null` 使用模型默认；只覆盖模型时保留兼容强度，否则使用新模型默认。显式不支持的强度返回工具错误。每次创建与 Model Call 从根 Chat 当前选择沿祖先创建参数合成最终配置，再校验模型能力；有效显式模型可覆盖已失效的根选择。覆盖只保存在创建工具 arguments，孙任务继承中间覆盖，不修改父或 Chat 配置；实际请求记录保留当时使用的值。创建立即返回 `{agent_id, status: "pending"}`，只表示已启动。
 
-每个子任务成功或失败后，运行服务将 Agent ID、真实状态、全部已有可读输出及实际错误作为普通输入自动交给直接父模型，包括失败时的部分输出。没有等待或轮询工具，也不因流式文字触发父模型调用。父任务在子任务仍运行时保持 pending 和 Chat busy；父自身失败或达到上限仍等待后代结束，通知不会重启已失败的循环。子任务失败不自动取消兄弟或使父任务失败。
+每个子任务成功、失败或取消后，运行服务将 Agent ID、真实状态、全部已有可读输出及实际错误作为普通输入自动交给直接父模型，包括失败时的部分输出。没有等待或轮询工具，也不因流式文字触发父模型调用。父任务在子任务仍运行时保持 pending 和 Chat busy；父自身失败或达到上限仍等待后代结束，通知不会重启已失败的循环。子任务失败不自动取消兄弟或使父任务失败。
 
-八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 的“执行上限”提供两个持久化正整数：每 Agent Model Calls 默认 16，每根树累计后代默认 32。`GET /api/execution-limits` 读取当前值，`PATCH /api/execution-limits` 接受 `modelCallLimit` 与/或 `subAgentLimit`，拒绝非正整数。修改或重启后后续模型请求、子任务创建读取当前值；已发请求与已创建任务继续执行。降低到已用数量以下阻止新工作；失败调用计入执行者，所有层级、成功/失败/取消后代仍累计计数，根不计、终态不退名额，无效参数或配置不创建子任务。最后允许的 Model Call 请求工具时保留请求并标记未执行，以 `modelCallLimit` 停止自身循环，不为子任务通知越限调用。主动取消和任务树界面由后续子票交付。
+八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 的“执行上限”提供两个持久化正整数：每 Agent Model Calls 默认 16，每根树累计后代默认 32。`GET /api/execution-limits` 读取当前值，`PATCH /api/execution-limits` 接受 `modelCallLimit` 与/或 `subAgentLimit`，拒绝非正整数。修改或重启后后续模型请求、子任务创建读取当前值；已发请求与已创建任务继续执行。降低到已用数量以下阻止新工作；失败调用计入执行者，所有层级、成功/失败/取消后代仍累计计数，根不计、终态不退名额，无效参数或配置不创建子任务。最后允许的 Model Call 请求工具时保留请求并标记未执行，以 `modelCallLimit` 停止自身循环，不为子任务通知越限调用。任务树界面由后续子票交付。
+
 
 此 schema 更新仍要求新的临时或明确指定数据库；普通启动不会迁移或删除旧数据。重启保留部分记录并标记未结束工作为失败/中断，不重放模型、工具或通知。
+
+### 停止 Agent / Stop an Agent
+
+Each running root Agent has a Stop button in chat history, including archived read-only Chats. Stopping… is immediate local feedback; the Agent remains pending and the Chat stays busy until the Agent and descendants have actually stopped and cleaned up. Stop interrupts in-flight model requests and controlled tools, retains saved partial output and records, and marks unfinished work cancelled. Completed work retains its original result. Stopping does not restore an archived Chat or enable its prompt/configuration editing, clear the next draft, or retry a model call.
+
+运行中的根 Agent 在对话历史中提供停止按钮，归档只读对话中也可使用。点击后立即显示正在停止；实际请求、工具和后代清理结束前仍保持 pending 和对话 busy。保留已保存的部分输出与记录，未完成任务进入 cancelled，已结束任务保留原结果。停止不会恢复归档、开放输入或配置编辑、清空下一条草稿或重试模型。
+
+`POST /api/agents/:id/cancel` stops the target subtree and returns its terminal status, saved readable output and error only after cleanup. A model can call `cancel_sub_agent({agent_id})` for one of its direct children, stopping that child and descendants while the parent and siblings continue. Ordinary user cancellation still notifies the direct parent; the same terminal result already delivered by the cancellation tool is not delivered twice.

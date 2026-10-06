@@ -112,6 +112,7 @@ test("communication is lazy, formatted and copied as displayed text, retained ac
 		tools: [
 			{ type: "function", name: "count_files" },
 			{ type: "function", name: "create_sub_agent" },
+			{ type: "function", name: "cancel_sub_agent" },
 		],
 	});
 	await expect(

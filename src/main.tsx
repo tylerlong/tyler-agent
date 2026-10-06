@@ -536,6 +536,11 @@ function App() {
 	);
 	const [submitting, setSubmitting] = useState<Set<number>>(() => new Set());
 	const submissionRequests = useRef(new Set<number>());
+	const cancellationRequests = useRef(new Set<number>());
+	const [stopping, setStopping] = useState<Set<number>>(() => new Set());
+	const [stopErrors, setStopErrors] = useState<Record<number, ApiError | null>>(
+		{},
+	);
 	const reconciliationReads = useRef(new Map<number, number>());
 	const [reconciling, setReconciling] = useState<Set<number>>(() => new Set());
 	const confirmBusy = useCallback((id: number, read: number) => {
@@ -688,6 +693,22 @@ function App() {
 		window.addEventListener("popstate", pop);
 		return () => window.removeEventListener("popstate", pop);
 	}, [changeSelectedChat]);
+	async function stopAgent(chatId: number, agentId: number) {
+		if (cancellationRequests.current.has(agentId)) return;
+		cancellationRequests.current.add(agentId);
+		setStopping(new Set(cancellationRequests.current));
+		setStopErrors((current) => ({ ...current, [agentId]: null }));
+		try {
+			await api(`/api/agents/${agentId}/cancel`, "POST");
+		} catch (cause) {
+			setStopErrors((current) => ({ ...current, [agentId]: appError(cause) }));
+		} finally {
+			await refreshAgent(chatId, agentId);
+			cancellationRequests.current.delete(agentId);
+			setStopping(new Set(cancellationRequests.current));
+			void refreshChat(chatId);
+		}
+	}
 	async function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		const id = selected;
@@ -1668,8 +1689,43 @@ function App() {
 														))
 												: message.content}
 											{message.role === "assistant" &&
-												message.status === "pending" &&
-												t("agentPending")}
+												message.status === "pending" && (
+													<span>
+														<span role="status">
+															{t(
+																stopping.has(Number(message.id.split("-")[0]))
+																	? "agentStopping"
+																	: "agentPending",
+															)}
+														</span>{" "}
+														<button
+															type="button"
+															className={button}
+															disabled={stopping.has(
+																Number(message.id.split("-")[0]),
+															)}
+															onClick={() =>
+																void stopAgent(
+																	chat.id,
+																	Number(message.id.split("-")[0]),
+																)
+															}
+														>
+															{t("stopAgent")}
+														</button>
+														{stopErrors[Number(message.id.split("-")[0])] && (
+															<span role="alert">
+																{errorText(
+																	stopErrors[Number(message.id.split("-")[0])],
+																)}
+															</span>
+														)}
+													</span>
+												)}
+											{message.role === "assistant" &&
+												message.status === "cancelled" && (
+													<span role="status">{t("agentCancelled")}</span>
+												)}
 											{message.role === "assistant" &&
 												message.status === "failed" && (
 													<span role="status">
