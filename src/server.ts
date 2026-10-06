@@ -23,6 +23,7 @@ import {
 	type OutputItem,
 	requestModel,
 } from "./openrouter.ts";
+import { releasePort } from "./port.ts";
 
 const readableParts = (item: OutputItem) =>
 	item.content.filter(
@@ -1489,6 +1490,7 @@ if (import.meta.main) {
 		port > 65535
 	)
 		throw new Error("--port must be an integer between 1 and 65535");
+	await releasePort(port);
 	createServer(fetch, values.db).listen(port, "127.0.0.1", () =>
 		console.log(`Open http://127.0.0.1:${port}`),
 	);

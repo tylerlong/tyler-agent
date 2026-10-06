@@ -16,7 +16,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
 
-test("CLI uses --port independently of environment and rejects invalid ports before opening the database", async () => {
+test("CLI replaces an occupied port, uses --port independently of environment and rejects invalid ports before opening the database", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-port-"));
 	const path = join(directory, "db.sqlite");
 	try {
@@ -35,6 +35,21 @@ test("CLI uses --port independently of environment and rejects invalid ports bef
 		const address = probe.address();
 		assert(address && typeof address !== "string");
 		await new Promise<void>((resolve) => probe.close(() => resolve()));
+		const old = spawn(
+			process.execPath,
+			[
+				"--watch",
+				"src/server.ts",
+				"--port",
+				String(address.port),
+				"--db",
+				join(directory, "old.sqlite"),
+			],
+			{ timeout: 5000 },
+		);
+		const oldExited = once(old, "exit");
+		await once(old.stdout, "data");
+
 		const child = spawn(
 			process.execPath,
 			["src/server.ts", "--port", String(address.port), "--db", path],
@@ -42,20 +57,29 @@ test("CLI uses --port independently of environment and rejects invalid ports bef
 		);
 		const exited = once(child, "exit");
 		try {
-			const [output] = await Promise.race([
-				once(child.stdout, "data"),
+			let output = "";
+			await Promise.race([
+				new Promise<void>((resolve) =>
+					child.stdout.on("data", (data) => {
+						output += data;
+						if (output.includes(`Open http://127.0.0.1:${address.port}`))
+							resolve();
+					}),
+				),
 				exited.then(() => {
 					throw new Error("Server exited before listening");
 				}),
 			]);
-			assert.match(String(output), new RegExp(`:${address.port}`));
+			assert.match(output, /Releasing port/);
+			await oldExited;
 			assert.equal(
 				(await fetch(`http://127.0.0.1:${address.port}/api/projects`)).status,
 				200,
 			);
 		} finally {
 			child.kill();
-			await exited;
+			old.kill();
+			await Promise.all([exited, oldExited]);
 		}
 	} finally {
 		await rm(directory, { recursive: true, force: true });
