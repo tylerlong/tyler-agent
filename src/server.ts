@@ -53,6 +53,8 @@ const errorMessages: Record<string, string> = {
 	notDirectory: "The target path is not a directory",
 	directoryNotFound: "The target directory does not exist",
 	directoryAccessFailed: "Cannot access the target directory",
+	invalidExecutionLimits: "Execution limits must be positive integers",
+	executionLimitsFailed: "Could not read or save execution limits",
 	invalidSidebarWidth: "Invalid sidebar width",
 	sidebarWidthFailed: "Could not read or save sidebar width",
 	invalidEnterBehavior: "Unsupported Enter key behavior",
@@ -375,16 +377,51 @@ export function createServer(
 			.all(id)
 			.map((row) => String(row.path));
 
-	const currentConfig = (id: number) => {
-		const options = chatOptions(id);
+	const currentConfig = (
+		id: number,
+		agentId?: number,
+		override?: Record<string, unknown>,
+	) => {
+		let options = chatOptions(id);
+		const models = modelSettings(database).models;
+		const overrides: Record<string, unknown>[] = [];
+		while (agentId !== undefined) {
+			const source = agentSource(agentId);
+			if (source.createdByToolCallId === null) break;
+			overrides.unshift(
+				JSON.parse(
+					String(
+						database
+							.prepare("SELECT arguments FROM tool_calls WHERE id=?")
+							.get(source.createdByToolCallId)?.arguments,
+					),
+				),
+			);
+			agentId = source.parentAgentId ?? undefined;
+		}
+		if (override) overrides.push(override);
+		for (const value of overrides) {
+			if (value.model_id !== undefined) {
+				const model = models.find((model) => model.id === value.model_id);
+				options = {
+					modelId: value.model_id as string,
+					reasoningEffort:
+						options.reasoningEffort !== null &&
+						model &&
+						supportedReasoningEfforts(model)?.includes(options.reasoningEffort)
+							? options.reasoningEffort
+							: null,
+				};
+			}
+			if (Object.hasOwn(value, "reasoning_effort"))
+				options.reasoningEffort = value.reasoning_effort as string | null;
+		}
 		const apiKey = String(
 			database.prepare("SELECT api_key FROM settings WHERE id=1").get()
 				?.api_key ?? "",
 		);
 		if (!apiKey) throw new InputError("modelConfigMissing");
-		const model = modelSettings(database).models.find(
-			(model) => model.id === options.modelId,
-		);
+		const model = models.find((model) => model.id === options.modelId);
 		if (!model) throw new InputError("invalidModel");
 		if (
 			options.reasoningEffort !== null &&
@@ -396,6 +433,11 @@ export function createServer(
 			model: model.id,
 			reasoningEffort: options.reasoningEffort,
 			targetFolders: currentFolders(id),
+			models: models.map((model) => ({
+				id: model.id,
+				name: model.name,
+				reasoningEfforts: supportedReasoningEfforts(model) ?? [],
+			})),
 		};
 	};
 
@@ -486,14 +528,17 @@ export function createServer(
 		state: { events: unknown[]; wake?: () => void },
 	) => {
 		const id = agentSource(agentId).chatId;
-		const config = currentConfig(id);
+		const apiKey = String(
+			database.prepare("SELECT api_key FROM settings WHERE id=1").get()
+				?.api_key ?? "",
+		);
 
 		let failure: unknown;
 		let callId: number | undefined;
 		let savedToolIds: number[] = [];
 		const secrets = [
-			...new Set([config.apiKey, JSON.stringify(config.apiKey).slice(1, -1)]),
-		];
+			...new Set([apiKey, JSON.stringify(apiKey).slice(1, -1)]),
+		].filter(Boolean);
 		const rememberKey = (key: string) => {
 			for (const secret of [key, JSON.stringify(key).slice(1, -1)])
 				if (secret && !secrets.includes(secret)) secrets.push(secret);
@@ -626,7 +671,7 @@ export function createServer(
 					},
 				},
 				() => {
-					const next = currentConfig(id);
+					const next = currentConfig(id, agentId);
 					rememberKey(next.apiKey);
 					return next;
 				},
@@ -639,14 +684,27 @@ export function createServer(
 						const value = input as Record<string, unknown>;
 						if (
 							Object.keys(value).some(
-								(key) => !["prompt", "context"].includes(key),
+								(key) =>
+									![
+										"prompt",
+										"context",
+										"model_id",
+										"reasoning_effort",
+									].includes(key),
 							) ||
 							typeof value.prompt !== "string" ||
 							!value.prompt.trim() ||
-							(value.context !== undefined && typeof value.context !== "string")
+							(value.context !== undefined &&
+								typeof value.context !== "string") ||
+							(value.model_id !== undefined &&
+								(typeof value.model_id !== "string" ||
+									!value.model_id.trim())) ||
+							(Object.hasOwn(value, "reasoning_effort") &&
+								value.reasoning_effort !== null &&
+								typeof value.reasoning_effort !== "string")
 						)
 							throw new InputError("invalidInput");
-						currentConfig(id);
+						currentConfig(id, agentId, value);
 						const limit = Number(
 							database
 								.prepare("SELECT sub_agent_limit FROM settings WHERE id=1")
@@ -1057,6 +1115,56 @@ export function createServer(
 			return;
 		}
 
+		if (
+			path === "/api/execution-limits" &&
+			(request.method === "GET" || request.method === "PATCH")
+		) {
+			try {
+				if (request.method === "PATCH") {
+					const input = await readJson(request);
+					const keys = ["modelCallLimit", "subAgentLimit"];
+					if (
+						Object.keys(input).length === 0 ||
+						Object.entries(input).some(
+							([key, value]) =>
+								!keys.includes(key) ||
+								typeof value !== "number" ||
+								!Number.isSafeInteger(value) ||
+								value <= 0,
+						)
+					)
+						throw new InputError("invalidExecutionLimits");
+					database
+						.prepare(
+							"UPDATE settings SET model_call_limit=COALESCE(?,model_call_limit), sub_agent_limit=COALESCE(?,sub_agent_limit) WHERE id=1",
+						)
+						.run(
+							input.modelCallLimit === undefined
+								? null
+								: Number(input.modelCallLimit),
+							input.subAgentLimit === undefined
+								? null
+								: Number(input.subAgentLimit),
+						);
+				}
+				const limits = database
+					.prepare(
+						"SELECT model_call_limit AS modelCallLimit, sub_agent_limit AS subAgentLimit FROM settings WHERE id=1",
+					)
+					.get();
+				json(response, 200, limits);
+				if (request.method === "PATCH") notifyChange();
+			} catch (error) {
+				if (!(error instanceof InputError))
+					console.error("Execution limits read/write failed", error);
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "executionLimitsFailed"),
+				);
+			}
+			return;
+		}
 		if (
 			path === "/api/sidebar-width" &&
 			(request.method === "GET" || request.method === "PUT")

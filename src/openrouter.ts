@@ -80,6 +80,7 @@ export type ModelConfig = {
 	model: string;
 	reasoningEffort?: string | null;
 	targetFolders?: string[];
+	models?: { id: string; name: string; reasoningEfforts: string[] }[];
 };
 export type ToolRequest = { name: string; arguments: string; call_id: string };
 type Recorder = {
@@ -96,7 +97,20 @@ export const createSubAgentTool = {
 		"Create an independent sub-agent and return immediately. Its terminal result is delivered automatically. No ancestor conversation is inherited; supply any background explicitly as context.",
 	parameters: {
 		type: "object",
-		properties: { prompt: { type: "string" }, context: { type: "string" } },
+		properties: {
+			prompt: { type: "string" },
+			context: { type: "string" },
+			model_id: {
+				type: "string",
+				description:
+					"Optional configured model ID. Omission inherits the parent model.",
+			},
+			reasoning_effort: {
+				type: ["string", "null"],
+				description:
+					"Omission inherits parent effort; null uses model default. A model-only override retains compatible effort, otherwise uses the new model default.",
+			},
+		},
 		required: ["prompt"],
 		additionalProperties: false,
 	},
@@ -222,7 +236,7 @@ async function requestOnce(
 		model,
 		input,
 		tools: [countFilesTool, createSubAgentTool],
-		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use count_files only for these folders or their subdirectories.`,
+		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use count_files only for these folders or their subdirectories. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
 	});

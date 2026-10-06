@@ -194,6 +194,15 @@ export const resources = {
 			addModel: "Add model",
 			add: "Add",
 
+			executionLimits: "Execution limits",
+			modelCallLimitSetting: "Model Calls per Agent",
+			subAgentLimitSetting: "Descendants per root Agent",
+			saveExecutionLimits: "Save execution limits",
+			executionLimitsHelp:
+				"Positive integers. Changes apply to the next request or creation; running work continues. Completed descendants still count.",
+			invalidExecutionLimits: "Execution limits must be positive integers.",
+			executionLimitsFailed:
+				"Unable to read or save execution limits. Please retry.",
 			settingsLanguage: "Language",
 			enterBehavior: "Enter key behavior",
 			enterSend: "Send message",
@@ -400,6 +409,14 @@ export const resources = {
 			addModel: "添加模型",
 			add: "添加",
 
+			executionLimits: "执行上限",
+			modelCallLimitSetting: "每个 Agent 的模型调用上限",
+			subAgentLimitSetting: "每个根 Agent 的累计后代上限",
+			saveExecutionLimits: "保存执行上限",
+			executionLimitsHelp:
+				"请输入正整数。修改影响下一次请求或创建，已开始的工作继续执行；已结束的后代仍计入累计数量。",
+			invalidExecutionLimits: "执行上限必须为正整数。",
+			executionLimitsFailed: "读取或保存执行上限失败，请重试。",
 			settingsLanguage: "语言",
 			enterBehavior: "Enter 键行为",
 			enterSend: "发送消息",

@@ -38,7 +38,11 @@ test("parallel delegation exposes complete creation cards and preserves root his
 				type: "function_call",
 				name: "create_sub_agent",
 				call_id: `create-${index}`,
-				arguments: JSON.stringify({ prompt }),
+				arguments: JSON.stringify({
+					prompt,
+					model_id: "test",
+					reasoning_effort: index === 0 ? "high" : null,
+				}),
 			})),
 		}),
 	);
@@ -77,6 +81,10 @@ test("parallel delegation exposes complete creation cards and preserves root his
 		await expect(cards.nth(index)).not.toHaveAttribute("open");
 		await cards.nth(index).locator("summary").click();
 		await expect(cards.nth(index)).toContainText(prompt);
+		await expect(cards.nth(index)).toContainText('"model_id": "test"');
+		await expect(cards.nth(index)).toContainText(
+			index === 0 ? '"reasoning_effort": "high"' : '"reasoning_effort": null',
+		);
 		await expect(cards.nth(index)).toContainText('"agent_id"');
 		await expect(cards.nth(index)).toContainText('"status": "pending"');
 	}

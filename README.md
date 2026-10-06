@@ -227,10 +227,10 @@ Model Call 保存可读输出、调用错误码与错误文本；Agent 仅保存
 
 ### 子 Agent 委派
 
-模型可调用 `create_sub_agent({prompt, context?})` 并行创建子任务，子任务可递归创建。prompt 必须为非空文本，context 默认空字符串；没有隐式祖先对话继承。子任务默认继承根 Chat 的当前模型、思考强度及 Project 当前文件范围。创建立即返回 `{agent_id, status: "pending"}`，只表示已启动。
+模型可调用 `create_sub_agent({prompt, context?, model_id?, reasoning_effort?})` 并行创建子任务，子任务可递归创建。prompt 必须为非空文本，context 默认空字符串；没有隐式祖先对话继承。子任务默认继承直接父 Agent 的有效模型与思考强度，并使用 Project 当前文件范围。可选 `model_id` 必须为 Settings 已配置模型 ID；请求说明提供当前 ID、名称和允许强度。省略 `reasoning_effort` 继承，显式 `null` 使用模型默认；只覆盖模型时保留兼容强度，否则使用新模型默认。显式不支持的强度返回工具错误。每次创建与 Model Call 从根 Chat 当前选择沿祖先创建参数合成最终配置，再校验模型能力；有效显式模型可覆盖已失效的根选择。覆盖只保存在创建工具 arguments，孙任务继承中间覆盖，不修改父或 Chat 配置；实际请求记录保留当时使用的值。创建立即返回 `{agent_id, status: "pending"}`，只表示已启动。
 
 每个子任务成功或失败后，运行服务将 Agent ID、真实状态、全部已有可读输出及实际错误作为普通输入自动交给直接父模型，包括失败时的部分输出。没有等待或轮询工具，也不因流式文字触发父模型调用。父任务在子任务仍运行时保持 pending 和 Chat busy；父自身失败或达到上限仍等待后代结束，通知不会重启已失败的循环。子任务失败不自动取消兄弟或使父任务失败。
 
-八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 持久化默认每 Agent 16 次 Model Calls、每根树累计 32 个后代；终态不退名额，无效参数或配置不创建子任务。模型覆盖、修改上限入口、主动取消和任务树界面由后续子票交付。
+八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 的“执行上限”提供两个持久化正整数：每 Agent Model Calls 默认 16，每根树累计后代默认 32。`GET /api/execution-limits` 读取当前值，`PATCH /api/execution-limits` 接受 `modelCallLimit` 与/或 `subAgentLimit`，拒绝非正整数。修改或重启后后续模型请求、子任务创建读取当前值；已发请求与已创建任务继续执行。降低到已用数量以下阻止新工作；失败调用计入执行者，所有层级、成功/失败/取消后代仍累计计数，根不计、终态不退名额，无效参数或配置不创建子任务。最后允许的 Model Call 请求工具时保留请求并标记未执行，以 `modelCallLimit` 停止自身循环，不为子任务通知越限调用。主动取消和任务树界面由后续子票交付。
 
 此 schema 更新仍要求新的临时或明确指定数据库；普通启动不会迁移或删除旧数据。重启保留部分记录并标记未结束工作为失败/中断，不重放模型、工具或通知。

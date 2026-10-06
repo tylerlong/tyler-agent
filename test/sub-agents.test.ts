@@ -760,3 +760,306 @@ test("a child terminal persistence failure still releases its parent with saved 
 		await f.close();
 	}
 });
+
+for (const choice of [
+	{ args: {}, model: "delegation-model", effort: "high" },
+	{ args: { model_id: "compatible" }, model: "compatible", effort: "high" },
+	{ args: { model_id: "low-only" }, model: "low-only", effort: undefined },
+	{
+		args: { reasoning_effort: "low" },
+		model: "delegation-model",
+		effort: "low",
+	},
+	{
+		args: { reasoning_effort: null },
+		model: "delegation-model",
+		effort: undefined,
+	},
+	{
+		args: { model_id: "compatible", reasoning_effort: "low" },
+		model: "compatible",
+		effort: "low",
+	},
+])
+	test(`children and grandchildren inherit effective override ${JSON.stringify(choice.args)}`, async () => {
+		const requests: {
+			model: string;
+			reasoning?: { effort: string };
+			input: unknown[];
+			instructions: string;
+		}[] = [];
+		const f = await fixture(async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			requests.push(request);
+			const prompt = userPrompt(request.input);
+			if (
+				JSON.stringify(request.input).includes("function_call_output") ||
+				prompt === "leaf"
+			)
+				return completedResponse({ output: [message("done")] });
+			return completedResponse({
+				output: [
+					childTool({
+						prompt: prompt === "root" ? "middle" : "leaf",
+						...(prompt === "root" ? choice.args : {}),
+					}),
+				],
+			});
+		});
+		try {
+			const db = new DatabaseSync(f.path);
+			for (const [id, efforts] of [
+				["compatible", ["low", "high"]],
+				["low-only", ["low"]],
+			] as const)
+				db.prepare(
+					"INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?)",
+				).run(
+					id,
+					id,
+					JSON.stringify({
+						reasoningRequired: false,
+						supportedEfforts: efforts,
+					}),
+				);
+			db.prepare("UPDATE chats SET reasoning_effort='high' WHERE id=?").run(
+				f.chat.id,
+			);
+			db.close();
+			assert.equal((await f.wait(await f.ask("root"))).status, "succeeded");
+			for (const prompt of ["middle", "leaf"]) {
+				const request = requests.find(
+					(request) => userPrompt(request.input as []) === prompt,
+				);
+				assert(request);
+				assert.equal(request.model, choice.model);
+				assert.equal(request.reasoning?.effort, choice.effort);
+				assert(request.instructions.includes('"id":"low-only"'));
+				assert(request.instructions.includes('"reasoningEfforts":["low"]'));
+			}
+			const read = new DatabaseSync(f.path);
+			assert.equal(
+				read.prepare("SELECT model_id FROM chats WHERE id=?").get(f.chat.id)
+					?.model_id,
+				"delegation-model",
+			);
+			assert.equal(
+				read
+					.prepare("SELECT reasoning_effort FROM chats WHERE id=?")
+					.get(f.chat.id)?.reasoning_effort,
+				"high",
+			);
+			read.close();
+		} finally {
+			await f.close();
+		}
+	});
+
+test("explicit unknown model and unsupported effort reject creation with no rows or requests", async () => {
+	let requests = 0;
+	const invalid = [
+		{ model_id: "missing" },
+		{ reasoning_effort: "xhigh" },
+		{ model_id: 3 },
+		{ reasoning_effort: 3 },
+	];
+	const f = await fixture(async () => {
+		requests++;
+		return completedResponse({
+			output:
+				requests === 1
+					? invalid.map((args, index) =>
+							childTool({ prompt: "bad", ...args }, String(index)),
+						)
+					: [message("errors handled")],
+		});
+	});
+	try {
+		const rootId = await f.ask("reject overrides");
+		assert.equal((await f.wait(rootId)).status, "succeeded");
+		const tools = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
+		assert.deepEqual(
+			tools.map(
+				(tool: { result: string }) => JSON.parse(tool.result).error.code,
+			),
+			["invalidModel", "invalidReasoning", "invalidInput", "invalidInput"],
+		);
+		const db = new DatabaseSync(f.path);
+		assert.equal(
+			db.prepare("SELECT COUNT(*) AS count FROM agents").get()?.count,
+			1,
+		);
+		db.close();
+		assert.equal(requests, 2);
+	} finally {
+		await f.close();
+	}
+});
+
+test("valid explicit model survives invalid current root model during creation and child request", async () => {
+	const started = gate(),
+		release = gate();
+	const seen: string[] = [];
+	const f = await fixture(async (_url, init) => {
+		const request = JSON.parse(String(init?.body));
+		seen.push(request.model);
+		if (request.model === "delegation-model") {
+			started.release();
+			await release.promise;
+			return completedResponse({
+				output: [
+					childTool({
+						prompt: "valid child",
+						model_id: "replacement",
+						reasoning_effort: "low",
+					}),
+				],
+			});
+		}
+		return completedResponse({ output: [message("valid override result")] });
+	});
+	try {
+		const db = new DatabaseSync(f.path);
+		db.prepare(
+			"INSERT INTO managed_models(id,name,metadata) VALUES('replacement','Replacement',?)",
+		).run(JSON.stringify({ supportedEfforts: ["low"] }));
+		db.close();
+		const rootId = await f.ask("invalidate root");
+		await started.promise;
+		const edit = new DatabaseSync(f.path);
+		edit.exec("PRAGMA foreign_keys=ON");
+		edit
+			.prepare("DELETE FROM managed_models WHERE id='delegation-model'")
+			.run();
+		edit.close();
+		release.release();
+		assert.equal((await f.wait(rootId)).status, "failed");
+		const tool = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls[0];
+		assert.equal(tool.status, "succeeded");
+		const child = (
+			await f.get(`/api/agents/${JSON.parse(tool.result).agent_id}`)
+		).agents[0];
+		assert.equal(child.status, "succeeded");
+		assert.equal(child.answer, "valid override result");
+		assert.deepEqual(seen, ["delegation-model", "replacement"]);
+	} finally {
+		release.release();
+		await f.close();
+	}
+});
+
+test("later child calls resolve current root effort, credentials, capability metadata and project scope", async () => {
+	const childStarted = gate(),
+		release = gate();
+	const childRequests: {
+		model: string;
+		reasoning: { effort: string };
+		instructions: string;
+		key: string;
+	}[] = [];
+	const f = await fixture(
+		async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			if (userPrompt(request.input) === "current child") {
+				childRequests.push({
+					...request,
+					key: String(new Headers(init?.headers).get("authorization")),
+				});
+				if (childRequests.length === 1) {
+					childStarted.release();
+					await release.promise;
+					return completedResponse({
+						output: [{ ...childTool({}, "local"), name: "count_files" }],
+					});
+				}
+				return completedResponse({ output: [message("child done")] });
+			}
+			return completedResponse({
+				output: JSON.stringify(request.input).includes("function_call_output")
+					? [message("root done")]
+					: [childTool({ prompt: "current child" })],
+			});
+		},
+		async () => ({ status: "succeeded", result: '{"count":0}' }),
+	);
+	try {
+		const rootId = await f.ask("current values");
+		await childStarted.promise;
+		const db = new DatabaseSync(f.path);
+		db.prepare("UPDATE settings SET api_key='updated-key'").run();
+		db.prepare("UPDATE chats SET reasoning_effort='low' WHERE id=?").run(
+			f.chat.id,
+		);
+		db.prepare(
+			"INSERT INTO folders(project_id,path) SELECT project_id,'/current-scope' FROM chats WHERE id=?",
+		).run(f.chat.id);
+		db.close();
+		release.release();
+		assert.equal((await f.wait(rootId)).status, "succeeded");
+		assert.equal(childRequests.length, 2);
+		assert.equal(childRequests[0].reasoning, undefined);
+		assert.equal(childRequests[1].reasoning.effort, "low");
+		assert.equal(childRequests[1].key, "Bearer updated-key");
+		assert(childRequests[1].instructions.includes("/current-scope"));
+	} finally {
+		release.release();
+		await f.close();
+	}
+});
+
+for (const kind of ["model", "tree"])
+	test(`lowering current ${kind} limit during an in-flight request prevents subsequent work`, async () => {
+		const started = gate(),
+			release = gate();
+		let roots = 0,
+			childRequests = 0;
+		const f = await fixture(async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			if (userPrompt(request.input) === "allowed child") {
+				childRequests++;
+				return completedResponse({ output: [message("child done")] });
+			}
+			roots++;
+			if (roots === (kind === "model" ? 1 : 2)) {
+				started.release();
+				await release.promise;
+				return completedResponse({
+					output: [childTool({ prompt: "blocked child" }, "blocked")],
+				});
+			}
+			return completedResponse({
+				output:
+					roots === 1
+						? [childTool({ prompt: "allowed child" })]
+						: [message("handled cap")],
+			});
+		});
+		try {
+			const rootId = await f.ask("lower running limit");
+			await started.promise;
+			const db = new DatabaseSync(f.path);
+			db.prepare(
+				`UPDATE settings SET ${kind === "model" ? "model_call_limit" : "sub_agent_limit"}=1 WHERE id=1`,
+			).run();
+			db.close();
+			release.release();
+			const root = await f.wait(rootId);
+			assert.equal(root.status, kind === "model" ? "failed" : "succeeded");
+			const tools = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
+			assert.equal(
+				tools.at(-1).status,
+				kind === "model" ? "not_executed" : "failed",
+			);
+			assert.equal(
+				kind === "model"
+					? tools.at(-1).reason
+					: JSON.parse(tools.at(-1).result).error.code,
+				kind === "model" ? "modelCallLimit" : "subAgentLimit",
+			);
+			assert.equal(childRequests, kind === "model" ? 0 : 1);
+			assert.equal(roots, kind === "model" ? 1 : 3);
+		} finally {
+			release.release();
+			await f.close();
+		}
+	});

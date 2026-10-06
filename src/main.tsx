@@ -129,6 +129,114 @@ function saveSidebarWidth(width: number) {
 	void api("/api/sidebar-width", "PUT", { width }).catch(() => {});
 }
 
+type ExecutionLimitsValue = { modelCallLimit: number; subAgentLimit: number };
+
+function ExecutionLimits({ open }: { open: boolean }) {
+	const { t } = useTranslation();
+	const [limits, setLimits] = useState<ExecutionLimitsValue | null>(null);
+	const [pending, setPending] = useState(false);
+	const [error, setError] = useState("");
+	const [setting] = useState(() =>
+		createSettingState<ExecutionLimitsValue>(
+			async () => {
+				const value = await api("/api/execution-limits");
+				if (
+					![value.modelCallLimit, value.subAgentLimit].every(
+						(limit) => Number.isSafeInteger(limit) && limit > 0,
+					)
+				)
+					throw new Error("Invalid execution limits");
+				return value;
+			},
+			async (value) => {
+				await api("/api/execution-limits", "PATCH", value);
+			},
+			(value) => {
+				setLimits(value);
+				setError(value === null ? "executionLimitsFailed" : "");
+			},
+		),
+	);
+	useEffect(() => {
+		if (open) void setting.refresh();
+	}, [open, setting]);
+	return (
+		<section aria-labelledby="execution-limits-title" className="mt-6">
+			<h3 id="execution-limits-title" className="font-semibold">
+				{t("executionLimits")}
+			</h3>
+			<p className="mt-2 text-sm text-neutral-600">
+				{t("executionLimitsHelp")}
+			</p>
+			<form
+				onSubmit={async (event) => {
+					event.preventDefault();
+					if (!limits || pending) return;
+					setPending(true);
+					try {
+						const result = await setting.save(limits);
+						setError(result === "saved" ? "" : "executionLimitsFailed");
+					} finally {
+						setPending(false);
+					}
+				}}
+			>
+				{(["modelCallLimit", "subAgentLimit"] as const).map((key) => (
+					<label key={key} className="mt-2 block">
+						<span>
+							{t(
+								key === "modelCallLimit"
+									? "modelCallLimitSetting"
+									: "subAgentLimitSetting",
+							)}
+						</span>
+						<input
+							className={control}
+							type="number"
+							min="1"
+							step="1"
+							required
+							value={limits && Number.isFinite(limits[key]) ? limits[key] : ""}
+							disabled={pending || limits === null}
+							onChange={(event) =>
+								setLimits(
+									(current) =>
+										current && {
+											...current,
+											[key]: event.target.valueAsNumber,
+										},
+								)
+							}
+						/>
+					</label>
+				))}
+				<button
+					type="submit"
+					className={`${button} mt-2`}
+					disabled={pending || limits === null}
+				>
+					{t("saveExecutionLimits")}
+				</button>
+			</form>
+			{error && (
+				<div className="mt-2">
+					<p role="alert" className="text-red-700">
+						{t(error)}
+					</p>
+					<button
+						type="button"
+						className={button}
+						disabled={pending}
+						onClick={() => void setting.refresh()}
+					>
+						{t("retry")}
+					</button>
+				</div>
+			)}
+		</section>
+	);
+}
+
 function App() {
 	const { t } = useTranslation();
 	const [undersized, setUndersized] = useState(
@@ -2053,6 +2161,7 @@ function App() {
 							</button>
 						</div>
 					)}
+					<ExecutionLimits open={settingsOpen} />
 					<ModelConfiguration
 						open={settingsOpen}
 						settings={modelSettings}
