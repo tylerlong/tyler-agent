@@ -207,6 +207,7 @@ function App() {
 	);
 	const [modelSettingsError, setModelSettingsError] = useState(false);
 	const modelSettingsRead = useRef(0);
+	const modelSettingsApplied = useRef(0);
 	const modelSettingsRefresh = useRef<Promise<void> | null>(null);
 	const refreshModelSettings = useCallback(() => {
 		const version = ++modelSettingsRead.current;
@@ -217,6 +218,7 @@ function App() {
 					await modelSettingsRefresh.current;
 					return;
 				}
+				modelSettingsApplied.current = version;
 				setModelSettings(value);
 				setModelSettingsError(false);
 			} catch {
@@ -467,6 +469,9 @@ function App() {
 			try {
 				const latest: ChatState = await api(`/api/chats/${id}`);
 				if (!current()) return;
+				// Validate fresh choices only after a current model/capability read.
+				await refreshModelSettings();
+				if (!current()) return;
 				optionReads.current[id] = revision;
 				if (latest.chatOptions && !optionRequests.current.has(id))
 					setChatOptions((current) => ({
@@ -523,7 +528,7 @@ function App() {
 				setHistoryErrors((errors) => ({ ...errors, [id]: error }));
 			}
 		},
-		[mergeChat, changeSelectedChat, confirmBusy],
+		[mergeChat, changeSelectedChat, confirmBusy, refreshModelSettings],
 	);
 	const refreshAgent = useCallback(
 		async (chatId: number, agentId: number) => {
@@ -1110,6 +1115,7 @@ function App() {
 			!chat ||
 			readOnly ||
 			!modelSettings ||
+			modelSettingsApplied.current !== modelSettingsRead.current ||
 			!options ||
 			optionReads.current[selected] !== chatRevisions.current[selected] ||
 			settingsOpen ||

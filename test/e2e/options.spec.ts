@@ -726,3 +726,76 @@ test("returning to a cached Chat waits for fresh choices before filling a delete
 			.chatOptions,
 	).toEqual({ modelId: "second", reasoningEffort: null });
 });
+
+for (const change of ["model", "effort"] as const) {
+	test(`fresh Chat ${change} choices wait for current model settings before normalization`, async ({
+		page,
+		app,
+	}) => {
+		const { first } = await chats(page.request, app.url);
+		await page.goto(`${app.url}/?chat=${first.id}`);
+		await expectModel(page, "test");
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		const saves: unknown[] = [];
+		await page.route("**/api/model-settings", async (route) => {
+			await held;
+			return route.continue();
+		});
+		await page.route(`**/api/chats/${first.id}`, (route) => {
+			if (route.request().method() === "PUT")
+				saves.push(route.request().postDataJSON());
+			return route.continue();
+		});
+		const modelId = change === "model" ? "new-model" : "test";
+		app.setCatalog([
+			{
+				id: "test",
+				name: "Test",
+				reasoning: { supported_efforts: ["low", "high", "xhigh"] },
+			},
+			{ id: "second", name: "Second" },
+			{
+				id: "new-model",
+				name: "New Model",
+				reasoning: { supported_efforts: ["xhigh"] },
+			},
+		]);
+		await page.request.post(`${app.url}/api/model-catalog`);
+		if (change === "model")
+			await page.request.post(`${app.url}/api/models`, {
+				data: { id: modelId },
+			});
+		const updated = page.waitForResponse(
+			async (response) =>
+				response.url().endsWith(`/api/chats/${first.id}`) &&
+				response.request().method() === "GET" &&
+				(await response.json()).chatOptions.reasoningEffort === "xhigh",
+		);
+		await page.request.put(`${app.url}/api/chats/${first.id}`, {
+			data: { modelId, reasoningEffort: "xhigh" },
+		});
+		try {
+			await updated;
+			await page.evaluate(
+				() =>
+					new Promise<void>((resolve) =>
+						requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+					),
+			);
+			expect(saves).toEqual([]);
+			expect(
+				(
+					await (
+						await page.request.get(`${app.url}/api/chats/${first.id}`)
+					).json()
+				).chatOptions,
+			).toEqual({ modelId, reasoningEffort: "xhigh" });
+		} finally {
+			release();
+		}
+		await expectEffort(page, "xhigh");
+		await expectModel(page, change === "model" ? "New Model" : "test");
+		expect(saves).toEqual([]);
+	});
+}
