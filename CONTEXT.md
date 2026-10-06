@@ -4,7 +4,7 @@
 
 ## Language
 
-子 Agent、委派上下文、取消、父子任务生命周期及可配置执行上限已实现，见 [子 Agent ADR](docs/adr/0002-sub-agent-ownership.md)。
+子 Agent、委派上下文、取消、父子任务生命周期及可配置执行上限是已确认、尚未实现的设计，见 [子 Agent ADR](docs/adr/0002-sub-agent-ownership.md)。
 
 **用户（User）**：
 一个数据库对应唯一的用户；其中的所有项目、对话和偏好都属于该用户。
