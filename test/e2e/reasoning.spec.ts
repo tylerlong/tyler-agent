@@ -41,6 +41,65 @@ const initial = output
 	)
 	.join("");
 
+test("accepted final reasoning replaces the pending cache even when its lazy read fails", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Final reasoning" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const stream = app.rawStreamModel();
+	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { modelId: "test", prompt: "question" },
+	});
+	stream.push(initial);
+	const log = page.getByRole("log");
+	await expect(log).toContainText("parent body");
+	// Retain an explicit open choice across successful completion.
+	const reasoning = log.getByRole("button", { name: /Reasoning/ }).first();
+	await reasoning.click();
+	await reasoning.click();
+	let failRead = true;
+	await page.route("**/api/agents/*/reasoning?callId=*", async (route) => {
+		if (failRead) await route.fulfill({ status: 500, body: "{}" });
+		else await route.continue();
+	});
+	stream.push(
+		completedBody({
+			output: [
+				{
+					id: "r0",
+					type: "reasoning",
+					content: [{ type: "reasoning_text", text: "final body" }],
+				},
+				{
+					id: "answer",
+					type: "message",
+					content: [{ type: "output_text", text: "final answer" }],
+				},
+			],
+		}),
+	);
+	stream.end();
+	await expect(log).toContainText("final answer");
+	await expect(log).toContainText("Unable to read reasoning. Please retry.");
+	await expect(log).not.toContainText("parent body");
+	await expect(log).not.toContainText("second body");
+	await expect(log).not.toContainText("brief");
+	failRead = false;
+	await log.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(log).toContainText("final body");
+	await expect(log).not.toContainText("parent body");
+});
+
 test("ordered thinking stays live while pending; manual choices survive updates, completion and chat switches", async ({
 	page,
 	app,

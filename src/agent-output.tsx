@@ -115,9 +115,10 @@ export function AgentOutput({
 		if (item.type !== "reasoning" || !item.content.length) return null;
 		const key = `${agentId}-${callId}-${item.index}`;
 		const open = choices.get(key) ?? status === "pending";
-		const content = download?.output.find(
-			(value) => value.index === item.index,
-		)?.content;
+		const content =
+			status === "succeeded" && download?.status !== "succeeded"
+				? undefined
+				: download?.output.find((value) => value.index === item.index)?.content;
 		return (
 			<details
 				key={item.index}
