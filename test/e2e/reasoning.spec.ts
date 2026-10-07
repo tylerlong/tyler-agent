@@ -67,7 +67,7 @@ test("ordered thinking stays live while pending; manual choices survive updates,
 	});
 	stream.push(initial);
 	const log = page.getByRole("log");
-	const thinking = log.getByRole("button", { name: /Thinking/ });
+	const thinking = log.getByRole("button", { name: /Reasoning/ });
 	await expect(thinking).toHaveCount(2);
 	await expect(thinking.first()).toHaveAttribute("aria-expanded", "true");
 	await expect(log).toContainText("Reasoning: parent body");
@@ -164,7 +164,7 @@ test("failed thinking defaults folded and history loads body only after expansio
 	stream.push(initial);
 	const thinking = page
 		.getByRole("log")
-		.getByRole("button", { name: /Thinking/ });
+		.getByRole("button", { name: /Reasoning/ });
 	await expect(page.getByRole("log")).toContainText("parent body");
 	stream.end();
 	await submitted;
@@ -227,7 +227,9 @@ test("thinking reads retry and two pages catch up pending content with independe
 			},
 		}),
 	);
-	await expect(page.getByRole("log")).toContainText("Unable to read thinking.");
+	await expect(page.getByRole("log")).toContainText(
+		"Unable to read reasoning. Please retry.",
+	);
 	failed = false;
 	await page
 		.getByRole("log")
@@ -237,10 +239,10 @@ test("thinking reads retry and two pages catch up pending content with independe
 	await expect(other.getByRole("log")).toContainText("body only");
 	const firstFold = page
 		.getByRole("log")
-		.getByRole("button", { name: /Thinking/ });
+		.getByRole("button", { name: /Reasoning/ });
 	await firstFold.click();
 	await expect(
-		other.getByRole("log").getByRole("button", { name: /Thinking/ }),
+		other.getByRole("log").getByRole("button", { name: /Reasoning/ }),
 	).toHaveAttribute("aria-expanded", "true");
 	stream.push(
 		frame("response.reasoning_text.delta", {
@@ -288,7 +290,7 @@ test("thinking reads retry and two pages catch up pending content with independe
 	stream.end();
 	await submitted.catch(() => undefined);
 	await expect(
-		other.getByRole("log").getByRole("button", { name: /Thinking/ }),
+		other.getByRole("log").getByRole("button", { name: /Reasoning/ }),
 	).toHaveAttribute("aria-expanded", "false");
 	await expect(firstFold).toHaveAttribute("aria-expanded", "true");
 });

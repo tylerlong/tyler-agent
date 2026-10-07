@@ -52,6 +52,9 @@ for (const archived of [false, true]) {
 		release();
 		await expect(page.getByRole("log")).toContainText("Agent cancelled.");
 		await expect(stop).toHaveCount(0);
+		await expect(
+			page.locator("summary").filter({ hasText: /^Response 1/ }),
+		).toHaveText("Response 1 · Cancelled");
 		await expect(page.getByRole("log")).toContainText("Saved partial output");
 		if (archived) {
 			await expect(page.getByLabel("Prompt")).toHaveCount(0);

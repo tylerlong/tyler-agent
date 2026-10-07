@@ -71,7 +71,7 @@ test("a tool agent retains output and exposes both communications while Send sta
 	await continuation.entered;
 	await page.getByLabel("Prompt").fill("next draft");
 	await expect(send).toBeDisabled();
-	await expect(log.getByRole("button", { name: /Thinking/ })).toHaveAttribute(
+	await expect(log.getByRole("button", { name: /Reasoning/ })).toHaveAttribute(
 		"aria-expanded",
 		"false",
 	);
@@ -108,7 +108,7 @@ test("a tool agent retains output and exposes both communications while Send sta
 	await expect(send).toBeEnabled();
 	expect(
 		await log
-			.locator("summary, [data-output-index]")
+			.locator("summary:not([data-output-index] summary), [data-output-index]")
 			.evaluateAll((elements) =>
 				elements.map((element) =>
 					element.tagName === "SUMMARY"
@@ -131,7 +131,7 @@ test("a tool agent retains output and exposes both communications while Send sta
 	await page.reload();
 	await expect(log).toContainText("I will count the files.");
 	await expect(log).toContainText("Test answer");
-	await log.getByRole("button", { name: /Thinking/ }).click();
+	await log.getByRole("button", { name: /Reasoning/ }).click();
 	await expect(log).toContainText("Checking the local directory");
 });
 

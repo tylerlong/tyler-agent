@@ -154,7 +154,7 @@ test("pending cached thinking and raw records recover on focus, visibility, reco
 		);
 		await browserPage
 			.getByRole("log")
-			.getByRole("button", { name: /Thinking/ })
+			.getByRole("button", { name: /Reasoning/ })
 			.click();
 		await browserPage
 			.getByRole("log")
@@ -200,7 +200,7 @@ test("pending cached thinking and raw records recover on focus, visibility, reco
 	const show = async (browserPage: typeof page, text: string) => {
 		const thinking = browserPage
 			.getByRole("log")
-			.getByRole("button", { name: /Thinking/ });
+			.getByRole("button", { name: /Reasoning/ });
 		await expect(thinking).toHaveAttribute("aria-expanded", "false");
 		await thinking.click();
 		await expect(browserPage.getByRole("log")).toContainText(text);

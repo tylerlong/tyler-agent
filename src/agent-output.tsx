@@ -119,24 +119,28 @@ export function AgentOutput({
 			(value) => value.index === item.index,
 		)?.content;
 		return (
-			<div
+			<details
 				key={item.index}
 				data-output-index={item.index}
 				data-reading-anchor={`${agentId}-${callId}-output-${item.index}`}
-				className="my-2 rounded border border-neutral-200 p-3"
+				className="communication-disclosure mt-2 rounded-md bg-neutral-50 px-3 py-2 text-sm"
+				open={open}
+				onToggle={(event) => {
+					if (event.currentTarget.open === open) return;
+					folds.set(key, event.currentTarget.open);
+					setChoices(new Map(folds));
+				}}
 			>
-				<button
-					type="button"
+				{/* biome-ignore lint/a11y/useSemanticElements: summary provides the native disclosure; its explicit role exposes the control consistently. */}
+				<summary
+					role="button"
 					aria-expanded={open}
-					className="cursor-pointer font-medium"
-					onClick={() => {
-						folds.set(key, !open);
-						setChoices(new Map(folds));
-					}}
+					className="cursor-pointer text-neutral-600 hover:text-neutral-950"
 				>
-					{open ? "▾ " : "▸ "}
-					{t("thinking")}
-				</button>
+					<span className="inline-flex min-h-6 items-center">
+						{t("reasoning")}
+					</span>
+				</summary>
 				{open && (
 					<div className="mt-2 space-y-2 text-neutral-600">
 						{content?.map((part) => (
@@ -157,7 +161,7 @@ export function AgentOutput({
 						))}
 						{!content && !error && <p role="status">{t("loading")}</p>}
 						{error && (
-							<p role="status">
+							<p role="alert" className="text-red-700">
 								{t("reasoningReadFailed")}{" "}
 								<button
 									type="button"
@@ -170,7 +174,7 @@ export function AgentOutput({
 						)}
 					</div>
 				)}
-			</div>
+			</details>
 		);
 	});
 }

@@ -10,7 +10,7 @@ import { useTranslation } from "react-i18next";
 import type { ManagedModel, ModelSettings } from "./database.ts";
 
 const input =
-	"mt-2 block w-full rounded-md border border-neutral-300 bg-white px-3 py-2";
+	"mt-2 block w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-neutral-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600";
 const button =
 	"rounded-md border border-neutral-300 px-3 py-2 hover:bg-neutral-100 disabled:opacity-50";
 
@@ -382,7 +382,7 @@ export function ModelConfiguration({
 	return (
 		<div ref={section}>
 			{readFailed && (
-				<div role="alert">
+				<div role="alert" className="text-red-700">
 					{t("configurationReadFailed")}{" "}
 					<button
 						type="button"
@@ -394,7 +394,7 @@ export function ModelConfiguration({
 				</div>
 			)}
 			{!settings ? (
-				<p>{t("loading")}</p>
+				!readFailed && <p>{t("loading")}</p>
 			) : (
 				<>
 					<section aria-label={t("credentials")}>
@@ -487,6 +487,8 @@ export function ModelConfiguration({
 											type="button"
 											className={`${button} shrink-0`}
 											disabled={pending}
+											aria-label={t("setDefaultModel", { name: model.name })}
+											title={t("setDefaultModel", { name: model.name })}
 											onClick={() =>
 												void mutate("/api/model-settings", "PUT", {
 													defaultModelId: model.id,
@@ -500,7 +502,7 @@ export function ModelConfiguration({
 										type="button"
 										className={button}
 										disabled={pending}
-										aria-label={t("disableModel")}
+										aria-label={t("removeModel", { name: model.name })}
 										title={t("removeModel", { name: model.name })}
 										onClick={() =>
 											void mutate(
@@ -607,7 +609,7 @@ export function ModelConfiguration({
 										expanded &&
 										createPortal(
 											<div
-												className="model-popup"
+												className="model-popup picker-popup"
 												style={{
 													left: popup.left,
 													top: popup.top,

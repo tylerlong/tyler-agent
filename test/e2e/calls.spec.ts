@@ -45,7 +45,7 @@ test("large failed responses stay folded and keep the composer visible until req
 	});
 	await expect(response.locator("pre")).toHaveCount(0);
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveText(
+	await expect(response.locator("pre").last()).toHaveText(
 		JSON.stringify(JSON.parse(raw), null, 2),
 	);
 	expect(reads).toBeGreaterThan(0);
@@ -208,7 +208,7 @@ test("failed responses show actual text, retry reading, copy displayed informati
 	fail = false;
 	await response.getByRole("button", { name: "Retry" }).click();
 	await expect(response).toContainText("HTTP 500");
-	await expect(response.locator("pre")).toHaveText("upstream failure");
+	await expect(response.locator("pre").last()).toHaveText("upstream failure");
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
@@ -222,10 +222,10 @@ test("failed responses show actual text, retry reading, copy displayed informati
 	await expect(
 		response.getByRole("button", { name: "复制", exact: true }),
 	).toBeVisible();
-	await expect(response.locator("pre")).toHaveText("upstream failure");
+	await expect(response.locator("pre").last()).toHaveText("upstream failure");
 	await response.locator("summary").click();
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveText("upstream failure");
+	await expect(response.locator("pre").last()).toHaveText("upstream failure");
 });
 
 test("network failures have copyable diagnostics and unavailable saved records are explicit", async ({
@@ -392,7 +392,10 @@ test("provisional content stays lazy, updates live, retains cached reads and cop
 		"OpenRouter returned an invalid response.",
 	);
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveCount(2);
+	await expect(response.locator("pre")).toHaveCount(3);
+	await expect(response.locator("pre").nth(1)).toHaveText(
+		"OpenRouter returned an incomplete response",
+	);
 	await expect(response.locator("pre").first()).toContainText(
 		'"text": "early later away [REDACTED]"',
 	);
@@ -544,7 +547,7 @@ test("older downloads cannot overwrite newer per-call response and thinking cont
 	);
 	await page
 		.getByRole("log")
-		.getByRole("button", { name: /Thinking/ })
+		.getByRole("button", { name: /Reasoning/ })
 		.click();
 	await expect(page.getByRole("log")).toContainText("old newest final");
 	await expect(response.locator("summary")).toHaveText("Response 1");
@@ -645,7 +648,9 @@ test("comment-only Response has no content blocks and copies received HTTP diagn
 	).toHaveCount(0);
 	await response.locator("summary").click();
 	await expect(response).toContainText("HTTP 200");
-	await expect(response.locator("pre")).toHaveCount(0);
+	await expect(response.locator("pre")).toHaveText(
+		"OpenRouter returned an incomplete response",
+	);
 	await expect(response).not.toContainText("keepalive");
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect

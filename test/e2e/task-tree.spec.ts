@@ -67,7 +67,7 @@ for (const language of ["en", "zh-CN"]) {
 		back: zh ? "返回对话" : "Back to chat",
 		stop: zh ? "停止" : "Stop",
 		parameters: zh ? "创建参数" : "Creation parameters",
-		pending: zh ? "进行中" : "Pending",
+		pending: zh ? "进行中" : "In progress",
 		succeeded: zh ? "成功" : "Succeeded",
 		failed: zh ? "失败" : "Failed",
 		cancelled: zh ? "已取消" : "Cancelled",

@@ -329,13 +329,13 @@ test("growth and folding above an answer in the same agent preserve its reading 
 		.toBeCloseTo(before, 0);
 	// Toggle without scrolling the control into view; the user is reading the answer below it.
 	await log
-		.getByRole("button", { name: /Thinking/ })
+		.getByRole("button", { name: /Reasoning/ })
 		.evaluate((element: HTMLButtonElement) => element.click());
 	await expect
 		.poll(async () => (await answer.boundingBox())?.y)
 		.toBeCloseTo(before, 0);
 	await log
-		.getByRole("button", { name: /Thinking/ })
+		.getByRole("button", { name: /Reasoning/ })
 		.evaluate((element: HTMLButtonElement) => element.click());
 	await expect
 		.poll(async () => (await answer.boundingBox())?.y)
@@ -422,7 +422,7 @@ test("growth and folding above an answer in the same agent preserve its reading 
 		.poll(async () => (await partial.boundingBox())?.y)
 		.toBeCloseTo(partialBefore, 0);
 	await log
-		.getByRole("button", { name: /Thinking/ })
+		.getByRole("button", { name: /Reasoning/ })
 		.evaluate((element: HTMLButtonElement) => element.click());
 	await expect
 		.poll(async () => (await partial.boundingBox())?.y)

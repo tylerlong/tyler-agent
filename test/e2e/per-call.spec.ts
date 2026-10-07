@@ -76,7 +76,7 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 	];
 	for (const [output_index, item] of items.entries())
 		second.push(frame("response.output_item.added", { output_index, item }));
-	const thinking = groups.last().getByRole("button", { name: /Thinking/ });
+	const thinking = groups.last().getByRole("button", { name: /Reasoning/ });
 	await expect(thinking).toHaveAttribute("aria-expanded", "true");
 	await expect(groups.last()).toContainText("partial thinking");
 	await thinking.click();
@@ -91,9 +91,9 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 		.locator("details")
 		.filter({ has: page.locator("summary", { hasText: /^Response 2/ }) });
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveCount(1);
+	await expect(response.locator("pre")).toHaveCount(2);
 	for (const text of ["first partial", "partial thinking", "last partial"])
-		await expect(response.locator("pre")).toContainText(text);
+		await expect(response.locator("pre").first()).toContainText(text);
 	await expect(response).not.toContainText("response.output_item.added");
 	await expect(response).toContainText("HTTP 200");
 	await page.reload();
@@ -146,7 +146,7 @@ for (const language of ["en", "zh-CN"]) {
 		const log = page.getByRole("log");
 		await expect(log).toContainText("saved answer");
 		const thinking = log.getByRole("button", {
-			name: language === "en" ? /Thinking/ : /思考/,
+			name: language === "en" ? /Reasoning/ : /推理/,
 		});
 		await expect(thinking).toHaveAttribute("aria-expanded", "true");
 		const response = log.locator("details").filter({

@@ -280,8 +280,22 @@ Each running root Agent has a Stop button in chat history, including archived re
 
 ### 任务树与 Agent 详情 / Task tree and Agent details
 
-Each root prompt in Chat history has a **Task tree** button. The tree shows recursive children with their own Pending, Succeeded, Failed or Cancelled state. Expand a node to see deeper descendants; select any node to use the same Agent output, thinking, Tool Call and lazy communication view as root history. The detail shows the full prompt, explicit context and unmodified creation arguments, including model/reasoning overrides. A successful `create_sub_agent` Tool Call means the child was created; its own tree status shows whether its execution succeeded.
+Each root prompt in Chat history has a **Task tree** button. The tree shows recursive children with their own In progress, Succeeded, Failed or Cancelled state. Expand a node to see deeper descendants; select any node to use the same Agent output, Reasoning, Tool Call and lazy communication view as root history. The detail shows the full prompt, explicit Background and unmodified creation arguments, including model/reasoning overrides. A successful `create_sub_agent` Tool Call means the child was created; its own tree status shows whether its execution succeeded.
 
 Use the task path, sibling links or **Back to chat** to navigate. The selected Agent is encoded in the URL, so refresh and reconnect restore its persisted tree and details. Task details have no prompt composer. **Stop** acts on the selected pending Agent and its descendants, including in archived Chats; siblings and parents continue, and Cancelled appears only after cleanup. Child updates do not enter root history, change recent activity or release Chat busy.
 
 对话历史中每个根 prompt 的“任务树”可展开递归后代并查看各自状态。点击节点复用根任务的输出、思考、Tool 卡片和按需通信读取，详情展示完整 prompt、显式背景及原始创建参数（包括模型与思考强度覆盖）。创建工具成功只代表子任务已创建，不代表子任务执行成功。任务路径、兄弟链接和“返回对话”用于导航；URL 保存所选 Agent，刷新或重连恢复持久化关系。子任务详情无追加输入；“停止”只取消所选进行中节点及后代，归档中仍可用，清理结束后才显示已取消。
+
+## 界面标签与提示 / UI labels and help
+
+模型生成内容统一标为 Reasoning（推理），其整个标题均可点击展开或折叠，沿用 Request/Response 的展示方式；回答始终直接可见。思考强度显示本地化名称（例如 Extra high / 超高），省略强度显示 Model default / 模型默认，不改变 API 值。任务详情、路径与任务树中的活动状态为 In progress / 进行中。子任务详情将显式 context 标为 Background / 背景；为空时说明未提供背景、不会继承父级对话历史，创建参数仍名为 context。
+
+Generated content uses Reasoning, with the same disclosure header treatment as Request/Response; answers remain directly visible. Reasoning effort labels are localized, including Extra high and Model default, without changing API values. Active task details, paths and trees say In progress. Delegated details label explicit context Background; an empty background explains that parent conversation history is not inherited. The protocol parameter stays context.
+
+目标文件夹为空时，选择“编辑项目”，再选择“添加文件夹”以使用文件工具；项目表单解释已选文件夹界定文件访问范围，纯文本任务无需文件夹。模型操作的提示和无障碍名称明确指出移除或设为默认的模型。取消引起的 Response 显示已取消；应用错误摘要按错误码本地化，服务提供方原始诊断保留原文。真正的错误采用失败强调，取消保持普通状态。
+
+With no Target Folders, choose Edit project, then Add folder to use file tools. Project forms explain that selected folders define file access; zero folders remains valid for text-only work. Model action names and tooltips identify the target model. An Agent-cancelled Response says Cancelled; application-owned error summaries are localized by code while original provider diagnostics remain unchanged. Actual errors use failure emphasis; cancellation uses ordinary status presentation.
+
+Settings 保留 General、Models、Execution 三个页签与自动保存；常规页预留紧凑的保存反馈行。初次 Models 读取失败显示错误和 Retry，不同时显示 Loading。API 密钥保持遮罩，离开输入框时保存，清空可移除；默认模型用于新对话和尚未选择模型的对话。每个 Agent 的 Model Calls 包括自己的失败请求与通知触发请求；每根 Agent 的后代上限累计所有深度的已创建子任务，不计根任务，成功、失败或取消后不退名额。
+
+Settings keeps General, Models and Execution tabs and autosave, with compact reserved feedback space in General. A failed initial Models read shows failure and Retry without Loading. The API key stays masked and saves on blur; clearing it removes the key. The default model applies to new chats and chats without a model. Model Calls per Agent counts that Agent’s own failed and notification-triggered requests. Descendants per root Agent counts created children at every depth, excludes the root, and does not refund finished, failed or cancelled children.

@@ -25,7 +25,7 @@ test("desktop boundary preserves drafts, modal addition and focus without prefer
 	const notice = page.getByRole("dialog", { name: "Enlarge your window" });
 	const prompt = page.getByRole("textbox", { name: "Prompt", exact: true });
 	await expect(notice).toBeHidden();
-	await expect(chatPicker(page)).toContainText(" · Default");
+	await expect(chatPicker(page)).toContainText(" · Model default");
 	await expectEffort(page, "");
 	await selectEffort(page, "high");
 	await prompt.fill("Future draft");
@@ -265,7 +265,7 @@ test("combined picker remains bounded with a long enabled list and exposes Reaso
 				el.scrollTop = el.scrollHeight;
 			});
 			await expect(
-				popup.getByRole("radio", { name: "high", exact: true }),
+				popup.getByRole("radio", { name: "High", exact: true }),
 			).toBeInViewport();
 			const bounds = await popup.boundingBox();
 			expect(bounds?.x).toBeGreaterThanOrEqual(0);

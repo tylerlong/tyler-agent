@@ -12,10 +12,11 @@ export const resources = {
 			backToChat: "Back to chat",
 			taskPath: "Task path",
 			siblingAgents: "Sibling agents",
-			taskContext: "Context",
-			emptyContext: "Empty (blind task)",
+			taskContext: "Background",
+			emptyContext:
+				"No background provided. Parent conversation history is not inherited.",
 			creationParameters: "Creation parameters",
-			taskStatus_pending: "Pending",
+			taskStatus_pending: "In progress",
 			taskStatus_succeeded: "Succeeded",
 			taskStatus_failed: "Failed",
 			taskStatus_cancelled: "Cancelled",
@@ -64,6 +65,10 @@ export const resources = {
 			archived: "Archived",
 			resizeSidebar: "Resize sidebar",
 			targetFolders: "Target folders",
+			emptyTargetFolders:
+				"Choose Edit project, then Add folder to use file tools.",
+			targetFoldersHelp:
+				"Selected folders define file access. Zero folders is valid for text-only work.",
 			chatHistory: "Chat history",
 			loadEarlier: "Load earlier agents",
 			agentPending: "Working…",
@@ -79,10 +84,10 @@ export const resources = {
 			labelSeparator: ": ",
 			you: "You",
 			agent: "Agent",
-			thinking: "Thinking",
+			reasoning: "Reasoning",
 			thinkingBody: "Reasoning",
 			thinkingSummary: "Summary",
-			reasoningReadFailed: "Unable to read thinking. Please retry.",
+			reasoningReadFailed: "Unable to read reasoning. Please retry.",
 			bothArchivedReadOnly:
 				"Project and chat are archived and read-only. Restore both to continue.",
 			projectArchivedReadOnly:
@@ -94,7 +99,14 @@ export const resources = {
 			noConfiguredModels: "No enabled models",
 			reasoningLevel: "Reasoning level",
 			reasoningLabel: "Reasoning",
-			reasoningDefault: "Default",
+			reasoningDefault: "Model default",
+			reasoningEffort_none: "None",
+			reasoningEffort_minimal: "Minimal",
+			reasoningEffort_low: "Low",
+			reasoningEffort_medium: "Medium",
+			reasoningEffort_high: "High",
+			reasoningEffort_xhigh: "Extra high",
+
 			enlargeWindow: "Enlarge your window",
 			minimumViewport:
 				"This desktop workspace needs a browser viewport of at least 1280×720 CSS pixels. Enlarge your window to resume; your drafts and running work are preserved.",
@@ -202,6 +214,7 @@ export const resources = {
 			defaultModel: "Default model",
 			enabledModels: "Enabled models",
 			setDefault: "Set default",
+			setDefaultModel: "Set {{name}} as default",
 			default: "Default",
 			disableModel: "Disable model",
 			noDefaultModel: "No default model",
@@ -223,11 +236,11 @@ export const resources = {
 
 			executionLimits: "Execution limits",
 			modelCallLimitSetting: "Model Calls per Agent",
-			subAgentLimitSetting: "Sub-agents per root Agent",
+			subAgentLimitSetting: "Descendants per root Agent",
 			executionLimitsHelp:
 				"Limits are checked before each model request or sub-agent creation. Changes affect ongoing tasks, but work already started continues.",
 			modelCallLimitHelp:
-				"Maximum requests to the model for each Agent, including failed requests. Each sub-agent has its own limit.",
+				"Maximum requests made by each Agent, including failed and notification-triggered requests. Each sub-agent has its own limit.",
 			subAgentLimitHelp:
 				"A root Agent starts when you send a message. This limit counts all its sub-agents, including nested ones. Completed, failed, and cancelled sub-agents still count; the root Agent does not.",
 			invalidExecutionLimits: "Execution limits must be positive integers.",
@@ -264,7 +277,7 @@ export const resources = {
 			taskPath: "任务路径",
 			siblingAgents: "兄弟任务",
 			taskContext: "背景",
-			emptyContext: "空（blind 任务）",
+			emptyContext: "未提供背景。子任务不会继承父级对话历史。",
 			creationParameters: "创建参数",
 			taskStatus_pending: "进行中",
 			taskStatus_succeeded: "成功",
@@ -314,6 +327,9 @@ export const resources = {
 			archived: "已归档",
 			resizeSidebar: "调整左侧面板宽度",
 			targetFolders: "目标文件夹",
+			emptyTargetFolders: "选择“编辑项目”，再选择“添加文件夹”以使用文件工具。",
+			targetFoldersHelp:
+				"已选文件夹界定文件访问范围。仅处理文本的任务可以不选文件夹。",
 			chatHistory: "对话历史",
 			loadEarlier: "加载更早记录",
 			agentPending: "运行中…",
@@ -328,10 +344,10 @@ export const resources = {
 			labelSeparator: "：",
 			you: "你",
 			agent: "Agent",
-			thinking: "思考",
+			reasoning: "推理",
 			thinkingBody: "推理正文",
 			thinkingSummary: "摘要",
-			reasoningReadFailed: "读取思考失败，请重试。",
+			reasoningReadFailed: "读取推理失败，请重试。",
 			bothArchivedReadOnly: "项目和对话已归档，只读。恢复两者后可继续使用。",
 			projectArchivedReadOnly: "项目已归档，对话只读。恢复项目后可继续使用。",
 			chatArchivedReadOnly: "对话已归档，只读。恢复对话后可继续使用。",
@@ -340,7 +356,14 @@ export const resources = {
 			noConfiguredModels: "尚未启用模型",
 			reasoningLevel: "思考强度",
 			reasoningLabel: "思考",
-			reasoningDefault: "默认",
+			reasoningDefault: "模型默认",
+			reasoningEffort_none: "无",
+			reasoningEffort_minimal: "最低",
+			reasoningEffort_low: "低",
+			reasoningEffort_medium: "中",
+			reasoningEffort_high: "高",
+			reasoningEffort_xhigh: "超高",
+
 			enlargeWindow: "请扩大窗口",
 			minimumViewport:
 				"此桌面工作区需要至少 1280×720 CSS 像素的浏览器内容视口。扩大窗口即可继续；草稿和进行中的操作会保留。",
@@ -445,6 +468,7 @@ export const resources = {
 			defaultModel: "默认模型",
 			enabledModels: "已启用模型",
 			setDefault: "设为默认",
+			setDefaultModel: "将 {{name}} 设为默认",
 			default: "默认",
 			disableModel: "停用模型",
 			noDefaultModel: "无默认模型",
@@ -469,7 +493,7 @@ export const resources = {
 			executionLimitsHelp:
 				"每次请求模型或创建子 Agent 前都会检查上限。修改会影响进行中的任务，但已经开始的工作会继续执行。",
 			modelCallLimitHelp:
-				"每个 Agent 可请求模型的最大次数，失败的请求也计入。每个子 Agent 分别计算自己的调用次数。",
+				"每个 Agent 自己请求模型的最大次数，包括失败及通知触发的请求。每个子 Agent 分别计算自己的调用次数。",
 			subAgentLimitHelp:
 				"发送消息会启动一个根 Agent。此上限累计计算它创建的所有子 Agent，包括嵌套创建的子 Agent；已完成、失败或取消的子 Agent 仍计入，根 Agent 本身不计入。",
 			invalidExecutionLimits: "执行上限必须为正整数。",

@@ -94,7 +94,9 @@ test("failed and ambiguous language saves reconcile to server and existing error
 	await expect(
 		dialog.getByRole("listbox", { name: "Popular models" }).getByRole("option"),
 	).toHaveCount(1);
-	await expect(dialog.getByRole("status")).toHaveCount(0);
+	await expect(
+		dialog.getByRole("status").filter({ hasText: /.+/ }),
+	).toHaveCount(0);
 	await page.route("**/api/language", (route) =>
 		route.request().method() === "PUT"
 			? route.fulfill({
@@ -151,11 +153,14 @@ test("Close waits for an immediate dropdown save without duplicate writes", asyn
 		await held;
 		await route.continue();
 	});
-	await dialog
-		.getByRole("combobox", { name: "Enter key behavior" })
-		.selectOption("newline");
+	const enterControl = dialog.getByRole("combobox", {
+		name: "Enter key behavior",
+	});
+	const originalPosition = await enterControl.boundingBox();
+	await enterControl.selectOption("newline");
 	await entered;
-	await expect(dialog.getByRole("status")).toHaveText("Saving…");
+	await expect(dialog.getByRole("status").last()).toHaveText("Saving…");
+	expect((await enterControl.boundingBox())?.y).toBe(originalPosition?.y);
 	await dialog.getByRole("tab", { name: "Execution", exact: true }).click();
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).toBeVisible();
@@ -217,7 +222,9 @@ test("failed pending dropdown save reveals General on Close, retains draft throu
 	await expect(dialog.getByRole("alert")).toContainText(
 		"Unable to confirm Enter key behavior",
 	);
-	await expect(dialog.getByRole("status")).toHaveCount(0);
+	await expect(
+		dialog.getByRole("status").filter({ hasText: /.+/ }),
+	).toHaveCount(0);
 	await expect(
 		dialog.getByRole("combobox", { name: "Enter key behavior" }),
 	).toHaveValue("newline");
@@ -343,15 +350,35 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	const fresh = page.getByRole("dialog", { name: "新建对话", exact: true });
 	await expect(fresh.getByLabel("名称", { exact: true })).toHaveValue("新对话");
 	await fresh.getByRole("button", { name: "取消", exact: true }).click();
-	app.failModel();
+	app.failModel("http", "upstream diagnostic 原样");
 	await page.getByRole("button", { name: /^发送(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("log")).toContainText("OpenRouter 请求失败。");
+	const failedResponse = page
+		.locator("details")
+		.filter({
+			has: page.locator("summary", {
+				hasText: /^(响应 1 · 失败|Response 1 · Failed)/,
+			}),
+		});
+	await failedResponse.locator("summary").click();
+	await expect(failedResponse).toContainText("OpenRouter 请求失败。");
+	await expect(
+		failedResponse
+			.locator("pre")
+			.filter({ hasText: "upstream diagnostic 原样" }),
+	).toContainText("upstream diagnostic 原样");
 	await page.request.put(`${app.url}/api/language`, {
 		data: { language: "en" },
 	});
 	await expect(page.getByRole("log")).toContainText(
 		"OpenRouter request failed.",
 	);
+	await expect(failedResponse).toContainText("OpenRouter request failed.");
+	await expect(
+		failedResponse
+			.locator("pre")
+			.filter({ hasText: "upstream diagnostic 原样" }),
+	).toContainText("upstream diagnostic 原样");
 	await expect(
 		page.getByRole("textbox", { name: "Prompt", exact: true }),
 	).toHaveValue("");

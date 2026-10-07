@@ -46,6 +46,7 @@ export function AgentCalls({
 	callId,
 	ordinal,
 	status,
+	errorCode,
 	kind,
 	revision = 0,
 	onLayoutChange,
@@ -54,6 +55,7 @@ export function AgentCalls({
 	callId: number;
 	ordinal: number;
 	status: string;
+	errorCode?: string;
 	kind: "request" | "response";
 	revision?: number;
 	onLayoutChange: () => void;
@@ -128,12 +130,19 @@ export function AgentCalls({
 				? [
 						{
 							text:
-								call.errorCode === "answerWriteFailed"
+								call.errorCode && t(call.errorCode, { defaultValue: "" })
 									? t(call.errorCode)
 									: call.error,
 							body: false,
+							error: call.errorCode !== "agentCancelled",
 						},
 					]
+				: []),
+			...(kind === "response" &&
+			call.error &&
+			call.errorCode &&
+			call.error !== t(call.errorCode, { defaultValue: call.error })
+				? [{ text: call.error, body: true }]
 				: []),
 			...(typeof body === "string"
 				? [pretty(body)].map((text) => ({
@@ -194,7 +203,7 @@ export function AgentCalls({
 		<details
 			data-reading-anchor={key}
 			open={record.open}
-			className="mt-2 rounded-md bg-neutral-50 px-3 py-2 text-sm"
+			className="communication-disclosure mt-2 rounded-md bg-neutral-50 px-3 py-2 text-sm"
 			onToggle={(event) => {
 				record.open = event.currentTarget.open;
 				render((value) => value + 1);
@@ -202,12 +211,12 @@ export function AgentCalls({
 			}}
 		>
 			<summary className="cursor-pointer text-neutral-600 hover:text-neutral-950">
-				<span className="inline-flex w-[calc(100%-1.25rem)] items-center gap-2">
+				<span className="inline-flex min-h-6 w-[calc(100%-1.25rem)] items-center gap-2">
 					<span>
 						{t(kind)} {ordinal}
 						{kind === "response" &&
 							status === "failed" &&
-							` · ${t("callFailed")}`}
+							` · ${t(errorCode === "agentCancelled" ? "taskStatus_cancelled" : "callFailed")}`}
 					</span>
 					{kind === "response" && status === "pending" && (
 						<span
@@ -257,14 +266,14 @@ export function AgentCalls({
 					)}
 				</span>
 				{copyError && (
-					<span role="alert" className="block whitespace-pre-wrap">
+					<span role="alert" className="block whitespace-pre-wrap text-red-700">
 						{t("copyFailed")}
 					</span>
 				)}
 			</summary>
 			{record.loading && <p role="status">{t("loading")}</p>}
 			{record.error && (
-				<div role="alert">
+				<div role="alert" className="text-red-700">
 					{t("callsReadFailed")}{" "}
 					<button
 						type="button"
@@ -303,7 +312,13 @@ export function AgentCalls({
 									{highlight(part.text)}
 								</pre>
 							) : (
-								<p>{highlight(part.text)}</p>
+								<p
+									className={
+										"error" in part && part.error ? "text-red-700" : undefined
+									}
+								>
+									{highlight(part.text)}
+								</p>
 							)}
 						</Fragment>
 					))}

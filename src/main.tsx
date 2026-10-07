@@ -113,7 +113,7 @@ function ActionMenu({
 				ref={popover}
 				id={id}
 				popover="auto"
-				className="action-menu"
+				className="action-menu picker-popup"
 				style={{ positionAnchor: `--${id}` }}
 				onClickCapture={() => popover.current?.hidePopover()}
 			>
@@ -1332,7 +1332,9 @@ function App() {
 			<main className="p-6">
 				{languageError ? (
 					<>
-						<p role="alert">{t(languageError)}</p>
+						<p role="alert" className="text-red-700">
+							{t(languageError)}
+						</p>
 						<button
 							type="button"
 							className={button}
@@ -1582,6 +1584,11 @@ function App() {
 							<p className="text-neutral-600">{project.name}</p>
 							<h2 className="mt-2 text-xl font-medium">{chat.name}</h2>
 							<h3 className="mt-6 font-medium">{t("targetFolders")}</h3>
+							{project.folders.length === 0 && (
+								<p className="mt-2 text-sm text-neutral-600">
+									{t("emptyTargetFolders")}
+								</p>
+							)}
 							<ul className="mt-2 space-y-1 text-neutral-600">
 								{project.folders.map((folder) => (
 									<li key={folder} className="break-all">
@@ -1888,6 +1895,9 @@ function App() {
 						: creatingProject === null) && (
 						<section aria-label={t("selectedFolders")}>
 							<h3>{t("targetFolders")}</h3>
+							<p className="mt-2 text-sm text-neutral-600">
+								{t("targetFoldersHelp")}
+							</p>
 							<ul>
 								{folders.map((folder) => (
 									<li key={folder} className="mt-2 flex items-center gap-2">
@@ -2146,11 +2156,10 @@ function App() {
 								<option value="zh-CN">简体中文</option>
 							</select>
 						</label>
-						{(languagePending || languageSaved) && (
-							<p role="status" className="mt-2 text-sm text-neutral-600">
-								{t(languagePending ? "settingsSaving" : "settingsSaved")}
-							</p>
-						)}
+						<p role="status" className="mt-2 min-h-5 text-sm text-neutral-600">
+							{(languagePending || languageSaved) &&
+								t(languagePending ? "settingsSaving" : "settingsSaved")}
+						</p>
 						{languageError && (
 							<div className="mt-4">
 								<p
@@ -2200,11 +2209,10 @@ function App() {
 						>
 							{t("enterHelp", { shortcut: mac ? "⌘+Enter" : "Ctrl+Enter" })}
 						</p>
-						{(enterPending || enterSaved) && (
-							<p role="status" className="mt-2 text-sm text-neutral-600">
-								{t(enterPending ? "settingsSaving" : "settingsSaved")}
-							</p>
-						)}
+						<p role="status" className="mt-2 min-h-5 text-sm text-neutral-600">
+							{(enterPending || enterSaved) &&
+								t(enterPending ? "settingsSaving" : "settingsSaved")}
+						</p>
 						{enterError && (
 							<div className="mt-4">
 								<p role="alert" className="text-red-700">

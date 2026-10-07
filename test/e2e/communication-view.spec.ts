@@ -227,7 +227,7 @@ test("ended unread communications stay lazy during downloads and clipboard feedb
 		response.getByRole("button", { name: "Copy", exact: true }),
 	).toHaveCount(0);
 	release();
-	await expect(response.locator("pre")).toHaveText(
+	await expect(response.locator("pre").last()).toHaveText(
 		JSON.stringify({ error: "diagnostic", private: "[REDACTED]" }, null, 2),
 	);
 	const copy = response

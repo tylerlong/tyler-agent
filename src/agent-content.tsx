@@ -17,7 +17,7 @@ export type AgentDetail = {
 	answer?: string | null;
 	errorCode?: string;
 	errorDetails?: string;
-	calls: { id: number; ordinal: number; status: string }[];
+	calls: { id: number; ordinal: number; status: string; errorCode?: string }[];
 	toolCalls: ToolCall[];
 	output: ReaderItem[];
 };
@@ -66,6 +66,7 @@ export function AgentContent({
 						ordinal={call.ordinal}
 						kind="response"
 						status={call.status}
+						errorCode={call.errorCode}
 						revision={revision}
 						onLayoutChange={onLayoutChange}
 					/>
@@ -93,14 +94,18 @@ export function AgentContent({
 					>
 						{t("stopAgent")}
 					</button>
-					{stopError && <span role="alert">{stopError}</span>}
+					{stopError && (
+						<span role="alert" className="text-red-700">
+							{stopError}
+						</span>
+					)}
 				</span>
 			)}
 			{agent.status === "cancelled" && (
 				<span role="status">{t("agentCancelled")}</span>
 			)}
 			{agent.status === "failed" && (
-				<span role="status">
+				<span role="alert" className="text-red-700">
 					{agent.answer && <>{t("agentIncomplete")} </>}
 					{t(agent.errorCode ?? "modelRequestFailed")}
 					{agent.errorDetails && `\n${agent.errorDetails}`}

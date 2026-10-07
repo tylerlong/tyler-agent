@@ -124,7 +124,7 @@ test("settings populate credentials, synchronize clean peers and persist across 
 		.getByRole("list", { name: "Enabled models" })
 		.getByRole("listitem")
 		.filter({ hasText: "Second" })
-		.getByRole("button", { name: "Set default" })
+		.getByRole("button", { name: /Set .+ as default/ })
 		.click();
 	await expect(
 		peer
@@ -136,7 +136,7 @@ test("settings populate credentials, synchronize clean peers and persist across 
 		.getByRole("list", { name: "Enabled models" })
 		.getByRole("listitem")
 		.filter({ hasText: "Second" })
-		.getByRole("button", { name: "Disable model" })
+		.getByRole("button", { name: /Remove model/ })
 		.click();
 	await expect(
 		dialog.getByRole("list", { name: "Enabled models" }),
@@ -379,7 +379,7 @@ test("initial catalog failure differs from an empty filter and existing models r
 			.getByRole("list", { name: "Enabled models" })
 			.getByRole("listitem")
 			.filter({ hasText: "Test" })
-			.getByRole("button", { name: "Disable model", exact: true }),
+			.getByRole("button", { name: /Remove model/ }),
 	).toBeVisible();
 	await expect(
 		dialog
@@ -460,7 +460,7 @@ test("ranking changes preserve selected default and historical model outside top
 			.getByRole("list", { name: "Enabled models" })
 			.getByRole("listitem")
 			.filter({ hasText: "Test" })
-			.getByRole("button", { name: "Disable model", exact: true }),
+			.getByRole("button", { name: /Remove model/ }),
 	).toBeVisible();
 	await expect(dialog.getByText(/Not found in latest catalog/)).toHaveCount(0);
 	await expect(
@@ -503,19 +503,15 @@ test("row removal failures preserve default and composer, successful removal rep
 		.getByRole("listitem");
 	const first = rows.filter({ hasText: "Test" });
 	const second = rows.filter({ hasText: "Second" });
-	await second
-		.getByRole("button", { name: "Set default", exact: true })
-		.click();
+	await second.getByRole("button", { name: /Set .+ as default/ }).click();
 	await expect(second).toContainText("Default");
 	await expectModel(page, "test");
-	await first.getByRole("button", { name: "Set default", exact: true }).click();
+	await first.getByRole("button", { name: /Set .+ as default/ }).click();
 	await expect(first).toContainText("Default");
 	await page.route("**/api/models/test", (route) =>
 		route.fulfill({ status: 500, json: {} }),
 	);
-	await first
-		.getByRole("button", { name: "Disable model", exact: true })
-		.click();
+	await first.getByRole("button", { name: /Remove model/ }).click();
 	await expect(dialog.getByRole("alert")).toHaveText(
 		"Unable to save model settings. Please retry.",
 	);
@@ -524,9 +520,7 @@ test("row removal failures preserve default and composer, successful removal rep
 	await expectModel(page, "test");
 	await expectEffort(page, "high");
 	await page.unroute("**/api/models/test");
-	await first
-		.getByRole("button", { name: "Disable model", exact: true })
-		.click();
+	await first.getByRole("button", { name: /Remove model/ }).click();
 	await expect(rows).toHaveCount(1);
 	await expect(second).toContainText("Default");
 	await expectModel(page, "");
@@ -542,9 +536,7 @@ test("row removal failures preserve default and composer, successful removal rep
 	);
 	await page.getByRole("button", { name: "Settings", exact: true }).click();
 	await page.getByRole("tab", { name: "Models", exact: true }).click();
-	await second
-		.getByRole("button", { name: "Disable model", exact: true })
-		.click();
+	await second.getByRole("button", { name: /Remove model/ }).click();
 	await expect(rows).toHaveCount(0);
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).toBeVisible();
@@ -576,9 +568,7 @@ test("Close waits for a failed default change and the next Close retries that ex
 		await route.fulfill({ status: 500, json: {} });
 	};
 	await page.route("**/api/model-settings", failure);
-	await second
-		.getByRole("button", { name: "Set default", exact: true })
-		.click();
+	await second.getByRole("button", { name: /Set .+ as default/ }).click();
 	await expect.poll(() => writes.length).toBe(1);
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).toBeVisible();
@@ -648,7 +638,7 @@ for (const action of ["default", "removal"] as const) {
 			});
 			await second
 				.getByRole("button", {
-					name: action === "default" ? "Set default" : "Disable model",
+					name: action === "default" ? /Set .+ as default/ : /Remove model/,
 					exact: true,
 				})
 				.click();
@@ -749,7 +739,7 @@ for (const scenario of [
 		});
 		const remove = async (name: string) => {
 			await row(name)
-				.getByRole("button", { name: "Disable model", exact: true })
+				.getByRole("button", { name: /Remove model/ })
 				.click();
 			await expect(
 				dialog.getByRole("button", { name: "Add model", exact: true }),
@@ -757,7 +747,7 @@ for (const scenario of [
 		};
 		const makeDefault = async (name: string) => {
 			await row(name)
-				.getByRole("button", { name: "Set default", exact: true })
+				.getByRole("button", { name: /Set .+ as default/ })
 				.click();
 			await expect(
 				dialog.getByRole("button", { name: "Add model", exact: true }),

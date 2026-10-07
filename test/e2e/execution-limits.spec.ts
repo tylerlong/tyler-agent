@@ -17,7 +17,7 @@ for (const chinese of [false, true]) {
 			: "Model Calls per Agent";
 		const descendants = chinese
 			? "每个根 Agent 的子 Agent 总量上限"
-			: "Sub-agents per root Agent";
+			: "Descendants per root Agent";
 		await page.goto(app.url);
 		await page.getByRole("button", { name: settings, exact: true }).click();
 		await page
@@ -97,7 +97,7 @@ test("execution fields save independently and retain invalid drafts across tabs"
 		exact: true,
 	});
 	const calls = region.getByLabel("Model Calls per Agent", { exact: true });
-	const descendants = region.getByLabel("Sub-agents per root Agent", {
+	const descendants = region.getByLabel("Descendants per root Agent", {
 		exact: true,
 	});
 	await calls.fill("");

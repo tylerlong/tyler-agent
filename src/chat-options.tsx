@@ -57,8 +57,10 @@ export function ChatOptionPicker({
 	const id = useId();
 	const model = models.find((model) => model.id === options.modelId);
 	const efforts = reasoningEfforts(model);
+	const effortLabel = (value: string) =>
+		t(`reasoningEffort_${value}`, { defaultValue: value });
 	const summary = model
-		? `${model.name}${efforts.length ? ` · ${options.reasoningEffort ?? t("reasoningDefault")}` : ""}`
+		? `${model.name}${efforts.length ? ` · ${options.reasoningEffort ? effortLabel(options.reasoningEffort) : t("reasoningDefault")}` : ""}`
 		: t("chooseModel");
 	function close(returnFocus: boolean) {
 		setOpen(false);
@@ -188,7 +190,7 @@ export function ChatOptionPicker({
 						role="dialog"
 						aria-label={t("model")}
 						style={position}
-						className="fixed z-50 flex flex-col rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
+						className="picker-popup fixed z-50 flex flex-col p-2"
 						onKeyDown={(event) => {
 							if (event.key === "Escape") {
 								event.preventDefault();
@@ -222,7 +224,10 @@ export function ChatOptionPicker({
 									t("reasoningLevel"),
 									[
 										{ value: null, label: t("reasoningDefault") },
-										...efforts.map((value) => ({ value, label: value })),
+										...efforts.map((value) => ({
+											value,
+											label: effortLabel(value),
+										})),
 									],
 									options.reasoningEffort,
 									(reasoningEffort) => change({ ...options, reasoningEffort }),

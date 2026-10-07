@@ -173,5 +173,11 @@ test("a failed accepted agent stays in history and user resubmission succeeds", 
 	await expect(submit).toBeEnabled();
 	await submit.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
-	await expect(page.getByRole("alert")).not.toBeVisible();
+	await expect(
+		page
+			.getByRole("log")
+			.locator("[data-message-id]")
+			.last()
+			.getByRole("alert"),
+	).toHaveCount(0);
 });

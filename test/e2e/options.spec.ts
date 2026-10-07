@@ -277,6 +277,7 @@ test("configuration read failures show unknown state and retry without losing lo
 	await page.goto(`${app.url}/?chat=${first.id}`);
 	const alert = page.getByRole("alert");
 	await expect(alert).toContainText("Unable to read model settings");
+	await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
 	await expect(
 		page.getByRole("dialog", { name: "Settings", exact: true }),
 	).toBeHidden();
@@ -419,7 +420,7 @@ test("saved unsupported effort silently resets to Default and model capabilities
 	let popup = await openChatPicker(page);
 	await expect(
 		popup.getByRole("radiogroup", { name: "Reasoning level" }).locator("label"),
-	).toHaveText(["Default", "low"]);
+	).toHaveText(["Model default", "Low"]);
 	await page.keyboard.press("Escape");
 	await send.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
@@ -441,7 +442,14 @@ test("saved unsupported effort silently resets to Default and model capabilities
 	popup = await openChatPicker(page);
 	await expect(
 		popup.getByRole("radiogroup", { name: "Reasoning level" }).locator("label"),
-	).toHaveText(["Default", "minimal", "low", "medium", "high", "xhigh"]);
+	).toHaveText([
+		"Model default",
+		"Minimal",
+		"Low",
+		"Medium",
+		"High",
+		"Extra high",
+	]);
 	await page.keyboard.press("Escape");
 	await selectEffort(page, "xhigh");
 	await selectModel(page, "test");
@@ -472,7 +480,7 @@ test("combined picker applies immediately, keeps focus on keyboard dismissal and
 	});
 	const trigger = chatPicker(page);
 	const popup = await openChatPicker(page);
-	const high = popup.getByRole("radio", { name: "high", exact: true });
+	const high = popup.getByRole("radio", { name: "High", exact: true });
 	await high.focus();
 	await high.press("Enter");
 	await expect(high).toBeChecked();

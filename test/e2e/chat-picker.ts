@@ -8,6 +8,16 @@ const names: Record<string, string> = {
 	"": "Choose a model",
 };
 
+const efforts: Record<string, string> = {
+	"": "Model default",
+	none: "None",
+	minimal: "Minimal",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+	xhigh: "Extra high",
+};
+
 export function chatPicker(page: Page) {
 	return page.locator('button[aria-haspopup="dialog"]');
 }
@@ -15,7 +25,9 @@ export async function expectModel(page: Page, id: string) {
 	await expect(chatPicker(page)).toContainText(names[id] ?? id);
 }
 export async function expectEffort(page: Page, effort: string) {
-	await expect(chatPicker(page)).toContainText(` · ${effort || "Default"}`);
+	await expect(chatPicker(page)).toContainText(
+		` · ${efforts[effort] ?? effort}`,
+	);
 }
 export async function openChatPicker(page: Page) {
 	const popup = page.getByRole("dialog", { name: "Model", exact: true });
@@ -35,7 +47,7 @@ export async function selectModel(page: Page, id: string, settle = true) {
 export async function selectEffort(page: Page, effort: string, settle = true) {
 	const popup = await openChatPicker(page);
 	await popup
-		.getByRole("radio", { name: effort || "Default", exact: true })
+		.getByRole("radio", { name: efforts[effort] ?? effort, exact: true })
 		.click();
 	if (settle) await expect(popup.getByRole("radio").first()).toBeEnabled();
 	await page.keyboard.press("Escape");
