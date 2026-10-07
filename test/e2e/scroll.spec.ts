@@ -378,18 +378,23 @@ test("growth and folding above an answer in the same agent preserve its reading 
 		.poll(async () => (await laterPart.boundingBox())?.y)
 		.toBeCloseTo(partBefore, 0);
 	stream.push(
-		frame("unknown.event", {
-			lines: Array.from(
+		frame("response.output_text.delta", {
+			output_index: 1,
+			content_index: 2,
+			item_id: "m",
+			delta: Array.from(
 				{ length: 100 },
 				(_, index) => `recorded line ${index}`,
-			),
+			).join("\n"),
 		}),
 	);
 	const response = log.locator("details").last();
 	await response.locator("summary").click();
-	const raw = response.locator("pre").filter({ hasText: "recorded line 99" });
-	await expect(raw).toContainText("recorded line 99");
-	await raw.evaluate((element) => {
+	const partial = response
+		.locator("pre")
+		.filter({ hasText: "recorded line 99" });
+	await expect(partial).toContainText("recorded line 99");
+	await partial.evaluate((element) => {
 		const region = element.closest("section");
 		if (region) {
 			region.scrollTop +=
@@ -403,7 +408,7 @@ test("growth and folding above an answer in the same agent preserve its reading 
 		() =>
 			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
 	);
-	const rawBefore = (await raw.boundingBox())?.y ?? 0;
+	const partialBefore = (await partial.boundingBox())?.y ?? 0;
 	stream.push(
 		frame("response.reasoning_text.delta", {
 			output_index: 0,
@@ -414,14 +419,14 @@ test("growth and folding above an answer in the same agent preserve its reading 
 	);
 	await expect(log).toContainText("more growth");
 	await expect
-		.poll(async () => (await raw.boundingBox())?.y)
-		.toBeCloseTo(rawBefore, 0);
+		.poll(async () => (await partial.boundingBox())?.y)
+		.toBeCloseTo(partialBefore, 0);
 	await log
 		.getByRole("button", { name: /Thinking/ })
 		.evaluate((element: HTMLButtonElement) => element.click());
 	await expect
-		.poll(async () => (await raw.boundingBox())?.y)
-		.toBeCloseTo(rawBefore, 0);
+		.poll(async () => (await partial.boundingBox())?.y)
+		.toBeCloseTo(partialBefore, 0);
 	await expect(page.getByLabel("Prompt")).toBeInViewport();
 	stream.end();
 	await submitted;

@@ -27,10 +27,14 @@ test("one bounded wrapped viewer preserves internal position through live growth
 		data: { modelId: "test", prompt: "Inspect" },
 	});
 	stream.push(
-		frame("vendor.unknown", {
-			lines: Array.from({ length: 80 }, (_, i) => `record ${i}`),
-			long: "x".repeat(2000),
-		}) + frame("vendor.next", { value: 1 }),
+		frame("response.output_text.delta", {
+			output_index: 0,
+			item_id: "answer",
+			content_index: 0,
+			delta:
+				Array.from({ length: 80 }, (_, i) => `record ${i}`).join("\n") +
+				"x".repeat(2000),
+		}),
 	);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const request = page
@@ -40,7 +44,7 @@ test("one bounded wrapped viewer preserves internal position through live growth
 		has: page.locator("summary", { hasText: /^(Response|响应) 1/ }),
 	});
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveCount(2);
+	await expect(response.locator("pre")).toHaveCount(1);
 	const running = response
 		.locator("summary")
 		.getByRole("status", { name: "Working…" });
@@ -74,28 +78,61 @@ test("one bounded wrapped viewer preserves internal position through live growth
 		el.scrollTop = 120;
 		el.dispatchEvent(new Event("scroll", { bubbles: true }));
 	});
-	const outer = page.getByRole("region", { name: "Chat", exact: true });
-	const outerTop = await outer.evaluate((el) => el.scrollTop);
+	const responseTop = (await response.locator("summary").boundingBox())?.y;
 	stream.push(
-		frame("vendor.growth", {
-			lines: Array.from({ length: 100 }, (_, i) => `later ${i}`),
+		frame("response.output_text.delta", {
+			output_index: 0,
+			item_id: "answer",
+			content_index: 0,
+			delta: Array.from({ length: 100 }, (_, i) => `later ${i}`).join("\n"),
 		}),
 	);
-	await expect(response.locator("pre")).toHaveCount(3);
+	await expect(response).toContainText("later 99");
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(120);
 	await expect
-		.poll(() => outer.evaluate((el) => el.scrollTop))
-		.toBeCloseTo(outerTop, 0);
+		.poll(async () => (await response.locator("summary").boundingBox())?.y)
+		.toBeCloseTo(responseTop ?? 0, 0);
 	await response.locator("summary").click();
 	await response.locator("summary").click();
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(120);
 	await page.getByRole("button", { name: "Other", exact: true }).click();
 	await page.getByRole("button", { name: /^Viewer(?: \(running\))?$/ }).click();
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(120);
-	stream.push(completedBody({ status: "completed", output: [] }));
+	stream.push(
+		completedBody({
+			id: "final-provider-response",
+			status: "completed",
+			usage: { output_tokens: 42 },
+			output: [
+				{
+					id: "answer",
+					type: "message",
+					content: [
+						{
+							type: "output_text",
+							text: Array.from({ length: 100 }, (_, i) => `final ${i}`).join(
+								"\n",
+							),
+						},
+					],
+				},
+			],
+		}),
+	);
 	stream.end();
 	await pending;
-	await expect(response.locator("pre")).toHaveCount(4);
+	await expect(response.locator("pre")).toHaveCount(1);
+	await expect(response).toContainText("final-provider-response");
+	await expect(response).not.toContainText("record 0");
+	const search = response.getByRole("searchbox", {
+		name: "Search communication",
+	});
+	await search.fill("record 0");
+	await expect(response.locator("mark")).toHaveCount(0);
+	await search.fill("response.output_text.delta");
+	await expect(response.locator("mark")).toHaveCount(0);
+	await search.fill("final-provider-response");
+	await expect(response.locator("mark")).toHaveText("final-provider-response");
 	await response
 		.locator("summary")
 		.getByRole("button", { name: "Copy", exact: true })
@@ -106,9 +143,16 @@ test("one bounded wrapped viewer preserves internal position through live growth
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 		.toBe(completeText);
-	expect(completeText).toContain("record 0");
-	expect(completeText).toContain("later 99");
-	expect(completeText).toContain("event: response.completed");
+	expect(completeText).toContain("final 99");
+	expect(completeText).toContain('"output_tokens": 42');
+	expect(completeText).not.toContain("response.completed");
+	expect(completeText).not.toContain("later 99");
+	await search.fill('"output_tokens": 42');
+	await expect(response.locator("mark")).toHaveText('"output_tokens": 42');
+	await expect(response.locator(".communication-text")).toHaveText(
+		completeText ?? "",
+	);
+	await search.fill("");
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(120);
 	await page.route("**/calls?kind=request&callId=*", async (route) => {
 		const saved = await (await route.fetch()).json();
@@ -126,7 +170,9 @@ test("one bounded wrapped viewer preserves internal position through live growth
 	await expect.poll(() => body.evaluate((el) => el.clientHeight)).toBe(400);
 	await page.reload();
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveCount(4);
+	await expect(response.locator("pre")).toHaveCount(1);
+	await expect(response).toContainText("final-provider-response");
+	await expect(response).not.toContainText("record 0");
 	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(0);
 });
 

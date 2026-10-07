@@ -40,24 +40,6 @@ export type CallRequest = {
 	requestedAt: string;
 	requestBody: string;
 };
-// Keep original non-comment lines and event boundaries, including partial tails.
-function withoutSseComments(text: string) {
-	let result = "";
-	let block = "";
-	for (const match of text.matchAll(/([^\r\n]*)(\r\n|\r|\n|$)/g)) {
-		const [, line, ending] = match;
-		if (line.startsWith(":")) continue;
-		if (line) block += line + ending;
-		else if (block && ending) {
-			// Removing a comment must not fuse a CR with the blank line's LF.
-			result +=
-				block + (block.endsWith("\r") && ending === "\n" ? "\n\n" : ending);
-			block = "";
-		}
-	}
-	return result + block;
-}
-
 export type CallResult = {
 	status: "pending" | "succeeded" | "failed";
 	httpStatus: number | null;
@@ -75,6 +57,39 @@ const object = (value: unknown): Record<string, unknown> =>
 	value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: {};
+const readableItem = (data: unknown, index: number): OutputItem => {
+	const source = object(data);
+	const content: OutputPart[] = [];
+	for (const field of ["content", "summary"] as const) {
+		if (!Array.isArray(source[field])) continue;
+		source[field].forEach((value, index) => {
+			const part = object(value);
+			const text = part.text ?? part.refusal;
+			if (typeof text === "string")
+				content.push({
+					index,
+					type: String(
+						part.type ?? (field === "summary" ? "summary_text" : "output_text"),
+					),
+					text,
+				});
+		});
+	}
+	content.sort((a, b) => a.index - b.index);
+	return {
+		index,
+		id: String(source.id ?? ""),
+		type: String(source.type ?? "message"),
+		content,
+	};
+};
+export function responseOutput(responseBody: string | null): OutputItem[] {
+	if (!responseBody) return [];
+	const response = object(JSON.parse(responseBody));
+	return Array.isArray(response.output)
+		? response.output.map(readableItem)
+		: [];
+}
 export type ModelConfig = {
 	apiKey: string;
 	model: string;
@@ -264,6 +279,8 @@ async function requestOnce(
 	const started = performance.now();
 	let upstream: Response | undefined;
 	let raw = "";
+	let actualResponse: unknown;
+	let isSse = false;
 	let completed = false;
 	let protocol: unknown[] = [];
 	let terminalFailure = false;
@@ -288,25 +305,10 @@ async function requestOnce(
 		return valuePart;
 	};
 	const snapshot = (index: number, data: unknown) => {
-		const source = object(data);
-		const value = item(
-			index,
-			String(source.id ?? ""),
-			String(source.type ?? "message"),
-		);
-		value.type = String(source.type ?? value.type);
-		for (const field of ["content", "summary"] as const) {
-			const content = source[field];
-			if (!Array.isArray(content)) continue;
-			content.forEach((sourcePart, index) => {
-				const data = object(sourcePart);
-				const type = String(
-					data.type ?? (field === "summary" ? "summary_text" : "output_text"),
-				);
-				const text = data.text ?? data.refusal;
-				if (typeof text === "string") part(value, index, type).text = text;
-			});
-		}
+		const source = readableItem(data, index);
+		const value = item(index, source.id, source.type);
+		value.type = String(object(data).type ?? value.type);
+		for (const p of source.content) part(value, p.index, p.type).text = p.text;
 	};
 	const output = (final = false) =>
 		[...items.values()]
@@ -336,13 +338,12 @@ async function requestOnce(
 		final = false,
 		errorCode: string | null = null,
 	) => {
-		const isSse =
-			upstream?.headers
-				.get("content-type")
-				?.split(";", 1)[0]
-				.trim()
-				.toLowerCase() === "text/event-stream";
-		const response = safe(isSse ? withoutSseComments(raw) : raw, final);
+		const response =
+			actualResponse !== undefined && (status !== "pending" || terminalFailure)
+				? redact(JSON.stringify(actualResponse))
+				: !isSse && (!upstream?.ok || status === "failed")
+					? safe(raw, final)
+					: "";
 		persist(
 			{
 				status,
@@ -413,6 +414,7 @@ async function requestOnce(
 			type === "response.incomplete"
 		) {
 			const response = object(data.response);
+			if (data.response !== undefined) actualResponse = data.response;
 			if (Array.isArray(response.output))
 				response.output.forEach((value, index) => {
 					snapshot(index, value);
@@ -424,7 +426,10 @@ async function requestOnce(
 			if (completed) protocol = response.output as unknown[];
 			terminalFailure ||= !completed;
 		}
-		if (type === "error") terminalFailure = true;
+		if (type === "error") {
+			terminalFailure = true;
+			actualResponse = parsed;
+		}
 	};
 	record?.request({
 		url,
@@ -442,6 +447,12 @@ async function requestOnce(
 			body,
 			signal,
 		});
+		isSse =
+			upstream.headers
+				.get("content-type")
+				?.split(";", 1)[0]
+				.trim()
+				.toLowerCase() === "text/event-stream";
 		save("pending");
 		if (!upstream.body)
 			throw new ModelError(
@@ -464,8 +475,15 @@ async function requestOnce(
 				const { done, value } = await reader.read();
 				signal?.throwIfAborted();
 				const text = decoder.decode(value, { stream: !done });
-				raw += text;
-				if (upstream.ok) frames += text;
+				if (upstream.ok || isSse) frames += text;
+				if (!isSse) {
+					raw += text;
+					if (/(?:^|[\r\n])(?:data|event):/.test(raw)) {
+						isSse = true;
+						if (!upstream.ok) frames = raw;
+						raw = "";
+					}
+				}
 				let boundary = /\r?\n\r?\n/.exec(frames);
 				while (boundary) {
 					event(frames.slice(0, boundary.index));
@@ -543,6 +561,10 @@ async function requestOnce(
 				"modelNoAnswer",
 				"OpenRouter did not return a text answer",
 			);
+		items.clear();
+		protocol.forEach((value, index) => {
+			snapshot(index, value);
+		});
 		save("succeeded", null, true);
 		return { protocol, tools };
 	} catch (error) {

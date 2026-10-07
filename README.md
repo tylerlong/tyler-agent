@@ -25,7 +25,7 @@ pnpm start --port 3001
 pnpm start --db /path/to/chat.sqlite
 ```
 
-相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v14 空数据库结构，不读取或迁移旧数据库。升级时请使用明确指定的新数据库路径；删除或重建实际开发库需要单独授权，应用启动不会自动清库。测试始终使用隔离临时数据库。
+相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v15 空数据库结构，不读取或迁移旧数据库。升级时请使用明确指定的新数据库路径；删除或重建实际开发库需要单独授权，应用启动不会自动清库。测试始终使用隔离临时数据库。
 
 ## 项目与对话
 
@@ -100,7 +100,7 @@ Add model sits below the enabled-model list and focuses the editable Search mode
 提交 prompt 只使用服务端已保存的 Chat 模型和强度；选项保存中禁止发送，保存失败保留已确认选择并显示错误。每次 Model Call 开始读取当前 Chat 配置与密钥，已经发出的请求保持原样，后续调用使用最新保存值。每次工具执行读取 Project 当前目标文件夹并保留范围校验；配置无效时停止受影响执行，不自动重试付费调用。
 进入可写 chat 时，如果保存的密钥缺失或没有启用模型，自动打开同一个 Settings modal；Close 会先尝试保存未提交的输入，再检查必要配置；首次输入密钥可直接通过 Close 保存，配置仍缺失时保持打开。保存密钥且至少启用一个模型后，即使没有全局默认或当前 chat 的模型，也可关闭设置。当前 chat 的模型与思考强度只在 prompt 输入区选择，选择无效时不能发送；移除所选模型清空选择及强度；返回可写 Chat 或关闭 Settings 时，存在默认模型就保存补齐，有模型但无默认时可手动选择。移除最后一个模型或密钥时设置变为强制，即使原本是普通设置。配置读取失败明确显示错误与 Retry，保持未知而不猜测配置，禁止发送并保留本页选择及草稿。普通 Settings 隐藏后保留输入、筛选和错误；不覆盖其他管理 modal，不阻碍归档只读历史，已接受的请求继续执行。
 
-配置的修改通过 SSE 同步所有页面，不覆盖未提交草稿。每次通信经凭据脱敏后保存到 SQLite；SSE Response 还会移除注释行和纯注释区块，可在 Agent 的 Request/Response 查看；prompt 和回答也可能出现在记录中。
+配置的修改通过 SSE 同步所有页面，不覆盖未提交草稿。每次通信经凭据脱敏后保存到 SQLite；成功 Response 保存实际完整 JSON，流式增量不保存；未完成调用保留可读部分内容和真实诊断，可在 Agent 的 Request/Response 查看；prompt 和回答也可能出现在记录中。
 
 ## 检查与测试
 
@@ -112,7 +112,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖目录列表、glob 路径发现、字面内容搜索、UTF-8 行／列读取、100 条及 2,000 行／50 KiB 限制与续读、二进制拒绝／跳过、多根／改变／零目标范围、范围内隐藏及 `.git` 路径、特殊文件名、越界／符号链接保护、重复同名调用与配对结果、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE 注释在保存前移除（含不同换行、跨分块和仅有注释的响应）、未知事件与有效尾部保留、普通文本不误删、完整格式化 SSE/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败根任务的部分内容不进入后续 Chat 历史上下文；子任务的失败或取消部分输出如实进入父模型通知或取消工具结果。
+自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖目录列表、glob 路径发现、字面内容搜索、UTF-8 行／列读取、100 条及 2,000 行／50 KiB 限制与续读、二进制拒绝／跳过、多根／改变／零目标范围、范围内隐藏及 `.git` 路径、特殊文件名、越界／符号链接保护、重复同名调用与配对结果、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、不保存 SSE/delta 日志、完整 JSON 与服务方元数据、最终响应替换不同或被省略的暂存内容、普通 HTTP 错误正文、格式化 JSON/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败根任务的部分内容不进入后续 Chat 历史上下文；子任务的失败或取消部分输出如实进入父模型通知或取消工具结果。
 
 递归委派验证复用 `test/sub-agents.test.ts` 的真实 HTTP 服务与可控响应，覆盖两 blind 子请求同时开始后释放 3/7、父模型收到终态后输出 10，以及 A 部分失败后由父模型主动取消 B、等待流/工具清理并原样回传部分结果。覆盖递归终态与 busy、当前配置/祖先覆盖、16/32 及当前上限计数、八表归属、重启保留记录且不重放。Chromium 覆盖完整工具卡片、树与详情、两种语言、局部/根停止、阅读位置及刷新恢复；显示折叠不改变实际模型输入。
 
@@ -218,11 +218,15 @@ The final design also includes `write_file` (create/replace UTF-8 text and missi
 
 ## 保存Agent与模型通信
 
-通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供当前已交付的文件工具及子 Agent 工具和调用开始时读取的 Project 当前目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功、失败或取消后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。每次 Model Call 保存自身 output_json，按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
+通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供当前已交付的文件工具及子 Agent 工具和调用开始时读取的 Project 当前目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功、失败或取消后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。成功 Model Call 只保存服务方实际完整响应 JSON，思考与回答从该响应派生；未完成或失败调用的 output_json 只保存可读部分快照，成功时清空；按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
 
-Agent 与 Model Call 分别保存；实际 OpenRouter 调用始终录制，每次调用的 Request/Response 围绕该次输出展示，工具参数与结果仍保留在原始通信中，并额外通过独立 Tool Call 卡片查看。通信记录保留 URL、method、请求时间、原始请求/响应正文、实际 HTTP 状态、耗时或调用错误，不保存 headers。凭据在写入数据库和返回浏览器之前脱敏；普通 JSON 和文本正文保持当时文本（仅凭据脱敏），完整成功上下文随请求保存。SSE Response 在保存入口移除行首冒号注释及纯注释区块，再脱敏保存；实际事件、未知字段、不可解析数据和有效尾部片段仍保留，只有注释时不保存正文。该规则覆盖进行中、成功和失败记录，不修改模型完成判定；保存清理后的正文和结构化增量后才通知浏览器，两个页面均可在完成前看到回答。凭据跨网络 chunk 也先脱敏。
+Agent 与 Model Call 分别保存；每次调用的 Request/Response 围绕该次输出展示，工具参数与结果还可通过独立 Tool Call 卡片查看。通信记录保留 URL、method、请求时间、实际请求正文、HTTP 状态、耗时及错误，不保存 headers。HTTPS 继续实时流式传输，Reasoning 与 Answer 增量立即显示，但不持久化 SSE 帧、delta 事件日志或转录。只有协议接受实际完整响应才算 Model Call 成功；EOF、DONE、item 完成或 HTTP 正文读完都不够。成功保存脱敏后的完整响应对象及全部服务方字段，并以最终 output 替换暂存思考和回答；最终响应省略的项或段落不残留，不另存成功可读输出副本或 Agent 聚合输出。进行中保留可读部分快照，失败、取消及重启中断保留部分内容、已知状态/耗时和实际收到的错误响应或 HTTP 错误正文。跨网络 chunk 的凭据仍先脱敏。
 
-对话历史摘要不包含通信正文。`GET /api/agents/:id/calls` 可独立读取该Agent按顺序排列的记录，归档后仍可读取。配置缺失等发送前失败可以没有调用；网络或响应读取失败没有虚构响应正文，已收到的 HTTP 状态仍保存。历史摘要携带轻量调用身份、顺序及状态。每笔 Request 和 Response 各自默认折叠，展开才下载该笔正文，SSE 按事件分别展示，JSON payload 缩进，未知事件、不可解析数据和尾部不完整片段保持可见；非 SSE 响应沿用 JSON 缩进或纯文本展示。每笔通信的正文共用一个最大高度为 `min(400px, 50vh)` 的滚动区，短内容自然收缩，长行换行；所有 SSE 事件共用该区，标题在区外。Response 进行中显示支持减少动态效果的本地化 loading 圆环，成功仅显示 Response N，失败保留失败标记；下载状态不代表调用运行状态。Copy 图标在标题右侧，调用结束且该笔通信成功读取后才出现，已缓存或再次折叠仍可复制；运行中或从未成功读取不显示，也不会为 Copy 提前下载。Copy 复制标题下完整的格式化显示文本，包括请求时间/method/URL、实际 HTTP/耗时、错误或无正文说明及全部缩进 JSON/SSE（含未知、非法与尾部片段），不受滚动窗口限制，排除标题、操作控件和临时加载 UI；成功短暂显示 ✓，失败提示可重试，不执行或重发模型。需要搜索通信内容时，可 Copy 到外部编辑器中查找。数据库保存脱敏正文，其中 SSE 注释已在保存前移除；展示和 Copy 使用同一份记录。内部阅读位置按每笔调用与通信类型独立保留，增量不自动滚动，折叠与 Chat 切换后恢复，整页刷新重置。调用创建前失败只显示实际问题及Agent错误，不虚构调用；本版本不重建旧数据归属或使用旧聚合布局。进行中展开可查看已保存的部分 SSE，Agent 仍进行中时后续增量同步到已展开或已下载的记录；Response 从调用开始就存在，折叠时可辨认进行中、成功或失败；HTTP 状态不代替调用完成，调用成功也不代表Agent成功。进行中无正文提示尚未收到，失败保留真实错误、已知 HTTP/耗时和部分正文，无正文明确说明。正文可用性独立于执行状态；保存内容读取失败可重读，不执行模型。当前页面保留已下载正文与展开状态，切换 chat、归档、语言或同步不清除；整页刷新才重置。读取失败在折叠区内重试，已读取内容保留。
+Live deltas immediately update Reasoning and Answer but are never stored as SSE frames or event transcripts. An accepted actual completed response is the successful Model Call's sole final representation, including provider fields and ordered output items. Final content replaces provisional content, including omitted items or parts; readable output, lazy Reasoning, Agent/child results and continuation input derive from that JSON. Unfinished calls retain readable partial snapshots, known status/duration and actual error responses; success clears the snapshot. EOF or DONE alone cannot imply success. Credentials remain redacted across split chunks.
+
+对话历史摘要不包含通信正文。`GET /api/agents/:id/calls` 独立读取调用记录，归档后仍可读取。Request 和 Response 默认折叠，展开才下载；成功 Response 显示实际完整 JSON 的缩进格式，不显示 response.completed 事件外壳。进行中及失败视图说明部分内容性质，显示已有可读快照、实际诊断和已知 HTTP/耗时，没有 raw-stream 按钮。每笔通信共用最大高度为 `min(400px, 50vh)` 的滚动区，长行换行；标题与 Copy 在区外。进行中显示本地化 loading，失败保留标记；调用状态独立于下载状态和 Agent 状态。调用结束且正文成功读取后才能 Copy；Copy 与本地搜索使用同一完整格式化显示内容，不受滚动窗口限制。本地搜索按字面子串高亮匹配，不改变 Copy 内容。复制失败可重试，不执行或重发模型。内部阅读位置、手动折叠及已下载内容在增长、最终替换、Chat 切换、归档、语言及同步时保留（新内容高度不足时由浏览器限制位置）；整页刷新重置。读取失败保留已有内容并提供 Retry。
+
+Completed Response disclosure, Copy and local search use the same formatted actual final JSON, without the response.completed envelope or a hidden event log. Local search highlights literal substring matches without changing copied text. Unfinished disclosures identify provisional content and actual diagnostics. Request/Response reads remain lazy; disclosure choices, caches and reading positions survive live-to-final replacement where the new content permits them. Read failures offer Retry without another model request. The approved development database rebuild, including old configuration/history, occurs once at final delivery #130. There is no migration or historical SSE compatibility; ordinary startup refuses unsupported databases and never deletes data automatically.
 
 服务启动将遗留进行中的 Agent 和调用标记为重启中断，保留已保存信息，不恢复发送。已保存的部分回答、按序输出项和通信正文继续保留；失败Agent不进入后续模型上下文。
 

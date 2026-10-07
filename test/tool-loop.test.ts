@@ -876,8 +876,12 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			)
 		).calls;
 		assert.equal(response.length, 1);
-		assert.match(response[0].responseBody, /second thinking/);
-		assert.doesNotMatch(response[0].responseBody, /first thinking/);
+		assert.equal(response[0].responseBody, null);
+		assert.match(JSON.stringify(response[0].partialOutput), /second thinking/);
+		assert.doesNotMatch(
+			JSON.stringify(response[0].partialOutput),
+			/first thinking/,
+		);
 		assert.equal(response[0].requestBody, null);
 		await f.restart();
 		const saved = (await f.get(`/api/agents/${agent.id}`)).agents[0];

@@ -261,12 +261,14 @@ test("agent communication is exact, redacted, independently readable and survive
 	let mode = "hold";
 	let release: (() => void) | undefined;
 	let count = 0;
-	const raw = completedBody({
+	const actual = {
+		status: "completed",
 		output: [
 			{ type: "message", content: [{ type: "output_text", text: "Answer" }] },
 		],
 		echo: "record-secret",
-	});
+	};
+	const raw = completedBody(actual);
 	const fake: typeof fetch = async () => {
 		count++;
 		if (mode === "hold")
@@ -345,7 +347,7 @@ test("agent communication is exact, redacted, independently readable and survive
 		calls = (await get(`/api/agents/${agentId}/calls`)).calls;
 		assert.equal(
 			calls[0].responseBody,
-			raw.replaceAll("record-secret", "[REDACTED]"),
+			JSON.stringify(actual).replaceAll("record-secret", "[REDACTED]"),
 		);
 		assert.equal(calls[0].httpStatus, 200);
 		assert.equal(calls[0].status, "succeeded");
@@ -479,7 +481,7 @@ test("agent communication is exact, redacted, independently readable and survive
 		});
 		assert.equal(
 			(await get(`/api/agents/${agentId}/calls`)).calls[0].responseBody,
-			raw.replaceAll("record-secret", "[REDACTED]"),
+			JSON.stringify(actual).replaceAll("record-secret", "[REDACTED]"),
 		);
 	} finally {
 		release?.();

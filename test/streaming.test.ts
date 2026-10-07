@@ -161,7 +161,27 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 		} while (saved.agents[0].output[0]?.content[0]?.text !== "中文");
 		assert.equal(saved.busy, true);
 		const calls = (await f.get(`/api/agents/${agentId}/calls`)).calls;
-		assert.equal(calls[0].responseBody, prefix);
+		assert.equal(calls[0].responseBody, null);
+		const liveDb = new DatabaseSync(f.path);
+		assert.match(
+			String(
+				liveDb
+					.prepare("SELECT output_json FROM model_calls WHERE agent_id=?")
+					.get(agentId)?.output_json,
+			),
+			/中文/,
+		);
+		assert.doesNotMatch(
+			JSON.stringify(
+				liveDb
+					.prepare(
+						"SELECT response_body, output_json FROM model_calls WHERE agent_id=?",
+					)
+					.get(agentId),
+			),
+			/response.output_text.delta|event:|data:/,
+		);
+		liveDb.close();
 		assert.match(await b(), /event: agent/);
 		const suffix =
 			delta(" second", 0, 1) +
@@ -279,9 +299,19 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 			assert.equal(agent.status, "failed");
 			assert.equal(agent.output[0].content[0].text, "partial");
 			assert.equal(history.busy, false);
-			assert.equal(
-				(await f.get(`/api/agents/${agent.id}/calls`)).calls[0].responseBody,
-				raw,
+			const call = (await f.get(`/api/agents/${agent.id}/calls`)).calls[0];
+			const expected = terminal.includes("response.failed")
+				? { error: { message: "private provider body" } }
+				: terminal.includes("response.incomplete")
+					? { output: [] }
+					: null;
+			assert.deepEqual(
+				call.responseBody && JSON.parse(call.responseBody),
+				expected,
+			);
+			assert.doesNotMatch(
+				JSON.stringify(call),
+				/event:|data:|response.output_text.delta/,
 			);
 		}
 		raw = completedBody({ output: [item("m0", "saved")] });
@@ -378,10 +408,7 @@ for (const failedWrite of ["progress", "terminal"])
 				agent = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 			} while (agent.output[0]?.content[0]?.text !== "saved");
 			const calls = (await f.get(`/api/agents/${agent.id}/calls`)).calls;
-			assert.equal(
-				calls[0].responseBody,
-				raw.replaceAll("stream-secret", "[REDACTED]"),
-			);
+			assert.equal(calls[0].responseBody, null);
 			assert.doesNotMatch(JSON.stringify(calls), /stream-secret/);
 			assert.doesNotMatch(JSON.stringify(agent), /stream-secret/);
 			assert.doesNotMatch(
@@ -452,7 +479,7 @@ for (const failedWrite of ["progress", "terminal"])
 	});
 
 for (const httpStatus of [200, 503])
-	test(`a ${httpStatus} read error retains saved content and raw communication without retrying`, {
+	test(`a ${httpStatus} read error retains saved content and actual HTTP diagnostics without retrying`, {
 		timeout: 10000,
 	}, async () => {
 		let stream!: ReadableStreamDefaultController<Uint8Array>;
@@ -489,8 +516,10 @@ for (const httpStatus of [200, 503])
 			stream.enqueue(new TextEncoder().encode(raw));
 			let saved = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 			while (
-				(await f.get(`/api/agents/${saved.id}/calls`)).calls[0].responseBody !==
-				raw.replaceAll("stream-secret", "[REDACTED]")
+				httpStatus === 200
+					? saved.output[0]?.content[0]?.text !== "saved answer"
+					: (await f.get(`/api/agents/${saved.id}/calls`)).calls[0]
+							.responseBody !== raw.replaceAll("stream-secret", "[REDACTED]")
 			) {
 				await new Promise((resolve) => setImmediate(resolve));
 				saved = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
@@ -509,7 +538,9 @@ for (const httpStatus of [200, 503])
 			const call = (await f.get(`/api/agents/${saved.id}/calls`)).calls[0];
 			assert.equal(
 				call.responseBody,
-				raw.replaceAll("stream-secret", "[REDACTED]"),
+				httpStatus === 200
+					? null
+					: raw.replaceAll("stream-secret", "[REDACTED]"),
 			);
 			assert.equal(call.httpStatus, httpStatus);
 			assert.equal(call.status, "failed");
@@ -650,7 +681,7 @@ test("thinking summaries stay lazy while ordered parent-typed body and summaries
 	}
 });
 
-test("reconnecting reads the latest durable pending thinking, answer and raw stream without another model call", async () => {
+test("reconnecting reads the latest durable pending reasoning and answer without another model call", async () => {
 	let stream!: ReadableStreamDefaultController<Uint8Array>;
 	let requests = 0;
 	const f = await fixture(async () => {
@@ -707,7 +738,7 @@ test("reconnecting reads the latest durable pending thinking, answer and raw str
 		);
 		assert.equal(
 			(await f.get(`/api/agents/${agentId}/calls`)).calls[0].responseBody,
-			raw,
+			null,
 		);
 		assert.equal(
 			(
@@ -758,23 +789,27 @@ test("a Agent finalization write failure keeps a successfully saved Model Call s
 			.calls[0];
 		assert.equal(call.status, "succeeded");
 		assert.equal(call.error, null);
-		assert.equal(call.responseBody, raw);
+		assert.deepEqual(JSON.parse(call.responseBody), {
+			status: "completed",
+			output: [item("m0", "saved")],
+		});
 	} finally {
 		db.close();
 		await f.close();
 	}
 });
 
-test("Model Call saves SSE events without comments and survives restart", async () => {
+test("Model Call saves only the actual final JSON and survives restart", async () => {
 	const body =
 		":\n\n: keepalive\r\n\r\n" +
 		'event: vendor.unknown\r\n: inside\r\ndata: {"text":"你好: world"}\r\n\r\n' +
 		": another\n\n" +
 		completedBody({ output: [item("m", "answer")] }) +
 		": trailing";
-	const expected =
-		'event: vendor.unknown\r\ndata: {"text":"你好: world"}\r\n\r\n' +
-		completedBody({ output: [item("m", "answer")] });
+	const expected = JSON.stringify({
+		status: "completed",
+		output: [item("m", "answer")],
+	});
 	const f = await fixture(
 		async () =>
 			new Response(body, {
@@ -808,22 +843,21 @@ for (const scenario of [
 		status: 200,
 		type: "text/event-stream",
 		body: "data: one\r: comment\n\ndata: two\n\n",
-		expected: "data: one\r\n\ndata: two\n\n",
+		expected: null,
 	},
 	{
 		name: "CR frames, unknown fields and unfinished data",
 		status: 200,
 		type: "text/event-stream",
 		body: ': ping\r\revent: vendor.raw\r: inside\rid: 7\rretry: 10\rdata: 你好: not-json\r\r: again\r\r : not a comment\rdata: {"unfinished":',
-		expected:
-			'event: vendor.raw\rid: 7\rretry: 10\rdata: 你好: not-json\r\r : not a comment\rdata: {"unfinished":',
+		expected: null,
 	},
 	{
 		name: "failed SSE with a partial credential and trailing comment",
 		status: 503,
 		type: "text/event-stream",
 		body: ": ping\n\ndata: stream-secret\n\n: tail",
-		expected: "data: [REDACTED]\n\n",
+		expected: null,
 	},
 	{
 		name: "only SSE comments",
@@ -854,7 +888,7 @@ for (const scenario of [
 		expected: '{"error":": [REDACTED]"}',
 	},
 ]) {
-	test(`Model Call preserves ${scenario.name} across byte-sized chunks`, async () => {
+	test(`Model Call records diagnostics without transcripts for ${scenario.name} across byte-sized chunks`, async () => {
 		const bytes = new TextEncoder().encode(scenario.body);
 		let position = 0;
 		const f = await fixture(
@@ -894,7 +928,7 @@ for (const scenario of [
 	});
 }
 
-test("pending SSE records exclude comments and protect split credentials before an interrupted read", async () => {
+test("pending readable snapshots protect split credentials and survive an interrupted read without saving frames", async () => {
 	let stream!: ReadableStreamDefaultController<Uint8Array>;
 	const f = await fixture(
 		async () =>
@@ -914,36 +948,175 @@ test("pending SSE records exclude comments and protect split credentials before 
 				prompt: "question",
 			})
 		).json();
-		async function expectBody(body: string | null) {
+		async function expectPartial(text: string) {
 			for (let attempt = 0; attempt < 100; attempt++) {
 				const call = (await f.get(`/api/agents/${accepted.agentId}/calls`))
 					.calls[0];
 				assert.equal(call.status, "pending");
-				if (call.responseBody === body) return;
+				assert.equal(call.responseBody, null);
+				assert.doesNotMatch(
+					JSON.stringify(call),
+					/stream-secret|response.output_text.delta|event:|data:/,
+				);
+				if (call.partialOutput?.[0]?.content[0]?.text === text) return;
 				await new Promise((resolve) => setTimeout(resolve, 5));
 			}
-			assert.fail(`Response never became ${body}`);
+			assert.fail(`Partial output never became ${text}`);
 		}
-		stream.enqueue(new TextEncoder().encode(": keepalive\r"));
-		await expectBody(null);
-		stream.enqueue(new TextEncoder().encode("\n\r\ndata: stream-"));
-		await expectBody("data: ");
-		stream.enqueue(new TextEncoder().encode("secret\n: trailing"));
-		await expectBody("data: [REDACTED]\n");
+		stream.enqueue(
+			new TextEncoder().encode(": keepalive\r\n\r\n" + delta("stream-")),
+		);
+		await expectPartial("");
+		stream.enqueue(
+			new TextEncoder().encode(delta("secret visible") + ": trailing"),
+		);
+		await expectPartial("[REDACTED] visible");
 		stream.error(new Error("interrupted stream-secret"));
 		assert.equal((await f.wait(accepted.agentId)).status, "failed");
 		const call = (await f.get(`/api/agents/${accepted.agentId}/calls`))
 			.calls[0];
-		assert.equal(call.responseBody, "data: [REDACTED]\n");
+		assert.equal(call.responseBody, null);
+		assert.equal(call.partialOutput[0].content[0].text, "[REDACTED] visible");
 		assert.equal(call.httpStatus, 200);
 		assert(!call.error.includes("stream-secret"));
 		await f.restart();
 		assert.equal(
 			(await f.get(`/api/agents/${accepted.agentId}/calls`)).calls[0]
 				.responseBody,
-			"data: [REDACTED]\n",
+			null,
 		);
 	} finally {
+		await f.close();
+	}
+});
+
+test("accepted final JSON replaces provisional parts across output, lazy reasoning, storage and future history", {
+	timeout: 10000,
+}, async () => {
+	let stream!: ReadableStreamDefaultController<Uint8Array>;
+	const inputs: unknown[] = [];
+	const finalResponse = {
+		id: "provider-response",
+		status: "completed",
+		usage: { input_tokens: 12, output_tokens: 7 },
+		provider: { trace: "stream-secret" },
+		output: [
+			{
+				id: "r",
+				type: "reasoning",
+				content: [{ type: "reasoning_text", text: "final reasoning" }],
+				summary: [{ type: "summary_text", text: "final summary" }],
+			},
+			item("m1", "final answer"),
+		],
+	};
+	const f = await fixture(async (_url, options) => {
+		inputs.push(JSON.parse(String(options?.body)).input);
+		if (inputs.length > 1)
+			return new Response(
+				completedBody({ output: [item("followup", "done")] }),
+				{ headers: { "content-type": "text/event-stream" } },
+			);
+		return new Response(
+			new ReadableStream({
+				start(controller) {
+					stream = controller;
+				},
+			}),
+			{ headers: { "content-type": "text/event-stream" } },
+		);
+	});
+	const db = new DatabaseSync(f.path);
+	try {
+		const accepted = await (
+			await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "replace",
+			})
+		).json();
+		while (!stream) await new Promise((resolve) => setImmediate(resolve));
+		stream.enqueue(
+			new TextEncoder().encode(
+				frame("response.reasoning_text.delta", {
+					output_index: 0,
+					item_id: "r",
+					content_index: 0,
+					delta: "provisional reasoning",
+				}) +
+					delta("provisional answer", 1) +
+					delta("omitted part", 1, 1) +
+					delta("omitted item", 2),
+			),
+		);
+		while (
+			(await f.get(`/api/agents/${accepted.agentId}`)).agents[0].output
+				.length !== 3
+		)
+			await new Promise((resolve) => setImmediate(resolve));
+		const row = db
+			.prepare(
+				"SELECT response_body, output_json FROM model_calls WHERE agent_id=?",
+			)
+			.get(accepted.agentId);
+		assert.equal(row?.response_body, null);
+		assert.match(
+			String(row?.output_json),
+			/provisional reasoning|omitted part/,
+		);
+		assert.doesNotMatch(String(row?.output_json), /delta|data:|event:/);
+		stream.enqueue(new TextEncoder().encode(completedBody(finalResponse)));
+		stream.close();
+		assert.equal((await f.wait(accepted.agentId)).status, "succeeded");
+		const agent = (await f.get(`/api/agents/${accepted.agentId}`)).agents[0];
+		assert.equal(agent.output.length, 2);
+		assert.equal(agent.output[1].content.length, 1);
+		assert.equal(agent.output[1].content[0].text, "final answer");
+		assert.doesNotMatch(JSON.stringify(agent), /provisional|omitted/);
+		const reasoning = await f.get(
+			`/api/agents/${agent.id}/reasoning?callId=${agent.calls[0].id}`,
+		);
+		assert.deepEqual(
+			reasoning.output[0].content.map((part: { text: string }) => part.text),
+			["final reasoning", "final summary"],
+		);
+		const saved = db
+			.prepare(
+				"SELECT response_body, output_json FROM model_calls WHERE agent_id=?",
+			)
+			.get(agent.id);
+		assert.equal(saved?.output_json, "[]");
+		assert.deepEqual(JSON.parse(String(saved?.response_body)), {
+			...finalResponse,
+			provider: { trace: "[REDACTED]" },
+		});
+		assert.equal(
+			(
+				await f.get(
+					`/api/agents/${agent.id}/calls?kind=response&callId=${agent.calls[0].id}`,
+				)
+			).calls[0].responseBody,
+			saved?.response_body,
+		);
+		await f.restart();
+		assert.equal(
+			(await f.get(`/api/agents/${agent.id}`)).agents[0].output[1].content[0]
+				.text,
+			"final answer",
+		);
+		const next = await (
+			await f.post(`/api/chats/${f.chat.id}`, {
+				modelId: "stream-fixture",
+				prompt: "next",
+			})
+		).json();
+		await f.wait(next.agentId);
+		assert.deepEqual(inputs[1], [
+			{ role: "user", content: "replace" },
+			{ role: "assistant", content: "final answer" },
+			{ role: "user", content: "next" },
+		]);
+	} finally {
+		db.close();
 		await f.close();
 	}
 });

@@ -3,6 +3,9 @@ import { initReactI18next } from "react-i18next";
 export const resources = {
 	en: {
 		translation: {
+			searchCommunication: "Search communication",
+			responsePartial:
+				"Partial content; a complete response has not been accepted.",
 			taskReadFailed: "Unable to read task details. Please retry.",
 			taskTree: "Task tree",
 			agentDetails: "Agent details",
@@ -252,6 +255,8 @@ export const resources = {
 	},
 	"zh-CN": {
 		translation: {
+			searchCommunication: "搜索通信内容",
+			responsePartial: "部分内容；尚未收到已接受的完整响应。",
 			taskReadFailed: "读取任务详情失败，请重试。",
 			taskTree: "任务树",
 			agentDetails: "Agent 详情",

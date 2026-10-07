@@ -16,6 +16,7 @@ type Call = {
 	status: string;
 	requestBody?: string | null;
 	responseBody?: string | null;
+	partialOutput?: unknown[];
 	httpStatus: number | null;
 	durationMs: number | null;
 	error: string | null;
@@ -39,33 +40,6 @@ function pretty(body: string) {
 	} catch {
 		return body;
 	}
-}
-function responseEvents(body: string) {
-	if (!/^(?:event|data|id|retry):|^:/m.test(body)) return [pretty(body)];
-	return body
-		.split(/\r?\n\r?\n|\r\r/)
-		.filter(Boolean)
-		.map((event) => {
-			const lines = event.split(/\r\n|\n|\r/);
-			const data = lines
-				.filter((line) => line.startsWith("data:"))
-				.map((line) => line.slice(5).replace(/^ /, ""))
-				.join("\n");
-			try {
-				const formatted = JSON.stringify(JSON.parse(data), null, 2);
-				let inserted = false;
-				return lines
-					.flatMap((line) => {
-						if (!line.startsWith("data:")) return [line];
-						if (inserted) return [];
-						inserted = true;
-						return [`data: ${formatted}`];
-					})
-					.join("\n");
-			} catch {
-				return event;
-			}
-		});
 }
 export function AgentCalls({
 	agentId,
@@ -100,6 +74,7 @@ export function AgentCalls({
 	}
 	const record = state;
 	const [, render] = useState(0);
+	const [query, setQuery] = useState("");
 	const [copyError, setCopyError] = useState(false);
 	const [copied, setCopied] = useState(false);
 	const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -124,6 +99,19 @@ export function AgentCalls({
 						.join(" · ");
 		return [
 			...(metadata ? [{ text: metadata, body: false }] : []),
+			...(kind === "response" && call.status !== "succeeded"
+				? [
+						{ text: t("responsePartial"), body: false },
+						...(call.partialOutput?.length
+							? [
+									{
+										text: JSON.stringify(call.partialOutput, null, 2),
+										body: true,
+									},
+								]
+							: []),
+					]
+				: []),
 			...(kind === "response" && body == null
 				? [
 						{
@@ -148,12 +136,10 @@ export function AgentCalls({
 					]
 				: []),
 			...(typeof body === "string"
-				? (kind === "response" ? responseEvents(body) : [pretty(body)]).map(
-						(text) => ({
-							text,
-							body: true,
-						}),
-					)
+				? [pretty(body)].map((text) => ({
+						text,
+						body: true,
+					}))
 				: []),
 		];
 	});
@@ -161,6 +147,17 @@ export function AgentCalls({
 		record.calls?.length === 0 ? [{ text: t("noCalls"), body: false }] : parts;
 	const communicationText =
 		displayParts?.map((part) => part.text).join("\n\n") ?? "";
+	const highlight = (text: string) => {
+		if (!query) return text;
+		const chunks = text.split(query);
+		return chunks.map((chunk, index) => (
+			// biome-ignore lint/suspicious/noArrayIndexKey: text segments retain display order.
+			<Fragment key={index}>
+				{index > 0 && <mark>{query}</mark>}
+				{chunk}
+			</Fragment>
+		));
+	};
 	const load = useCallback(async () => {
 		const readRevision = ++record.revision;
 		record.loading = true;
@@ -278,6 +275,16 @@ export function AgentCalls({
 					</button>
 				</div>
 			)}
+			{record.calls && (
+				<input
+					type="search"
+					aria-label={t("searchCommunication")}
+					placeholder={t("searchCommunication")}
+					value={query}
+					onChange={(event) => setQuery(event.target.value)}
+					className="mt-2 w-full rounded border border-neutral-300 px-2 py-1"
+				/>
+			)}
 			<div
 				ref={bodyRef}
 				className="communication-body"
@@ -293,10 +300,10 @@ export function AgentCalls({
 							{index > 0 ? "\n\n" : ""}
 							{part.body ? (
 								<pre className="border-l-2 border-neutral-200 pl-2 whitespace-pre-wrap">
-									{part.text}
+									{highlight(part.text)}
 								</pre>
 							) : (
-								<p>{part.text}</p>
+								<p>{highlight(part.text)}</p>
 							)}
 						</Fragment>
 					))}

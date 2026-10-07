@@ -195,7 +195,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		server.emit("close");
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 14);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 15);
 		assert.deepEqual(
 			db
 				.prepare(
@@ -272,7 +272,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		db.exec(`INSERT INTO projects(name,created_at) VALUES('Saved',1);
 			INSERT INTO chats(project_id,name,created_at) VALUES(1,'Chat',2);
 			INSERT INTO agents(chat_id,prompt,status,created_at) VALUES(1,'Question','pending',3);
-			INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status,response_body) VALUES(1,'https://example.test','POST','now','{}','pending','data: partial');
+			INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status,response_body) VALUES(1,'https://example.test','POST','now','{}','pending',NULL);
 			UPDATE settings SET sidebar_width=410.5,language='zh-CN' WHERE id=1;`);
 		assert.equal(
 			db.prepare("SELECT output_json FROM model_calls").get()?.output_json,
@@ -313,7 +313,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 					.get(),
 			},
 			{
-				response_body: "data: partial",
+				response_body: null,
 				output_json: output,
 				error_code: "modelInterrupted",
 				status: "failed",

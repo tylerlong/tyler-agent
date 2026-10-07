@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
-import { completedBody, completedResponse } from "./model-fixture.ts";
+import { completedResponse } from "./model-fixture.ts";
 
 test("HTTP errors provide stable identifiers independent of interface language", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-errors-"));
@@ -104,8 +104,9 @@ test("accepted model failures persist concise errors and keep redacted bodies in
 				upstream: '{"error":"provider detail [REDACTED]"}',
 				network: null,
 				json: "upstream malformed body",
-				empty: completedBody({ output: [] }),
-				shape: completedBody({
+				empty: JSON.stringify({ status: "completed", output: [] }),
+				shape: JSON.stringify({
+					status: "completed",
 					output: [null, { type: "message", content: [null] }],
 				}),
 			};

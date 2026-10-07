@@ -269,7 +269,7 @@ test("network failures have copyable diagnostics and unavailable saved records a
 	await expect(request).toContainText("No communication record is available");
 });
 
-test("saved SSE events stay lazy, update while pending, retain cached text on read errors and copy formatted redacted text", async ({
+test("provisional content stays lazy, updates live, retains cached reads and copies redacted diagnostics", async ({
 	page,
 	context,
 	app,
@@ -318,10 +318,9 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	await expect(response.locator("pre")).toHaveCount(0);
 	expect(reads).toBe(0);
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveCount(2);
-	await expect(response.locator("pre").last()).toContainText(
-		'  "delta": "early"',
-	);
+	await expect(response.locator("pre")).toHaveCount(1);
+	await expect(response).toContainText("Partial content");
+	await expect(response.locator("pre")).toContainText('"text": "early"');
 	let failReads = true;
 	await page.route("**/calls?kind=response&callId=*", (route) =>
 		failReads ? route.fulfill({ status: 503 }) : route.continue(),
@@ -336,13 +335,12 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	await expect(response.getByRole("alert")).toContainText(
 		"Unable to read communication",
 	);
-	await expect(response.locator("pre")).toHaveCount(2);
+	await expect(response.locator("pre")).toHaveCount(1);
+	await expect(response.locator("pre")).toContainText('"text": "early"');
 	failReads = false;
 	await response.getByRole("button", { name: "Retry", exact: true }).click();
-	await expect(response.locator("pre")).toHaveCount(3);
-	await expect(response.locator("pre").last()).toContainText(
-		'  "delta": " later"',
-	);
+	await expect(response.locator("pre")).toHaveCount(1);
+	await expect(response.locator("pre")).toContainText('"text": "early later"');
 	await page.getByLabel("Prompt").fill("next draft");
 	await expect(
 		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
@@ -360,9 +358,9 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 		.getByRole("button", { name: /^Live records(?: \(running\))?$/ })
 		.click();
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveCount(4);
-	await expect(response.locator("pre").last()).toContainText(
-		'  "delta": " away"',
+	await expect(response.locator("pre")).toHaveCount(1);
+	await expect(response.locator("pre")).toContainText(
+		'"text": "early later away"',
 	);
 	await response.locator("summary").click();
 	const unknown =
@@ -370,26 +368,45 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 	const split = unknown.indexOf("zkey") + 2;
 	stream.push(unknown.slice(0, split));
 	stream.push(unknown.slice(split));
+	const credential = frame("response.output_text.delta", {
+		output_index: 0,
+		item_id: "answer",
+		content_index: 0,
+		delta: " zkey",
+	});
+	const credentialSplit = credential.indexOf("zkey") + 2;
+	stream.push(credential.slice(0, credentialSplit));
+	stream.push(credential.slice(credentialSplit));
+	const diagnostic = {
+		type: "error",
+		code: "provider",
+		message: "private zkey diagnostic",
+	};
+	stream.push(frame("error", diagnostic));
 	const malformed = "event: vendor.raw\r\ndata: not-json\r\n\n";
 	const tail = 'data: {"unfinished":';
 	stream.push(`: inside stream\n\n${malformed}: before tail\n${tail}`);
 	stream.end();
 	await submitted;
-	await expect(page.getByRole("log")).toContainText("Incomplete answer.");
-	await response.locator("summary").click();
-	await expect(response.locator("pre")).toHaveCount(7);
-	await expect(response.locator("pre").nth(4)).toContainText(
-		'  "private": "[REDACTED]"',
+	await expect(page.getByRole("log")).toContainText(
+		"OpenRouter returned an invalid response.",
 	);
-	await expect(response.locator("pre").nth(5)).toHaveText(malformed.trimEnd());
-	await expect(response.locator("pre").last()).toHaveText(tail);
-	const raw =
-		prefix +
-		second +
-		hidden +
-		unknown.replace('"zkey"', '"[REDACTED]"') +
-		malformed +
-		tail;
+	await response.locator("summary").click();
+	await expect(response.locator("pre")).toHaveCount(2);
+	await expect(response.locator("pre").first()).toContainText(
+		'"text": "early later away [REDACTED]"',
+	);
+	await expect(response.locator("pre").last()).toHaveText(
+		JSON.stringify(
+			{ ...diagnostic, message: "private [REDACTED] diagnostic" },
+			null,
+			2,
+		),
+	);
+	await expect(response).toContainText("Partial content");
+	await expect(response).not.toContainText("vendor.unknown");
+	await expect(response).not.toContainText("unfinished");
+	await expect(response).not.toContainText("not-json");
 	await response.getByRole("button", { name: "Copy", exact: true }).click();
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
@@ -405,7 +422,16 @@ test("saved SSE events stay lazy, update while pending, retain cached text on re
 			`${app.url}/api/agents/${history.agents[0].id}/calls?kind=response`,
 		)
 	).json();
-	expect(call.calls[0].responseBody).toBe(raw);
+	expect(JSON.parse(call.calls[0].responseBody)).toEqual({
+		...diagnostic,
+		message: "private [REDACTED] diagnostic",
+	});
+	expect(call.calls[0].partialOutput[0].content[0].text).toBe(
+		"early later away [REDACTED]",
+	);
+	expect(JSON.stringify(call)).not.toMatch(
+		/zkey|vendor\.unknown|unfinished|not-json/,
+	);
 	expect(call.calls[0]).not.toHaveProperty("headers");
 	const cachedReads = reads;
 	await page.getByRole("button", { name: "Other", exact: true }).click();

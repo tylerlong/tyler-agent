@@ -102,18 +102,21 @@ test("task tree and shared details derive recursive creation sources after resta
 			Number(
 				db
 					.prepare(
-						"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status,response_body,output_json) VALUES (?,'https://example.test','POST','now','request','succeeded','response',?)",
+						"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status,response_body) VALUES (?,'https://example.test','POST','now','request','succeeded',?)",
 					)
 					.run(
 						agentId,
-						JSON.stringify([
-							{
-								id: "message",
-								type: "message",
-								index: 0,
-								content: [{ type: "output_text", text, index: 0 }],
-							},
-						]),
+						JSON.stringify({
+							status: "completed",
+							output: [
+								{
+									id: "message",
+									type: "message",
+									index: 0,
+									content: [{ type: "output_text", text, index: 0 }],
+								},
+							],
+						}),
 					).lastInsertRowid,
 			);
 		const rootCall = call(root, "root output");
@@ -199,7 +202,10 @@ test("task tree and shared details derive recursive creation sources after resta
 			`/api/agents/${first}/calls?callId=${childCall}`,
 		);
 		assert.equal(communication.calls[0].requestBody, "request");
-		assert.equal(communication.calls[0].responseBody, "response");
+		assert.equal(
+			JSON.parse(communication.calls[0].responseBody).output[0].content[0].text,
+			"child output",
+		);
 		const creation = await f.get(
 			`/api/agents/${first}/tools?toolId=${grandCreator}`,
 		);

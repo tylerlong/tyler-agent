@@ -22,6 +22,7 @@ import {
 	ModelError,
 	type OutputItem,
 	requestModel,
+	responseOutput,
 } from "./openrouter.ts";
 import { releasePort } from "./port.ts";
 
@@ -203,13 +204,20 @@ export function createServer(
 				busy: busy.has(Number(chat.id)),
 			})),
 		}));
+	const callOutput = (call: Record<string, unknown>): OutputItem[] =>
+		call.status === "succeeded"
+			? responseOutput(call.response_body as string | null)
+			: JSON.parse(String(call.output_json));
 	const callMetadata = (agentId: number) =>
 		database
-			.prepare("SELECT id,status FROM model_calls WHERE agent_id=? ORDER BY id")
+			.prepare(
+				"SELECT id,status,error_code AS errorCode FROM model_calls WHERE agent_id=? ORDER BY id",
+			)
 			.all(agentId)
 			.map((call, index) => ({
 				id: Number(call.id),
 				status: String(call.status),
+				errorCode: call.errorCode,
 				...callPersistenceError(call.id),
 				ordinal: index + 1,
 			}));
@@ -231,11 +239,11 @@ export function createServer(
 	const agentOutput = (agentId: number) =>
 		database
 			.prepare(
-				"SELECT id,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
+				"SELECT id,status,response_body,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
 			)
 			.all(agentId)
 			.flatMap((call) =>
-				(JSON.parse(String(call.output_json)) as OutputItem[]).map((item) => ({
+				callOutput(call).map((item) => ({
 					...item,
 					callId: Number(call.id),
 				})),
@@ -728,7 +736,7 @@ export function createServer(
 									result.durationMs,
 									result.error,
 									result.errorCode ?? null,
-									JSON.stringify(output),
+									JSON.stringify(result.status === "succeeded" ? [] : output),
 									callId,
 								);
 
@@ -1585,14 +1593,14 @@ export function createServer(
 			}
 			const row = database
 				.prepare(
-					"SELECT output_json FROM model_calls WHERE id=? AND agent_id=?",
+					"SELECT status,response_body,output_json FROM model_calls WHERE id=? AND agent_id=?",
 				)
 				.get(Number(callId), Number(reasoningRoute[1]));
 			if (!row) {
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
-			const output: OutputItem[] = JSON.parse(String(row.output_json));
+			const output = callOutput(row);
 			json(response, 200, {
 				output: output
 					.filter((item) => item.type === "reasoning")
@@ -1732,13 +1740,17 @@ export function createServer(
 							)
 						: database
 								.prepare(
-									`SELECT id,agent_id AS agentId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error,error_code AS errorCode FROM model_calls WHERE agent_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
+									`SELECT id,agent_id AS agentId,url,method,requested_at AS requestedAt,${kind === "response" ? "NULL" : "request_body"} AS requestBody,status,http_status AS httpStatus,${kind === "request" ? "NULL" : "response_body"} AS responseBody,duration_ms AS durationMs,error,error_code AS errorCode${kind === "request" ? "" : ",output_json"} FROM model_calls WHERE agent_id=? ${callId !== null ? "AND id=?" : ""} ORDER BY id`,
 								)
 								.all(
 									...(callId === null ? [agentId] : [agentId, Number(callId)]),
 								)
-								.map((call) => ({
+								.map(({ output_json, ...call }) => ({
 									...call,
+									...(output_json !== undefined &&
+										call.status !== "succeeded" && {
+											partialOutput: JSON.parse(String(output_json)),
+										}),
 									...callPersistenceError(call.id),
 									...(unsavedCalls.has(Number(call.id)) && {
 										error: errorMessages.answerWriteFailed,

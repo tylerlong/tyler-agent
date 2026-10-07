@@ -91,11 +91,10 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 		.locator("details")
 		.filter({ has: page.locator("summary", { hasText: /^Response 2/ }) });
 	await response.locator("summary").click();
-	await expect(response.locator("pre")).toContainText([
-		"first partial",
-		"partial thinking",
-		"last partial",
-	]);
+	await expect(response.locator("pre")).toHaveCount(1);
+	for (const text of ["first partial", "partial thinking", "last partial"])
+		await expect(response.locator("pre")).toContainText(text);
+	await expect(response).not.toContainText("response.output_item.added");
 	await expect(response).toContainText("HTTP 200");
 	await page.reload();
 	await expect(log.getByText("first partial", { exact: true })).toHaveCount(1);
