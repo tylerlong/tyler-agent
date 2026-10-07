@@ -165,9 +165,11 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 语言切换更新界面标签、菜单、状态、placeholder、悬停和可访问名称，以及已经显示的应用错误。名称输入、问题草稿、已存名称、路径、对话历史和模型回答保持原样。新的一份创建草稿用当前语言生成默认名；已有草稿（包括未改过的预填名）和同一目标隐藏重开保持，不追踪默认名是否修改。外部错误详情及原始 request/response 保留原内容，凭据仍脱敏，terminal 技术日志不翻译。
 
+The HTTP file-tool fixtures in `test/tool-loop.test.ts` use temporary folders/databases and fake models to verify actual contents, path changes, scope failures, continuations, independent repeated calls and cancellation. 文件工具 HTTP 测试使用临时目录／数据库及假模型，验证实际内容、路径变化、范围错误、续读、重复调用独立结果及取消。
+
 ## Local file tools / 本地文件工具
 
-The delivered read-only tools are `list_files`, `search_files` and `read_file`. Ask to discover TypeScript paths, find a literal phrase or read a file in the Project's Target Folders. Each Tool Call performs one operation; several calls in one model response retain separate IDs/results and execute in order before the next model request.
+The seven file tools are `list_files`, `search_files`, `read_file`, `write_file`, `edit_file`, `move_path` and `delete_path`. Ask to discover TypeScript paths, find a literal phrase or read a file in the Project's Target Folders. Each Tool Call performs one operation; several calls in one model response retain separate IDs/results and execute in order before the next model request.
 
 | Tool | Arguments and result bounds |
 | --- | --- |
@@ -185,11 +187,15 @@ Examples (replace `/project` with a selected absolute Target Folder):
 {"name":"list_files","arguments":{"path":"/project","pattern":"**/*.ts","offset":0}}
 {"name":"search_files","arguments":{"path":"/project","query":"create_sub_agent","offset":0}}
 {"name":"read_file","arguments":{"path":"/project/README.md","startLine":1,"endLine":80}}
+{"name":"write_file","arguments":{"path":"/project/src/new.ts","content":"export const answer = 42;\n"}}
+{"name":"edit_file","arguments":{"path":"/project/src/new.ts","oldText":"42","newText":"43"}}
+{"name":"move_path","arguments":{"path":"/project/src","destination":"/project/source"}}
+{"name":"delete_path","arguments":{"path":"/project/source"}}
 ```
 
-The final design also includes `write_file` (create/replace UTF-8 text and missing parents), `edit_file` (one exact replacement with exactly one match), `move_path` (rename/move one file or folder to a nonexistent scoped destination), and `delete_path` (delete one file or recursively delete one folder). These four mutation tools are tracked in [#126](https://github.com/tylerlong/tyler-agent/issues/126) and are not advertised by this read-only slice. No shell, multi-path batch, Git checks or recovery guarantee is provided. Invalid tool names, JSON, argument types, extra arguments, scope violations and execution errors produce truthful Tool Results; the model can correct its request. Cancellation/errors retain actual saved results and do not automatically retry.
+The mutation tools are `write_file` (create/replace UTF-8 text and missing parents), `edit_file` (one exact replacement with exactly one match), `move_path` (rename/move one file or folder to a nonexistent scoped destination), and `delete_path` (delete one file or recursively delete one folder). Use `write_file({path, content})`, `edit_file({path, oldText, newText})`, `move_path({path, destination})` and `delete_path({path})`. Move destinations must not exist and their parent directory must exist. Writes reject existing binary/invalid UTF-8 files; new text rejects NUL and unpaired surrogates. Empty oldText is invalid; overlapping matches are ambiguous. Cancellation/failure after mutation may leave real changes (including created directories); `mutationMayHaveOccurred` reports that possibility, without rollback. No shell, multi-path batch, Git checks or recovery guarantee is provided. Invalid tool names, JSON, argument types, extra arguments, scope violations and execution errors produce truthful Tool Results; the model can correct its request. Cancellation/errors retain actual saved results and do not automatically retry.
 
-当前已交付的只读工具为 `list_files`、`search_files` 和 `read_file`。可要求查找 TypeScript 路径、搜索字面文本或读取目标文件夹内的文件。每次 Tool Call 只执行一个操作；同一模型响应中的多个调用（包括同名调用）保留各自 ID 和结果，按顺序执行完毕后才继续请求模型。
+已交付七个文件工具：`list_files`、`search_files`、`read_file`、`write_file`、`edit_file`、`move_path` 和 `delete_path`。可要求查找 TypeScript 路径、搜索字面文本或读取目标文件夹内的文件。每次 Tool Call 只执行一个操作；同一模型响应中的多个调用（包括同名调用）保留各自 ID 和结果，按顺序执行完毕后才继续请求模型。
 
 `list_files({path, pattern?, offset?})` 的 path 为绝对目录路径，无 pattern 时列出当前层条目；有 pattern 时递归发现路径，使用 Node `path.matchesGlob` 对相对路径匹配（如 `**/*.ts`）。`search_files({path, query, offset?})` 递归搜索 UTF-8 文本，query 为非空、区分大小写的字面文本，不支持正则；每个匹配行返回一个结果，包含文件、行及从 1 开始的 Unicode 列位置。两者 offset 默认为 0，每次最多返回 100 个条目／匹配，截断后保留原参数，以返回的 nextOffset 继续。
 
@@ -197,7 +203,7 @@ The final design also includes `write_file` (create/replace UTF-8 text and missi
 
 每次执行重新读取 Project 当前目标文件夹，所有根目录平等；路径解析后必须在至少一个根目录内。更改范围影响后续工具，不改写已存结果。拒绝越界遍历、共享前缀邻接目录和逃逸符号链接，递归发现／搜索不跟随范围外链接。范围内隐藏路径及 `.git` 均允许访问，无需 Git，仍受操作系统权限限制。零文件夹项目仍可纯文本聊天，文件工具返回范围错误；通过 **编辑项目 → 添加文件夹** 配置访问范围。
 
-最终设计另含 `write_file`（创建／完整覆盖 UTF-8 文件及缺失父目录）、`edit_file`（恰好一个匹配的精确替换）、`move_path`（移动／重命名一个文件或文件夹，目标须不存在且在范围内）、`delete_path`（删除一个文件或递归删除一个文件夹）。四个修改工具由 [#126](https://github.com/tylerlong/tyler-agent/issues/126) 交付，本只读阶段不提供这些能力。不提供 shell、多路径批量操作、Git 检查或恢复保证。非法工具名、JSON、参数类型、额外参数、越界及执行错误返回真实工具错误，供模型修正；取消及错误保留实际已存结果，不自动重试。
+修改工具包括 `write_file`（创建／完整覆盖 UTF-8 文件及缺失父目录）、`edit_file`（恰好一个匹配的精确替换）、`move_path`（移动／重命名一个文件或文件夹，目标须不存在且在范围内）、`delete_path`（删除一个文件或递归删除一个文件夹）。参数分别为 `write_file({path, content})`、`edit_file({path, oldText, newText})`、`move_path({path, destination})`、`delete_path({path})`。移动目标必须不存在，父目录必须存在。覆盖拒绝已有二进制／无效 UTF-8 文件；文本拒绝 NUL 和未配对代理码。oldText 不能为空，重叠匹配也视为歧义。修改后的取消／失败可能保留真实变更（含新建目录），`mutationMayHaveOccurred` 表明此可能性，不承诺回滚。不提供 shell、多路径批量操作、Git 检查或恢复保证。非法工具名、JSON、参数类型、额外参数、越界及执行错误返回真实工具错误，供模型修正；取消及错误保留实际已存结果，不自动重试。
 
 只有完整有效的 completed 响应才触发工具，先组装参数，再按输出顺序执行；工具-only 或混合文本响应都可继续。后续请求携带完整 output items（含推理元数据）与对应 `call_id` 的 `function_call_output`，模型可修正工具错误并重新调用。每 Agent 默认最多 16 次实际模型请求，初次、失败及子任务终态通知触发的调用均计入。最后允许的调用可用最终回答成功；若仍请求工具则保存为未执行，不发起超限请求。远程请求、协议或持久化失败立即停止，不自动重试付费调用。
 

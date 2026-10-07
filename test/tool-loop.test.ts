@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import type { ToolExecutor } from "../src/file-tools.ts";
+import { executeTool, type ToolExecutor } from "../src/file-tools.ts";
 import { createServer } from "../src/server.ts";
 import { waitForAgent, waitForIdle } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
@@ -1776,6 +1776,335 @@ test("file tools validate continuation arguments and expose Unicode-safe search 
 		const { agentId } = await (await f.ask()).json();
 		assert.equal((await f.wait(agentId)).status, "succeeded");
 		assert.equal(requests, 2);
+	} finally {
+		await f.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("mutation tools perform scoped text and path operations with independent results", async () => {
+	const base = await realpath(await mkdtemp(join(tmpdir(), "mutations-")));
+	const root = join(base, "root"),
+		second = join(base, "second"),
+		outside = join(base, "root-other");
+	await Promise.all([root, second, outside].map((path) => mkdir(path)));
+	await writeFile(join(outside, "keep"), "outside");
+	await symlink(outside, join(root, "escape"));
+	await symlink(join(outside, "absent"), join(root, "dangling"));
+	await writeFile(join(root, "binary"), Buffer.from([0, 1, 2]));
+	await writeFile(join(root, "invalid"), Buffer.from([255]));
+	await mkdir(join(root, "folder"));
+	await symlink(outside, join(root, "folder", "link"));
+	await writeFile(join(root, "folder", "child"), "child");
+	const path = join(root, "new", "深", "file.txt");
+	const calls = [
+		fileCall("write_file", { path, content: "one 😀" }, "create"),
+		fileCall("write_file", { path, content: "two two" }, "replace"),
+		fileCall("edit_file", { path, oldText: "missing", newText: "bad" }, "zero"),
+		fileCall(
+			"edit_file",
+			{ path, oldText: "two", newText: "bad" },
+			"ambiguous",
+		),
+		fileCall(
+			"edit_file",
+			{ path, oldText: "two two", newText: "three 中文" },
+			"edit",
+		),
+		fileCall(
+			"move_path",
+			{ path, destination: join(second, "renamed") },
+			"file-move",
+		),
+		fileCall(
+			"move_path",
+			{ path: join(root, "folder"), destination: join(root, "renamed-folder") },
+			"folder-move",
+		),
+		fileCall(
+			"move_path",
+			{ path: join(second, "renamed"), destination: join(root, "binary") },
+			"collision",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "binary"), content: "bad" },
+			"binary",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "invalid"), content: "bad" },
+			"invalid",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "bad"), content: "\ud800" },
+			"surrogate",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "escape", "created", "x"), content: "bad" },
+			"escape",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "dangling"), content: "bad" },
+			"dangling",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(outside, "x"), content: "bad" },
+			"sibling",
+		),
+		fileCall(
+			"write_file",
+			{ path: `${root}/../root-other/x`, content: "bad" },
+			"traversal",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, ".git", "config"), content: "git" },
+			"git",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, ".hidden"), content: "hidden" },
+			"hidden",
+		),
+		fileCall(
+			"move_path",
+			{
+				path: join(root, "binary"),
+				destination: join(root, "missing", "file"),
+			},
+			"missing-parent",
+		),
+		fileCall(
+			"delete_path",
+			{ path: join(root, "renamed-folder") },
+			"recursive-delete",
+		),
+		fileCall("delete_path", { path: join(root, "binary") }, "binary-delete"),
+		fileCall("delete_path", { path: join(root, "absent") }, "missing"),
+	];
+	const failed = new Map([
+		["zero", "validation"],
+		["ambiguous", "validation"],
+		["collision", "validation"],
+		["binary", "validation"],
+		["invalid", "validation"],
+		["surrogate", "validation"],
+		["escape", "scope"],
+		["dangling", "scope"],
+		["sibling", "scope"],
+		["traversal", "validation"],
+		["missing-parent", "execution"],
+		["missing", "execution"],
+	]);
+	let requests = 0;
+	const f = await fixture(
+		async (_url, init) => {
+			requests++;
+			const body = JSON.parse(String(init?.body));
+			assert.deepEqual(
+				body.tools.slice(0, 7).map((tool: { name: string }) => tool.name),
+				[
+					"list_files",
+					"search_files",
+					"read_file",
+					"write_file",
+					"edit_file",
+					"move_path",
+					"delete_path",
+				],
+			);
+			if (requests === 1) return new Response(completed(calls));
+			const outputs = body.input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			assert.deepEqual(
+				outputs.map((item: { call_id: string }) => item.call_id),
+				calls.map((call) => call.call_id),
+			);
+			for (const item of outputs) {
+				const result = JSON.parse(item.output);
+				if (failed.has(item.call_id))
+					assert.equal(
+						result.error.kind,
+						failed.get(item.call_id),
+						item.call_id,
+					);
+				else assert.equal(result.error, undefined, item.call_id);
+			}
+			assert.equal(
+				await readFile(join(second, "renamed"), "utf8"),
+				"three 中文",
+			);
+			assert.equal(await readFile(join(root, ".git", "config"), "utf8"), "git");
+			assert.equal(await readFile(join(root, ".hidden"), "utf8"), "hidden");
+			assert.equal(await readFile(join(outside, "keep"), "utf8"), "outside");
+			assert.deepEqual(await readdir(outside), ["keep"]);
+			assert(!(await readdir(root)).includes("renamed-folder"));
+			assert(!(await readdir(root)).includes("binary"));
+			assert.deepEqual(
+				await readFile(join(root, "invalid")),
+				Buffer.from([255]),
+			);
+			return new Response(completed([message("done")]));
+		},
+		[root, second],
+	);
+	try {
+		const { agentId } = await (await f.ask()).json();
+		assert.equal((await f.wait(agentId)).status, "succeeded");
+		const saved = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
+		assert.equal(saved.length, calls.length);
+		assert.equal(
+			new Set(saved.map((call: { id: number }) => call.id)).size,
+			calls.length,
+		);
+		assert.deepEqual(
+			saved.map((call: { status: string }) => call.status),
+			calls.map((call) => (failed.has(call.call_id) ? "failed" : "succeeded")),
+		);
+		await f.restart();
+		assert.deepEqual(
+			(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
+			saved,
+		);
+		assert.equal(requests, 2);
+	} finally {
+		await f.close();
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+for (const rootsAfter of ["second", "none"]) {
+	test(`mutations use changed current roots before each dispatch: ${rootsAfter}`, async () => {
+		const base = await realpath(
+			await mkdtemp(join(tmpdir(), "mutation-scope-")),
+		);
+		const root = join(base, "root"),
+			second = join(base, "second");
+		await mkdir(root);
+		await mkdir(second);
+		let entered!: () => void, release!: () => void;
+		const started = new Promise<void>((r) => (entered = r)),
+			held = new Promise<void>((r) => (release = r));
+		let executions = 0,
+			requests = 0;
+		const f = await fixture(
+			async () =>
+				new Response(
+					completed(
+						++requests === 1
+							? [
+									fileCall(
+										"write_file",
+										{ path: join(root, "first"), content: "first" },
+										"first",
+									),
+									fileCall(
+										"write_file",
+										{ path: join(root, "blocked"), content: "bad" },
+										"blocked",
+									),
+									fileCall(
+										"write_file",
+										{ path: join(second, "second"), content: "second" },
+										"second",
+									),
+								]
+							: [message("done")],
+					),
+				),
+			[root],
+			async (name, args, roots, signal) => {
+				const result = await executeTool(name, args, roots, signal);
+				if (++executions === 1) {
+					entered();
+					await held;
+				}
+				return result;
+			},
+		);
+		try {
+			const { agentId } = await (await f.ask()).json();
+			await started;
+			assert.equal(
+				(
+					await f.send(
+						`/api/projects/${f.project.id}`,
+						{ name: "P", folders: rootsAfter === "none" ? [] : [second] },
+						"PUT",
+					)
+				).status,
+				200,
+			);
+			release();
+			assert.equal((await f.wait(agentId)).status, "succeeded");
+			assert.deepEqual(await readdir(root), ["first"]);
+			assert.deepEqual(
+				await readdir(second),
+				rootsAfter === "none" ? [] : ["second"],
+			);
+			const saved = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
+			assert.equal(JSON.parse(saved[1].result).error.kind, "scope");
+			if (rootsAfter === "none")
+				assert.equal(JSON.parse(saved[2].result).error.kind, "scope");
+		} finally {
+			release();
+			await f.close();
+			await rm(base, { recursive: true, force: true });
+		}
+	});
+}
+
+test("cancellation retains a completed mutation and prevents remaining operations", async () => {
+	const root = await realpath(
+		await mkdtemp(join(tmpdir(), "mutation-cancel-")),
+	);
+	let entered!: () => void;
+	const started = new Promise<void>((r) => (entered = r));
+	let requests = 0;
+	const f = await fixture(
+		async () => {
+			requests++;
+			return new Response(
+				completed([
+					fileCall(
+						"write_file",
+						{ path: join(root, "saved"), content: "actual change" },
+						"write",
+					),
+					fileCall("delete_path", { path: join(root, "saved") }, "delete"),
+				]),
+			);
+		},
+		[root],
+		async (name, args, roots, signal) => {
+			const result = await executeTool(name, args, roots, signal);
+			entered();
+			await new Promise<void>((r) =>
+				signal?.addEventListener("abort", () => r(), { once: true }),
+			);
+			return result;
+		},
+	);
+	try {
+		const { agentId } = await (await f.ask()).json();
+		await started;
+		assert.equal(
+			(await f.send(`/api/agents/${agentId}/cancel`, {})).status,
+			200,
+		);
+		await f.wait(agentId);
+		assert.equal(await readFile(join(root, "saved"), "utf8"), "actual change");
+		const tools = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
+		assert.equal(tools[0].status, "succeeded");
+		assert.equal(JSON.parse(tools[0].result).bytesWritten, 13);
+		assert.equal(tools[1].status, "interrupted");
+		assert.equal(requests, 1);
 	} finally {
 		await f.close();
 		await rm(root, { recursive: true, force: true });

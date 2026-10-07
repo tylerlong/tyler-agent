@@ -1,6 +1,23 @@
 import { createReadStream } from "node:fs";
-import { readdir, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, matchesGlob, relative, sep } from "node:path";
+import {
+	lstat,
+	mkdir,
+	readdir,
+	realpath,
+	rename,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	matchesGlob,
+	relative,
+	sep,
+} from "node:path";
 
 const pathParameter = { type: "string", description: "Absolute scoped path" };
 const offsetParameter = {
@@ -47,6 +64,30 @@ export const fileTools = [
 		},
 		["path"],
 	),
+	tool(
+		"write_file",
+		"Create or replace one UTF-8 text file, creating missing parents within scope. Existing binary or invalid UTF-8 files fail.",
+		{ content: { type: "string" } },
+		["path", "content"],
+	),
+	tool(
+		"edit_file",
+		"Replace exactly one occurrence of oldText with newText in one UTF-8 file. Zero or multiple matches fail without changes.",
+		{ oldText: { type: "string" }, newText: { type: "string" } },
+		["path", "oldText", "newText"],
+	),
+	tool(
+		"move_path",
+		"Move or rename one file or folder from path to destination within selected roots. Destination must not exist; its parent must exist.",
+		{ destination: pathParameter },
+		["path", "destination"],
+	),
+	tool(
+		"delete_path",
+		"Delete one file or recursively delete one directory within scope, without following descendant symlinks.",
+		{},
+		["path"],
+	),
 ];
 export type ToolExecution = {
 	status: "succeeded" | "failed" | "interrupted";
@@ -69,7 +110,11 @@ const contains = (root: string, path: string) => {
 	const child = relative(root, path);
 	return child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
 };
-export async function scopedPath(path: string, roots: string[]) {
+export async function scopedPath(
+	path: string,
+	roots: string[],
+	allowMissing = false,
+) {
 	if (
 		!isAbsolute(path) ||
 		path.includes("\0") ||
@@ -84,7 +129,22 @@ export async function scopedPath(path: string, roots: string[]) {
 			"scope",
 			"No target folders are configured for this Agent",
 		);
-	const resolved = await realpath(path);
+	let resolved: string;
+	try {
+		resolved = await realpath(path);
+	} catch (error) {
+		if (!allowMissing || (error as NodeJS.ErrnoException).code !== "ENOENT")
+			throw error;
+		// A dangling link is an existing path, not a new destination.
+		try {
+			await lstat(path);
+			throw new FileToolError("scope", "Dangling symlinks are not supported");
+		} catch (missing) {
+			if ((missing as NodeJS.ErrnoException).code !== "ENOENT") throw missing;
+		}
+		const parent = await scopedPath(dirname(path), roots, true);
+		resolved = join(parent, basename(path));
+	}
 	const resolvedRoots = await Promise.allSettled(
 		roots.map((root) => realpath(root)),
 	);
@@ -167,6 +227,7 @@ export const executeTool: ToolExecutor = async (
 	roots,
 	signal,
 ) => {
+	let mutationMayHaveOccurred = false;
 	try {
 		signal?.throwIfAborted();
 		let args: Record<string, unknown>;
@@ -185,7 +246,15 @@ export const executeTool: ToolExecutor = async (
 					? ["path", "query", "offset"]
 					: name === "read_file"
 						? ["path", "startLine", "endLine", "startColumn"]
-						: [];
+						: name === "write_file"
+							? ["path", "content"]
+							: name === "edit_file"
+								? ["path", "oldText", "newText"]
+								: name === "move_path"
+									? ["path", "destination"]
+									: name === "delete_path"
+										? ["path"]
+										: [];
 		if (
 			!allowed.length ||
 			!args ||
@@ -217,9 +286,88 @@ export const executeTool: ToolExecutor = async (
 				"validation",
 				"Expected a nonempty literal query",
 			);
-		const path = await scopedPath(args.path, roots);
+		for (const key of name === "write_file"
+			? ["content"]
+			: name === "edit_file"
+				? ["oldText", "newText"]
+				: []) {
+			const value = args[key];
+			if (
+				typeof value !== "string" ||
+				value.includes("\0") ||
+				Buffer.from(value, "utf8").toString("utf8") !== value ||
+				(key === "oldText" && !value)
+			)
+				throw new FileToolError(
+					"validation",
+					`Expected supported UTF-8 text for ${key}`,
+				);
+		}
+		if (name === "move_path" && typeof args.destination !== "string")
+			throw new FileToolError("validation", "Expected a destination path");
+		const path = await scopedPath(args.path, roots, name === "write_file");
 		let result: object;
-		if (name === "read_file") {
+		if (name === "write_file" || name === "edit_file") {
+			let content = String(args.content ?? "");
+			if (name === "edit_file") {
+				const text = await textFile(path, signal),
+					oldText = String(args.oldText);
+				const index = text.indexOf(oldText);
+				if (index < 0 || text.indexOf(oldText, index + 1) >= 0)
+					throw new FileToolError(
+						"validation",
+						"oldText must match exactly once",
+					);
+				content =
+					text.slice(0, index) +
+					String(args.newText) +
+					text.slice(index + oldText.length);
+			} else {
+				try {
+					await textFile(path, signal);
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				}
+			}
+			signal?.throwIfAborted();
+			mutationMayHaveOccurred = true;
+			await mkdir(dirname(path), { recursive: true });
+			signal?.throwIfAborted();
+			await writeFile(path, content, { encoding: "utf8", signal });
+			result = { path: args.path, bytesWritten: Buffer.byteLength(content) };
+		} else if (name === "move_path") {
+			const destination = await scopedPath(
+				String(args.destination),
+				roots,
+				true,
+			);
+			try {
+				await lstat(destination);
+				throw new FileToolError("validation", "Destination already exists");
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			}
+			if (
+				!(
+					await stat(await scopedPath(dirname(destination), roots))
+				).isDirectory()
+			)
+				throw new FileToolError(
+					"validation",
+					"Destination parent must be a directory",
+				);
+			if (contains(path, destination))
+				throw new FileToolError("validation", "Cannot move a path into itself");
+			signal?.throwIfAborted();
+			mutationMayHaveOccurred = true;
+			await rename(path, destination);
+			result = { path: args.path, destination: args.destination };
+		} else if (name === "delete_path") {
+			signal?.throwIfAborted();
+			mutationMayHaveOccurred = true;
+			await rm(path, { recursive: true });
+			result = { path: args.path, deleted: true };
+		} else if (name === "read_file") {
 			const startLine = Number(args.startLine ?? 1),
 				startColumn = Number(args.startColumn ?? 1),
 				endLine = Number(args.endLine ?? Number.MAX_SAFE_INTEGER);
@@ -359,6 +507,7 @@ export const executeTool: ToolExecutor = async (
 		return {
 			status: signal?.aborted ? "interrupted" : "failed",
 			result: JSON.stringify({
+				...(mutationMayHaveOccurred ? { mutationMayHaveOccurred: true } : {}),
 				error: {
 					kind: error instanceof FileToolError ? error.kind : "execution",
 					message: String(error instanceof Error ? error.message : error).slice(
