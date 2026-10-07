@@ -168,13 +168,15 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 		status: "failed",
 		result: '{"error":"zkey failure","extra":7}',
 	});
-	const output = ["inspect", "plain", "empty", "broken"].map((name, index) => ({
-		id: `tool-${index}`,
-		type: "function_call",
-		name,
-		call_id: `call-${index}`,
-		arguments: JSON.stringify({ index, key: "zkey", nested: [false, null] }),
-	}));
+	const output = ["write_file", "edit_file", "move_path", "delete_path"].map(
+		(name, index) => ({
+			id: `tool-${index}`,
+			type: "function_call",
+			name,
+			call_id: `call-${index}`,
+			arguments: JSON.stringify({ index, key: "zkey", nested: [false, null] }),
+		}),
+	);
 	await page.getByLabel("Prompt").fill("Run tools");
 	await page.getByRole("button", { name: /^Send/ }).click();
 	for (const [output_index, item] of output.entries())
@@ -198,7 +200,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await expect(inspect).not.toHaveAttribute("open");
 	success.release();
 	await plain.entered;
-	await expect(inspect.locator("summary")).toHaveText("Tool Call · inspect");
+	await expect(inspect.locator("summary")).toHaveText("Tool Call · write_file");
 	await expect(inspect).not.toHaveAttribute("open");
 	await inspect.locator("summary").click();
 	await expect(inspect).toContainText('"error": "business field"');
@@ -218,7 +220,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await failure.entered;
 	failure.release();
 	await expect(cards.nth(3).locator("summary")).toHaveText(
-		"Tool Call · broken · Failed",
+		"Tool Call · delete_path · Failed",
 	);
 	await cards.nth(3).locator("summary").click();
 	await expect(cards.nth(3)).toContainText('"error": "[REDACTED] failure"');
@@ -231,10 +233,10 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	expect(order).toEqual([
 		"Request 1",
 		"Response 1",
-		"Tool Call · inspect",
-		"Tool Call · plain",
-		"Tool Call · empty",
-		"Tool Call · broken · Failed",
+		"Tool Call · write_file",
+		"Tool Call · edit_file",
+		"Tool Call · move_path",
+		"Tool Call · delete_path · Failed",
 		"Request 2",
 		"Response 2",
 	]);

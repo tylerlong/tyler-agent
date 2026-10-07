@@ -2110,3 +2110,74 @@ test("cancellation retains a completed mutation and prevents remaining operation
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("concurrent Agents cannot overwrite one move destination", async () => {
+	const root = await realpath(await mkdtemp(join(tmpdir(), "move-collision-")));
+	const sources = [join(root, "first"), join(root, "second")],
+		destination = join(root, "destination");
+	await Promise.all(
+		sources.map((path, index) => writeFile(path, String(index))),
+	);
+	let arrivals = 0,
+		release!: () => void,
+		initial = 0;
+	const gate = new Promise<void>((r) => (release = r));
+	const f = await fixture(
+		async (_url, init) => {
+			const input = JSON.parse(String(init?.body)).input;
+			return new Response(
+				completed(
+					input.some(
+						(item: { type: string }) => item.type === "function_call_output",
+					)
+						? [message("done")]
+						: [
+								fileCall(
+									"move_path",
+									{ path: sources[initial++], destination },
+									"move",
+								),
+							],
+				),
+			);
+		},
+		[root],
+		async (name, args, roots, signal) => {
+			if (++arrivals === 2) release();
+			await gate;
+			return executeTool(name, args, roots, signal);
+		},
+	);
+	try {
+		const secondChat = await (
+			await f.send(`/api/projects/${f.project.id}/chats`, { name: "Second" })
+		).json();
+		const accepted = await Promise.all([
+			f.ask(),
+			f.send(`/api/chats/${secondChat.id}`, {
+				modelId: "tool-model",
+				prompt: "move",
+			}),
+		]);
+		const agents = await Promise.all(accepted.map((r) => r.json()));
+		await Promise.all(agents.map((agent) => f.wait(agent.agentId)));
+		const tools = (
+			await Promise.all(
+				agents.map((agent) => f.get(`/api/agents/${agent.agentId}/tools`)),
+			)
+		).flatMap((result) => result.toolCalls);
+		assert.deepEqual(
+			tools.map((tool: { status: string }) => tool.status).sort(),
+			["failed", "succeeded"],
+		);
+		const winner = await readFile(destination, "utf8");
+		assert(["0", "1"].includes(winner));
+		const loser = winner === "0" ? 1 : 0;
+		assert.equal(await readFile(sources[loser], "utf8"), String(loser));
+		assert.equal((await readdir(root)).length, 2);
+	} finally {
+		release();
+		await f.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});

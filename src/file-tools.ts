@@ -221,6 +221,8 @@ export async function textFile(
 	}
 	return text;
 }
+// ponytail: reservations cover service Agents; use OS no-replace support if cross-process coordination is required.
+const mutationDestinations = new Set<string>();
 export const executeTool: ToolExecutor = async (
 	name,
 	argumentsText,
@@ -228,6 +230,7 @@ export const executeTool: ToolExecutor = async (
 	signal,
 ) => {
 	let mutationMayHaveOccurred = false;
+	let destinationReservation: string | undefined;
 	try {
 		signal?.throwIfAborted();
 		let args: Record<string, unknown>;
@@ -307,6 +310,20 @@ export const executeTool: ToolExecutor = async (
 			throw new FileToolError("validation", "Expected a destination path");
 		const path = await scopedPath(args.path, roots, name === "write_file");
 		let result: object;
+		if (name === "write_file" || name === "edit_file" || name === "move_path") {
+			destinationReservation =
+				name === "move_path"
+					? await scopedPath(String(args.destination), roots, true)
+					: path;
+			if (mutationDestinations.has(destinationReservation)) {
+				destinationReservation = undefined;
+				throw new FileToolError(
+					"execution",
+					"Another mutation is using this destination",
+				);
+			}
+			mutationDestinations.add(destinationReservation);
+		}
 		if (name === "write_file" || name === "edit_file") {
 			let content = String(args.content ?? "");
 			if (name === "edit_file") {
@@ -336,11 +353,7 @@ export const executeTool: ToolExecutor = async (
 			await writeFile(path, content, { encoding: "utf8", signal });
 			result = { path: args.path, bytesWritten: Buffer.byteLength(content) };
 		} else if (name === "move_path") {
-			const destination = await scopedPath(
-				String(args.destination),
-				roots,
-				true,
-			);
+			const destination = destinationReservation as string;
 			try {
 				await lstat(destination);
 				throw new FileToolError("validation", "Destination already exists");
@@ -517,5 +530,8 @@ export const executeTool: ToolExecutor = async (
 				},
 			}),
 		};
+	} finally {
+		if (destinationReservation !== undefined)
+			mutationDestinations.delete(destinationReservation);
 	}
 };
