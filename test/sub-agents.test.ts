@@ -8,7 +8,7 @@ import { setTimeout } from "node:timers/promises";
 import { executeTool, type ToolExecutor } from "../src/file-tools.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
-import { completedResponse, frame } from "./model-fixture.ts";
+import { completedBody, completedResponse, frame } from "./model-fixture.ts";
 
 const message = (text: string) => ({
 	id: "same-provider-message",
@@ -287,9 +287,18 @@ test("parallel blind children return 3 and 7 through notifications while root st
 			started.add(prompt);
 			childInputs.push(request.input);
 			await (prompt === "calculate one" ? first.promise : second.promise);
-			return completedResponse({
-				output: [message(prompt === "calculate one" ? "3" : "7")],
-			});
+			return new Response(
+				frame("response.output_text.delta", {
+					item_id: "provisional-message-omitted-from-final",
+					output_index: 0,
+					content_index: 0,
+					delta: "provisional child answer",
+				}) +
+					completedBody({
+						output: [message(prompt === "calculate one" ? "3" : "7")],
+					}),
+				{ headers: { "content-type": "text/event-stream" } },
+			);
 		}
 		assert.equal(prompt, "delegate and add");
 		assert.equal(++rootInFlight, 1, "Root model requests are serial");
@@ -339,8 +348,28 @@ test("parallel blind children return 3 and 7 through notifications while root st
 					Number.isInteger(creation.agent_id) && creation.status === "pending",
 			),
 		);
+		await until(async () => rootInputs.length === 2);
+		const acknowledgements = rootInputs[1] as {
+			type?: string;
+			call_id?: string;
+			output?: string;
+		}[];
+		assert.deepEqual(
+			acknowledgements.filter((item) => item.type === "function_call_output"),
+			creations.map((creation: unknown, index: number) => ({
+				type: "function_call_output",
+				call_id: index === 0 ? "create-one" : "create-two",
+				output: JSON.stringify(creation),
+			})),
+			"Both creations are paired in one immediate continuation before either child finishes",
+		);
+		assert.equal(
+			JSON.stringify(acknowledgements).includes("Runtime service:"),
+			false,
+		);
 		first.release();
-		await until(async () => JSON.stringify(rootInputs).includes("succeeded"));
+		await until(async () => rootInputs.length === 3);
+		assert(JSON.stringify(rootInputs[2]).includes("succeeded"));
 		assert.equal(
 			(await f.get(`/api/chats/${f.chat.id}`)).busy,
 			true,
@@ -350,6 +379,21 @@ test("parallel blind children return 3 and 7 through notifications while root st
 		const root = await f.wait(rootId);
 		assert.equal(root.status, "succeeded");
 		assert.equal(root.output.at(-1).content[0].text, "10");
+		assert.equal(
+			rootInputs.length,
+			4,
+			"Only creation and child terminal events continue the parent",
+		);
+		for (let index = 1; index < rootInputs.length; index++)
+			assert.deepEqual(
+				rootInputs[index].slice(0, rootInputs[index - 1].length),
+				rootInputs[index - 1],
+				"Each stateless request replays all prior inputs and protocol items",
+			);
+		assert.equal(
+			JSON.stringify(rootInputs).includes("provisional child answer"),
+			false,
+		);
 		for (const creation of creations) {
 			const child = (await f.get(`/api/agents/${creation.agent_id}`)).agents[0];
 			assert.equal(child.parentAgentId, rootId);
@@ -357,6 +401,7 @@ test("parallel blind children return 3 and 7 through notifications while root st
 			assert.equal(child.chatId, f.chat.id);
 			assert.equal(child.context, "");
 			assert.equal(child.status, "succeeded");
+			assert.equal(child.answer, creation === creations[0] ? "3" : "7");
 			assert(JSON.stringify(rootInputs).includes(String(child.id)));
 		}
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).agents.length, 1);
@@ -828,6 +873,20 @@ for (const during of ["model", "tool"])
 			assert(notifications?.[0].content?.includes("result-two"));
 			assert(notifications?.[1].content?.includes("result-one"));
 			assert.equal(parentInputs.length, during === "model" ? 3 : 2);
+			assert.deepEqual(
+				parentInputs.at(-1)?.slice(0, parentInputs[0].length),
+				parentInputs[0],
+			);
+			assert.equal(
+				parentInputs
+					.at(-1)
+					?.filter(
+						(item) =>
+							(item as { type?: string }).type === "function_call_output",
+					).length,
+				during === "model" ? 2 : 3,
+				"Terminal notices never duplicate the original function outputs",
+			);
 		} finally {
 			for (const child of children) child.release();
 			held.release();

@@ -114,7 +114,7 @@ pnpm test:e2e
 
 自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖目录列表、glob 路径发现、字面内容搜索、UTF-8 行／列读取、100 条及 2,000 行／50 KiB 限制与续读、二进制拒绝／跳过、多根／改变／零目标范围、范围内隐藏及 `.git` 路径、特殊文件名、越界／符号链接保护、重复同名调用与配对结果、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、不保存 SSE/delta 日志、完整 JSON 与服务方元数据、最终响应替换不同或被省略的暂存内容、普通 HTTP 错误正文、格式化 JSON/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败根任务的部分内容不进入后续 Chat 历史上下文；子任务的失败或取消部分输出如实进入父模型通知或取消工具结果。
 
-递归委派验证复用 `test/sub-agents.test.ts` 的真实 HTTP 服务与可控响应，覆盖两 blind 子请求同时开始后释放 3/7、父模型收到终态后输出 10，以及 A 部分失败后由父模型主动取消 B、等待流/工具清理并原样回传部分结果。覆盖递归终态与 busy、当前配置/祖先覆盖、16/32 及当前上限计数、八表归属、重启保留记录且不重放。Chromium 覆盖完整工具卡片、树与详情、两种语言、局部/根停止、阅读位置及刷新恢复；显示折叠不改变实际模型输入。
+递归委派验证复用 `test/sub-agents.test.ts` 的真实 HTTP 服务与可控响应，验证多个创建结果立即同批配对、无状态完整历史重放、最终响应与暂存内容不同时的权威子结果、请求／工具执行期间按序排队及无重复工具结果；覆盖两 blind 子请求同时开始后释放 3/7、父模型收到终态后输出 10，以及 A 部分失败后由父模型主动取消 B、等待流/工具清理并原样回传部分结果。覆盖递归终态与 busy、当前配置/祖先覆盖、16/32 及当前上限计数、八表归属、重启保留记录且不重放。Chromium 覆盖完整工具卡片、树与详情、两种语言、局部/根停止、阅读位置及刷新恢复；显示折叠不改变实际模型输入。
 
 GitHub CI 使用 Node 24/pnpm 11，运行格式、类型、构建、后端测试及同一套 headless Chromium E2E。Linux 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器和系统依赖。浏览器测试失败会令 CI 失败，并上传 `playwright-failure` artifact（保留 7 天），包含 HTML 报告和失败 trace；在 Actions run 页面下载后，可用下面的命令查看。
 
@@ -263,7 +263,13 @@ Model Call 保存可读输出、调用错误码与错误文本；根 Agent 保�
 
 模型可调用 `create_sub_agent({prompt, context?, model_id?, reasoning_effort?})` 并行创建子任务，子任务可递归创建。prompt 必须为非空文本，context 默认空字符串；没有隐式祖先对话继承。子任务默认继承直接父 Agent 的有效模型与思考强度，并使用 Project 当前文件范围。可选 `model_id` 必须为 Settings 已配置模型 ID；请求说明提供当前 ID、名称和允许强度。省略 `reasoning_effort` 继承，显式 `null` 使用模型默认；只覆盖模型时保留兼容强度，否则使用新模型默认。显式不支持的强度返回工具错误。每次创建与 Model Call 从根 Chat 当前选择沿祖先创建参数合成最终配置，再校验模型能力；有效显式模型可覆盖已失效的根选择。覆盖只保存在创建工具 arguments，孙任务继承中间覆盖，不修改父或 Chat 配置；实际请求记录保留当时使用的值。创建立即返回 `{agent_id, status: "pending"}`，只表示已启动。
 
-每个子任务成功、失败或取消后，运行服务将 Agent ID、真实状态、全部已有可读输出及实际错误作为普通输入自动交给直接父模型，包括失败时的部分输出。没有等待或轮询工具，也不因流式文字触发父模型调用。父任务在子任务仍运行时保持 pending 和 Chat busy；父自身失败或达到上限仍等待后代结束，通知不会重启已失败的循环。子任务失败不自动取消兄弟或使父任务失败。
+创建结果作为对应的 `function_call_output`，在当前响应的全部工具执行并配齐结果后立即一起交给下一次父请求，不等子任务结束。不同 Agent 可并行，但同一 Agent 的模型请求与工具执行保持串行。每次 HTTPS 请求携带必要本地历史、此前完整协议输出、配对工具结果及已有通知；远程模型不依赖保存的 ID 或前次请求。
+
+每个子任务成功、失败或取消后，运行服务将 Agent ID、真实状态、全部已有可读输出及实际错误作为普通输入自动交给直接父模型，包括失败时的部分输出。 成功输出从完整最终响应派生，失败或取消保留可用部分内容及 Tool Results。空闲父任务在第一个子终态时继续；请求或工具执行期间到达的通知按发生顺序排队，在下一请求边界提供，不等其他子任务或定时聚合。没有等待或轮询工具，也不因流式文字触发父模型调用。父任务在子任务仍运行时保持 pending 和 Chat busy；父自身失败或达到上限仍等待后代结束，通知不会重启已失败、取消或达到上限的循环。没有工具的父回答会在仍有子任务时本地等待，递归后代结束后才可进入终态。取消工具已返回的相同终态不另发通知。子任务失败不自动取消兄弟或使父任务失败。
+
+Successful `create_sub_agent` returns `{agent_id, status: "pending"}` as its matching `function_call_output`. The parent continues immediately after every Tool Call in that response has a paired result; multiple creations share one continuation. Different Agents run in parallel, while each Agent keeps serial Model Calls and tools. Every HTTPS request replays necessary local history, prior protocol items, matching Tool Results and queued lifecycle facts; the remote model is stateless.
+
+Each succeeded, failed or cancelled child delivers its identity, true status, readable output, Tool Results and useful errors to its direct parent as a service-origin ordinary input message. Success uses the authoritative completed response; failure/cancellation retains usable partial content. An idle parent resumes on the first terminal event. Events during a request/tool batch queue in occurrence order for the next request boundary, without waiting for siblings or timers. A text-only parent waits locally while children remain active; recursive child settlement keeps the root Chat busy. Failed, cancelled or exhausted loops never restart from later notifications. Cancellation Tool Results suppress duplicate terminal notices. Notification requests count against the receiving Agent’s own Model Call limit; no paid retries, automatic sibling cancellation or new Chat history entries are introduced.
 
 八张表保留精确归属：根 Agent 保存 Chat/prompt，子 Agent 唯一引用创建 Tool Call；prompt/context、parent、根 Chat 和 Project 从关系派生。`GET /api/agents/:id` 回读来源、详情及已有调用；子 SSE 不进入根 Chat 历史或改变最近活动。现有折叠 Tool 卡片可检查完整创建参数与结果。Settings 的“执行上限”提供两个持久化正整数：每 Agent Model Calls 默认 16，每根树累计后代默认 32。`GET /api/execution-limits` 读取当前值，`PATCH /api/execution-limits` 接受 `modelCallLimit` 与/或 `subAgentLimit`，拒绝非正整数。修改或重启后后续模型请求、子任务创建读取当前值；已发请求与已创建任务继续执行。降低到已用数量以下阻止新工作；失败调用计入执行者，所有层级、成功/失败/取消后代仍累计计数，根不计、终态不退名额，无效参数或配置不创建子任务。最后允许的 Model Call 请求工具时保留请求并标记未执行，以 `modelCallLimit` 停止自身循环，不为子任务通知越限调用。任务树与详情见下方说明。
 
