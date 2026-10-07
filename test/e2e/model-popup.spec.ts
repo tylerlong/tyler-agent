@@ -218,7 +218,9 @@ test("addition loading and initial failure stay local with Chinese search and no
 	await expect(dialog.getByRole("alert")).toContainText("加载热门模型失败");
 	await capture("initial-failure");
 	await search.press("Escape");
-	await page.keyboard.press("Escape");
+	await expect(search).toBeHidden();
+	await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+	await expect(dialog).toBeHidden();
 	await page.unroute("**/api/model-catalog");
 	await page.getByRole("button", { name: "设置", exact: true }).click();
 	await page.getByRole("tab", { name: "模型", exact: true }).click();

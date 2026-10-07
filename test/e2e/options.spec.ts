@@ -227,9 +227,11 @@ test("missing configuration does not obstruct archived history", async ({
 	await expect(
 		page.getByRole("heading", { name: "First", exact: true }),
 	).toBeVisible();
-	await expect(page.getByRole("status")).toContainText(
-		"Chat is archived and read-only",
-	);
+	await expect(
+		page
+			.getByRole("status")
+			.filter({ hasText: "Chat is archived and read-only" }),
+	).toBeVisible();
 	await expect(
 		page.getByRole("dialog", { name: "Settings", exact: true }),
 	).toBeHidden();
