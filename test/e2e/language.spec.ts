@@ -353,13 +353,11 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	app.failModel("http", "upstream diagnostic 原样");
 	await page.getByRole("button", { name: /^发送(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("log")).toContainText("OpenRouter 请求失败。");
-	const failedResponse = page
-		.locator("details")
-		.filter({
-			has: page.locator("summary", {
-				hasText: /^(响应 1 · 失败|Response 1 · Failed)/,
-			}),
-		});
+	const failedResponse = page.locator("details").filter({
+		has: page.locator("summary", {
+			hasText: /^(响应 1 · 失败|Response 1 · Failed)/,
+		}),
+	});
 	await failedResponse.locator("summary").click();
 	await expect(failedResponse).toContainText("OpenRouter 请求失败。");
 	await expect(
