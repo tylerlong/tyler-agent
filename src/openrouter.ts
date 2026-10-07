@@ -1,9 +1,9 @@
 import {
-	countFilesTool,
 	executeTool,
+	fileTools,
 	type ToolExecution,
 	type ToolExecutor,
-} from "./count-files.ts";
+} from "./file-tools.ts";
 
 type Message = { role: "user" | "assistant"; content: string };
 export type OutputPart = { index: number; type: string; text: string };
@@ -255,8 +255,8 @@ async function requestOnce(
 	const body = JSON.stringify({
 		model,
 		input,
-		tools: [countFilesTool, createSubAgentTool, cancelSubAgentTool],
-		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use count_files only for these folders or their subdirectories. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
+		tools: [...fileTools, createSubAgentTool, cancelSubAgentTool],
+		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use file tools only within these folders. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
 
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),

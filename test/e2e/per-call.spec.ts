@@ -41,7 +41,7 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 				{
 					id: "same-id",
 					type: "function_call",
-					name: "count_files",
+					name: "list_files",
 					call_id: "count-only",
 					arguments: JSON.stringify({ path: app.folder }),
 				},

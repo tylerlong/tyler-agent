@@ -112,7 +112,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖本地计数、隐藏和特殊文件名、路径范围、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE 注释在保存前移除（含不同换行、跨分块和仅有注释的响应）、未知事件与有效尾部保留、普通文本不误删、完整格式化 SSE/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败根任务的部分内容不进入后续 Chat 历史上下文；子任务的失败或取消部分输出如实进入父模型通知或取消工具结果。
+自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖目录列表、glob 路径发现、字面内容搜索、UTF-8 行／列读取、100 条及 2,000 行／50 KiB 限制与续读、二进制拒绝／跳过、多根／改变／零目标范围、范围内隐藏及 `.git` 路径、特殊文件名、越界／符号链接保护、重复同名调用与配对结果、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、SSE 注释在保存前移除（含不同换行、跨分块和仅有注释的响应）、未知事件与有效尾部保留、普通文本不误删、完整格式化 SSE/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败根任务的部分内容不进入后续 Chat 历史上下文；子任务的失败或取消部分输出如实进入父模型通知或取消工具结果。
 
 递归委派验证复用 `test/sub-agents.test.ts` 的真实 HTTP 服务与可控响应，覆盖两 blind 子请求同时开始后释放 3/7、父模型收到终态后输出 10，以及 A 部分失败后由父模型主动取消 B、等待流/工具清理并原样回传部分结果。覆盖递归终态与 busy、当前配置/祖先覆盖、16/32 及当前上限计数、八表归属、重启保留记录且不重放。Chromium 覆盖完整工具卡片、树与详情、两种语言、局部/根停止、阅读位置及刷新恢复；显示折叠不改变实际模型输入。
 
@@ -165,13 +165,39 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 语言切换更新界面标签、菜单、状态、placeholder、悬停和可访问名称，以及已经显示的应用错误。名称输入、问题草稿、已存名称、路径、对话历史和模型回答保持原样。新的一份创建草稿用当前语言生成默认名；已有草稿（包括未改过的预填名）和同一目标隐藏重开保持，不追踪默认名是否修改。外部错误详情及原始 request/response 保留原内容，凭据仍脱敏，terminal 技术日志不翻译。
 
-## 本地只读文件计数
+## Local file tools / 本地文件工具
 
-可提问“目标文件夹中有多少个非隐藏文件”，或指定其子目录。模型使用文件计数工具 `count_files(path)`，`path` 必须是绝对目录路径，位于该项目任一目标文件夹的解析后范围内。每次仅统计所选目录；多个目标文件夹没有主次，模型可分别调用。零目标文件夹项目仍可保存并纯文本聊天，工具请求会返回范围错误。工具每次执行前读取 Project 当前目标文件夹，修改范围会影响尚未执行的工具；已经保存的结果不改变。
+The delivered read-only tools are `list_files`, `search_files` and `read_file`. Ask to discover TypeScript paths, find a literal phrase or read a file in the Project's Target Folders. Each Tool Call performs one operation; several calls in one model response retain separate IDs/results and execute in order before the next model request.
 
-服务通过固定的现成命令递归统计普通文件，只返回所选路径和整数数量，不返回文件清单，没有 100 文件上限。后代点文件和点目录不计入，不按其它系统隐藏属性筛选，不跟随后代符号链接；已配置根可以是目录符号链接，按解析后的路径检查与执行。空目录返回零，遍历失败不冒充零或部分成功。工具不创建、修改或删除用户文件及目录；正常 Agent/Model Call 数据仍保存到应用数据库。
+| Tool | Arguments and result bounds |
+| --- | --- |
+| `list_files` | Absolute directory `path`; without `pattern`, list its immediate entries. Optional `pattern` recursively discovers paths using Node `path.matchesGlob` syntax against relative paths (for example `**/*.ts`). `offset` defaults to 0; return at most 100 entries. |
+| `search_files` | Absolute directory `path` and nonempty `query`; recursively search UTF-8 text for a literal, case-sensitive query, without regex. `offset` defaults to 0; return at most 100 matching lines with file, line and 1-based Unicode column locations. |
+| `read_file` | Absolute file `path`; optional 1-based `startLine` (default 1), inclusive `endLine`, and `startColumn` (default 1, Unicode code points). Return at most 2,000 lines or 50 KiB of text, whichever comes first. |
 
-模型路径作为参数传递，不拼接 shell 命令；非法工具名、JSON、参数类型、额外参数和范围外路径返回工具错误。解析后按目录边界检查，阻止共享前缀邻接目录及逃逸符号链接。检查是针对这个窄工具的尽力保护，不是防止并发文件系统变更的硬化沙盒。执行错误在可用时附真实退出状态及有限 stdout/stderr，说明超时或截断；未运行命令不虚构退出状态。
+For truncated lists/searches, repeat the same arguments with the returned `nextOffset`. For truncated reads, use `nextLine` and `nextColumn` as `startLine` and `startColumn`, retaining the requested `endLine` if any. Column continuation allows reading a single line longer than 50 KiB without dropping text. Search returns one result per matching line, with up to 4,096 Unicode code points of text around its first match; `textStartColumn` and `textTruncated` identify a clipped excerpt. Read rejects binary/invalid UTF-8; search skips those unsupported files. Listing can include binary files. Recursive listing/search does not follow descendant symlinks, even within scope.
+
+Every execution reads the Project's current Target Folders. All selected roots are equal; absolute paths must resolve inside at least one root. Changes affect future calls and leave saved results intact. Traversal, sibling-prefix paths and escaping symlinks are rejected; recursive discovery/search does not follow links outside scope. Hidden paths and `.git` are accessible inside scope, and Git is not required. OS permissions still apply. With no selected folders, text-only chat still works and file tools return a scope error; choose **Edit project → Add folder** to enable file access.
+
+Examples (replace `/project` with a selected absolute Target Folder):
+
+```json
+{"name":"list_files","arguments":{"path":"/project","pattern":"**/*.ts","offset":0}}
+{"name":"search_files","arguments":{"path":"/project","query":"create_sub_agent","offset":0}}
+{"name":"read_file","arguments":{"path":"/project/README.md","startLine":1,"endLine":80}}
+```
+
+The final design also includes `write_file` (create/replace UTF-8 text and missing parents), `edit_file` (one exact replacement with exactly one match), `move_path` (rename/move one file or folder to a nonexistent scoped destination), and `delete_path` (delete one file or recursively delete one folder). These four mutation tools are tracked in [#126](https://github.com/tylerlong/tyler-agent/issues/126) and are not advertised by this read-only slice. No shell, multi-path batch, Git checks or recovery guarantee is provided. Invalid tool names, JSON, argument types, extra arguments, scope violations and execution errors produce truthful Tool Results; the model can correct its request. Cancellation/errors retain actual saved results and do not automatically retry.
+
+当前已交付的只读工具为 `list_files`、`search_files` 和 `read_file`。可要求查找 TypeScript 路径、搜索字面文本或读取目标文件夹内的文件。每次 Tool Call 只执行一个操作；同一模型响应中的多个调用（包括同名调用）保留各自 ID 和结果，按顺序执行完毕后才继续请求模型。
+
+`list_files({path, pattern?, offset?})` 的 path 为绝对目录路径，无 pattern 时列出当前层条目；有 pattern 时递归发现路径，使用 Node `path.matchesGlob` 对相对路径匹配（如 `**/*.ts`）。`search_files({path, query, offset?})` 递归搜索 UTF-8 文本，query 为非空、区分大小写的字面文本，不支持正则；每个匹配行返回一个结果，包含文件、行及从 1 开始的 Unicode 列位置。两者 offset 默认为 0，每次最多返回 100 个条目／匹配，截断后保留原参数，以返回的 nextOffset 继续。
+
+`read_file({path, startLine?, endLine?, startColumn?})` 读取一个 UTF-8 文件；行与列从 1 开始，默认 startLine/startColumn 为 1，endLine 包含该行，列按 Unicode 码点计数。每次最多 2,000 行或 50 KiB 文本，先达到者为准。截断时将 nextLine/nextColumn 作为下一次 startLine/startColumn，并保留原 endLine（如有）；单行超过 50 KiB 也可续读，不丢失文本。搜索返回首个匹配附近最多 4,096 个 Unicode 码点的文本，textStartColumn/textTruncated 标明片段位置及截断。读取拒绝二进制／无效 UTF-8，搜索跳过这些文件；列表可包含二进制文件。递归列表／搜索不跟随后代符号链接，即使链接仍在范围内。上面的 JSON 示例需将 `/project` 替换为所选的绝对目标目录。
+
+每次执行重新读取 Project 当前目标文件夹，所有根目录平等；路径解析后必须在至少一个根目录内。更改范围影响后续工具，不改写已存结果。拒绝越界遍历、共享前缀邻接目录和逃逸符号链接，递归发现／搜索不跟随范围外链接。范围内隐藏路径及 `.git` 均允许访问，无需 Git，仍受操作系统权限限制。零文件夹项目仍可纯文本聊天，文件工具返回范围错误；通过 **编辑项目 → 添加文件夹** 配置访问范围。
+
+最终设计另含 `write_file`（创建／完整覆盖 UTF-8 文件及缺失父目录）、`edit_file`（恰好一个匹配的精确替换）、`move_path`（移动／重命名一个文件或文件夹，目标须不存在且在范围内）、`delete_path`（删除一个文件或递归删除一个文件夹）。四个修改工具由 [#126](https://github.com/tylerlong/tyler-agent/issues/126) 交付，本只读阶段不提供这些能力。不提供 shell、多路径批量操作、Git 检查或恢复保证。非法工具名、JSON、参数类型、额外参数、越界及执行错误返回真实工具错误，供模型修正；取消及错误保留实际已存结果，不自动重试。
 
 只有完整有效的 completed 响应才触发工具，先组装参数，再按输出顺序执行；工具-only 或混合文本响应都可继续。后续请求携带完整 output items（含推理元数据）与对应 `call_id` 的 `function_call_output`，模型可修正工具错误并重新调用。每 Agent 默认最多 16 次实际模型请求，初次、失败及子任务终态通知触发的调用均计入。最后允许的调用可用最终回答成功；若仍请求工具则保存为未执行，不发起超限请求。远程请求、协议或持久化失败立即停止，不自动重试付费调用。
 
@@ -181,7 +207,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 完整有效的模型工具请求提交后，为每次 Tool Call 独立保存身份、所属 Agent/Model Call、原始 call_id、工具名称、参数与响应内顺序。不同 Model Call 重复 call_id 和同名调用各自独立；参数 delta 不生成卡片。一次响应全部调用先保存为等待，再按模型顺序逐个保存运行状态、执行和保存终态与 Tool Result，之后才发出下一次模型请求。工具失败允许模型继续处理，成功/失败由执行层明确提供，界面不猜测结果的 error 字段。
 
-通用卡片在所属 Response 后、下一次 Request 前默认折叠，手动展开或折叠在执行结束后保持。标题显示“工具调用 · 工具名称”（英文为“Tool Call · 工具名称”），保留真实工具名称，等待标记与运行 loading 本地化，成功不附 Completed，失败保留标记及真实结果。参数和结果明确分区，JSON 缩进、非 JSON 和空结果保留原文本；保留所有字段（含 count_files 的 path），不使用工具专属渲染。凭据按该 Agent 已使用的密钥脱敏保存，实际下一次模型请求的工具结果契约保持不变。
+通用卡片在所属 Response 后、下一次 Request 前默认折叠，手动展开或折叠在执行结束后保持。标题显示“工具调用 · 工具名称”（英文为“Tool Call · 工具名称”），保留真实工具名称，等待标记与运行 loading 本地化，成功不附 Completed，失败保留标记及真实结果。参数和结果明确分区，JSON 缩进、非 JSON 和空结果保留原文本；保留所有字段（包括文件路径和续读位置），不使用工具专属渲染。凭据按该 Agent 已使用的密钥脱敏保存，实际下一次模型请求的工具结果契约保持不变。
 
 历史和独立 Agent HTTP 读取携带工具身份和状态；`GET /api/agents/:id/tools?toolId=:id` 读取该工具的已保存参数与结果，归档后仍可读取。通过现有 Agent SSE 通知同步，不定时轮询；浏览器刷新或断开不取消服务端执行，Send/busy 覆盖整个循环。已经保存的工具结果不依赖下一次 Request，后续模型请求失败也不丢失。测试在真实 HTTP 与 Chromium 边界使用模拟模型和可控工具，不调用真实付费模型。
 
@@ -192,7 +218,7 @@ Settings 中可选择 English 或简体中文。默认英文（en），支持 zh
 
 ## 保存Agent与模型通信
 
-通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供只读 `count_files(path)` 工具和调用开始时读取的 Project 当前目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功、失败或取消后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。每次 Model Call 保存自身 output_json，按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
+通过 direct fetch 向配置的 OpenRouter Responses 模型发送 `stream: true`，无 SDK 或自动付费重试；每次模型请求均提供当前已交付的文件工具及子 Agent 工具和调用开始时读取的 Project 当前目标路径。思考与回答按实际 output item/content part 顺序交错显示，支持多个文本、refusal、推理正文和摘要；同一思考块分别标注正文和摘要，reasoning item 内的 output_text 仍属于思考，encrypted reasoning 仅保留在原始通信中。思考在所属模型调用进行中默认展开，该次调用成功、失败或取消后默认折叠，即使下一次调用仍在进行；手动选择在当前页面内更新和切换对话时保留，刷新后重置。历史初读只有有序块元数据和回答，思考正文与摘要展开才下载，已下载内容保留到刷新并持续同步进行中的增量。每个问题仅显示一次，随后逐次显示 Request 1 → 本次思考与回答 → Response 1 → 本次 Tool Call 卡片 → Request 2 → 本次思考与回答 → Response 2；编号在每个 Agent 内从 1 开始，单次调用也如此。每次 Model Call 保存自身 output_json，按本地创建顺序及调用内原始 item／part 顺序展示；调用内 index 不跨调用偏移。不重复显示聚合回答。没有思考或回答的调用不生成空块，只有工具请求的调用仍保留 Request/Response；Agent 回答从各调用的消息／refusal 文本按顺序派生，含工具前片段、不含思考；仅更早成功 Agent 的 prompt 与派生回答进入后续上下文。只有协议 completed、含可用回答且没有待执行工具才成功，EOF、[DONE]、单个 item 完成不代表成功。失败保留部分回答并标记不完整。
 
 Agent 与 Model Call 分别保存；实际 OpenRouter 调用始终录制，每次调用的 Request/Response 围绕该次输出展示，工具参数与结果仍保留在原始通信中，并额外通过独立 Tool Call 卡片查看。通信记录保留 URL、method、请求时间、原始请求/响应正文、实际 HTTP 状态、耗时或调用错误，不保存 headers。凭据在写入数据库和返回浏览器之前脱敏；普通 JSON 和文本正文保持当时文本（仅凭据脱敏），完整成功上下文随请求保存。SSE Response 在保存入口移除行首冒号注释及纯注释区块，再脱敏保存；实际事件、未知字段、不可解析数据和有效尾部片段仍保留，只有注释时不保存正文。该规则覆盖进行中、成功和失败记录，不修改模型完成判定；保存清理后的正文和结构化增量后才通知浏览器，两个页面均可在完成前看到回答。凭据跨网络 chunk 也先脱敏。
 

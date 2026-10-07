@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
-import { executeTool, type ToolExecutor } from "../src/count-files.ts";
+import { executeTool, type ToolExecutor } from "../src/file-tools.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { completedResponse, frame } from "./model-fixture.ts";
@@ -775,7 +775,7 @@ for (const during of ["model", "tool"])
 						childTool({ prompt: "ordered two" }, "two"),
 					];
 					if (during === "tool")
-						output.push({ ...childTool({}, "held-tool"), name: "count_files" });
+						output.push({ ...childTool({}, "held-tool"), name: "list_files" });
 					return completedResponse({ output });
 				}
 				if (during === "model" && parentInputs.length === 2) {
@@ -1131,7 +1131,7 @@ test("later child calls resolve current root effort, credentials, capability met
 					childStarted.release();
 					await release.promise;
 					return completedResponse({
-						output: [{ ...childTool({}, "local"), name: "count_files" }],
+						output: [{ ...childTool({}, "local"), name: "list_files" }],
 					});
 				}
 				return completedResponse({ output: [message("child done")] });
@@ -1532,8 +1532,8 @@ test("cancellation signals an active tool and holds the chat until tool cleanup 
 			requests++;
 			return completedResponse({
 				output: [
-					{ ...childTool({}, "active-tool"), name: "count_files" },
-					{ ...childTool({}, "queued-tool"), name: "count_files" },
+					{ ...childTool({}, "active-tool"), name: "list_files" },
+					{ ...childTool({}, "queued-tool"), name: "list_files" },
 				],
 			});
 		},
@@ -1626,7 +1626,7 @@ test("a failed child leaves its sibling running until the model explicitly cance
 						output: [
 							{
 								...childTool({ path: "/unused" }, "B-tool"),
-								name: "count_files",
+								name: "list_files",
 							},
 						],
 					});
@@ -1729,46 +1729,28 @@ test("a failed child leaves its sibling running until the model explicitly cance
 	}
 });
 
-test("cancelling count_files kills and reaps its active find process", {
+test("cancelling search_files interrupts an active filesystem traversal", {
 	timeout: 15000,
 }, async () => {
-	const directory = await mkdtemp(join(tmpdir(), "cancel-find-"));
-	const bin = join(directory, "bin");
-	const pidFile = join(directory, "pid");
-	await mkdir(bin);
-	await writeFile(
-		join(bin, "find"),
-		`#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec /bin/sleep 30\n`,
-		{ mode: 0o755 },
-	);
-	const previousPath = process.env.PATH;
+	const directory = await mkdtemp(join(tmpdir(), "cancel-files-"));
 	const cancellation = new AbortController();
 	try {
-		process.env.PATH = bin;
+		await Promise.all(
+			Array.from({ length: 250 }, (_, index) =>
+				writeFile(join(directory, String(index)), "search me\n".repeat(1000)),
+			),
+		);
 		const execution = executeTool(
-			"count_files",
-			JSON.stringify({ path: directory }),
+			"search_files",
+			JSON.stringify({ path: directory, query: "absent" }),
 			[directory],
 			cancellation.signal,
 		);
-		let pid = 0;
-		await until(async () => {
-			try {
-				pid = Number(await readFile(pidFile, "utf8"));
-				return pid > 0;
-			} catch {
-				return false;
-			}
-		});
-		process.kill(pid, 0);
+		await setTimeout(10);
 		cancellation.abort();
-		const result = await execution;
-		assert.equal(result.status, "interrupted");
-		assert.equal(JSON.parse(result.result).error.signal, "SIGKILL");
-		assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+		assert.equal((await execution).status, "interrupted");
 	} finally {
 		cancellation.abort();
-		process.env.PATH = previousPath;
 		await rm(directory, { recursive: true, force: true });
 	}
 });

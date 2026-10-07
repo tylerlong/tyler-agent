@@ -9,13 +9,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { executeTool, type ToolExecutor } from "./count-files.ts";
 import {
 	listProjects,
 	type ManagedModel,
 	modelSettings,
 	openDatabase,
 } from "./database.ts";
+import { executeTool, type ToolExecutor } from "./file-tools.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
 import {
 	answerText,

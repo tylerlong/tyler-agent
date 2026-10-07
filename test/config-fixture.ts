@@ -1,5 +1,5 @@
-import type { ToolExecutor } from "../src/count-files.ts";
 import { openDatabase } from "../src/database.ts";
+import type { ToolExecutor } from "../src/file-tools.ts";
 import { createServer } from "../src/server.ts";
 
 export function configureDatabase(

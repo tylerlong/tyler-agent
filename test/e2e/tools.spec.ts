@@ -43,7 +43,7 @@ test("a tool agent retains output and exposes both communications while Send sta
 		{
 			id: "tool",
 			type: "function_call",
-			name: "count_files",
+			name: "list_files",
 			call_id: "count-1",
 			arguments: JSON.stringify({ path: folder }),
 		},
@@ -86,8 +86,8 @@ test("a tool agent retains output and exposes both communications while Send sta
 	await response.locator("summary").click();
 	await expect(request).toContainText("function_call_output");
 	await expect(request).toContainText("count-1");
-	await expect(request).toContainText('\\"count\\":2');
-	await expect(response).toContainText("count_files");
+	await expect(request).toContainText('\\"entries\\"');
+	await expect(response).toContainText("list_files");
 	await expect(
 		request.getByRole("button", { name: "Copy", exact: true }),
 	).toHaveCount(0);
@@ -121,7 +121,7 @@ test("a tool agent retains output and exposes both communications while Send sta
 		"0",
 		"1",
 		"Response 1",
-		"Tool Call · count_files",
+		"Tool Call · list_files",
 		"Request 2",
 		"0",
 		"Response 2",

@@ -26,7 +26,7 @@ test("retained OpenRouter transport sends contextual JSON without terminal commu
 				'Bearer fake"secret',
 			);
 			const body = JSON.parse(String(init?.body));
-			assert.equal(body.tools[0].name, "count_files");
+			assert.equal(body.tools[0].name, "list_files");
 			assert.match(body.instructions, /target folders/);
 			const { tools, instructions, ...request } = body;
 			assert.deepEqual(request, {

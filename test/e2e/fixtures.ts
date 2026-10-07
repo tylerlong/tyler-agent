@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as base, expect } from "@playwright/test";
-import { executeTool, type ToolExecution } from "../../src/count-files.ts";
 import { openDatabase } from "../../src/database.ts";
+import { executeTool, type ToolExecution } from "../../src/file-tools.ts";
 import { createServer } from "../../src/server.ts";
 
 export const test = base.extend<{

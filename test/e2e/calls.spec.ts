@@ -110,7 +110,9 @@ test("communication is lazy, formatted and copied as displayed text, retained ac
 		input: [{ role: "user", content: "question" }],
 		stream: true,
 		tools: [
-			{ type: "function", name: "count_files" },
+			{ type: "function", name: "list_files" },
+			{ type: "function", name: "search_files" },
+			{ type: "function", name: "read_file" },
 			{ type: "function", name: "create_sub_agent" },
 			{ type: "function", name: "cancel_sub_agent" },
 		],
