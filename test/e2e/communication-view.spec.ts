@@ -1,6 +1,115 @@
 import { completedBody, frame } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
+test("successful Response hides a provisional cache until its failed final read is retried", async ({
+	page,
+	context,
+	app,
+}) => {
+	await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Work", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Final read" },
+		})
+	).json();
+	const stream = app.rawStreamModel();
+	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+		data: { modelId: "test", prompt: "Inspect" },
+	});
+	stream.push(
+		frame("response.output_text.delta", {
+			output_index: 0,
+			item_id: "answer",
+			content_index: 0,
+			delta: Array.from({ length: 100 }, (_, i) => `provisional ${i}`).join(
+				"\n",
+			),
+		}),
+	);
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const response = page
+		.locator("details")
+		.filter({ has: page.locator("summary", { hasText: /^Response 1/ }) });
+	await response.locator("summary").click();
+	await expect(response).toContainText("provisional 99");
+	const body = response.locator(".communication-body");
+	await body.evaluate((el) => {
+		el.scrollTop = 120;
+		el.dispatchEvent(new Event("scroll", { bubbles: true }));
+	});
+	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(120);
+	let fail = true;
+	let release!: () => void;
+	const held = new Promise<void>((r) => {
+		release = r;
+	});
+	let entered!: () => void;
+	const started = new Promise<void>((r) => {
+		entered = r;
+	});
+	await page.route("**/calls?kind=response&callId=*", async (route) => {
+		if (fail) {
+			entered();
+			await held;
+			await route.fulfill({ status: 503, json: {} });
+		} else await route.continue();
+	});
+	const final = {
+		status: "completed",
+		id: "final-response-authority",
+		output: [
+			{
+				id: "answer",
+				type: "message",
+				content: [
+					{
+						type: "output_text",
+						text: Array.from(
+							{ length: 100 },
+							(_, i) => `actual final ${i}`,
+						).join("\n"),
+					},
+				],
+			},
+		],
+	};
+	stream.push(completedBody(final));
+	stream.end();
+	await started;
+	await expect(page.getByRole("log")).toContainText("actual final 99");
+	await expect(response).not.toContainText("provisional 99");
+	await expect(
+		response.getByRole("button", { name: "Copy", exact: true }),
+	).toHaveCount(0);
+	await expect(response.getByRole("searchbox")).toHaveCount(0);
+	release();
+	await expect(response.getByRole("alert")).toBeVisible();
+	await expect(response).not.toContainText("provisional 99");
+	await expect(
+		response.getByRole("button", { name: "Copy", exact: true }),
+	).toHaveCount(0);
+	await expect(response.getByRole("searchbox")).toHaveCount(0);
+	await expect(response).toHaveAttribute("open", "");
+	fail = false;
+	await response.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(response.locator("pre")).toHaveText(
+		JSON.stringify(final, null, 2),
+	);
+	await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBe(120);
+	await response.getByRole("searchbox").fill("final-response-authority");
+	await expect(response.locator("mark")).toHaveText("final-response-authority");
+	await response.getByRole("button", { name: "Copy", exact: true }).click();
+	const displayed = await response.locator(".communication-text").textContent();
+	await expect
+		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+		.toBe(displayed);
+});
+
 test("one bounded wrapped viewer preserves internal position through live growth, folds and chat switches", async ({
 	page,
 	context,

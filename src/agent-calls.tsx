@@ -88,7 +88,13 @@ export function AgentCalls({
 		if (record.open && bodyRef.current)
 			bodyRef.current.scrollTop = record.scrollTop;
 	});
-	const parts = record.calls?.flatMap((call) => {
+	const calls =
+		kind === "response" &&
+		status === "succeeded" &&
+		record.status !== "succeeded"
+			? undefined
+			: record.calls;
+	const parts = calls?.flatMap((call) => {
 		const body = kind === "request" ? call.requestBody : call.responseBody;
 		const metadata =
 			kind === "request"
@@ -153,7 +159,7 @@ export function AgentCalls({
 		];
 	});
 	const displayParts =
-		record.calls?.length === 0 ? [{ text: t("noCalls"), body: false }] : parts;
+		calls?.length === 0 ? [{ text: t("noCalls"), body: false }] : parts;
 	const communicationText =
 		displayParts?.map((part) => part.text).join("\n\n") ?? "";
 	const highlight = (text: string) => {
@@ -225,7 +231,7 @@ export function AgentCalls({
 							className="h-4 w-4 rounded-full border-2 border-neutral-300 border-t-neutral-600 motion-safe:animate-spin"
 						/>
 					)}
-					{status !== "pending" && record.calls && (
+					{status !== "pending" && calls && (
 						<button
 							type="button"
 							aria-label={t("copy")}
@@ -284,7 +290,7 @@ export function AgentCalls({
 					</button>
 				</div>
 			)}
-			{record.calls && (
+			{calls && (
 				<input
 					type="search"
 					aria-label={t("searchCommunication")}
@@ -298,7 +304,8 @@ export function AgentCalls({
 				ref={bodyRef}
 				className="communication-body"
 				onScroll={(event) => {
-					if (record.open) record.scrollTop = event.currentTarget.scrollTop;
+					if (record.open && calls)
+						record.scrollTop = event.currentTarget.scrollTop;
 				}}
 			>
 				<div className="communication-text mt-3 font-mono text-xs whitespace-pre-wrap">
