@@ -1067,13 +1067,15 @@ export function createServer(
 	return createHttpServer(async (request, response) => {
 		const host = request.headers.host;
 		// Only canonical loopback aliases and this listener's actual port are valid.
-		const match = host?.match(/^(127\.0\.0\.1|localhost|\[::1\]):([1-9]\d*)$/);
-		if (!match || Number(match[2]) !== request.socket.localPort) {
+		const match = host?.match(
+			/^(127\.0\.0\.1|localhost|\[::1\])(?::([1-9]\d*))?$/,
+		);
+		if (!match || Number(match[2] ?? "80") !== request.socket.localPort) {
 			request.resume();
 			json(response, 403, { error: "Invalid local Host" });
 			return;
 		}
-		const origin = `http://${host}`;
+		const origin = new URL(`http://${host}`).origin;
 		let url: URL;
 		try {
 			url = new URL(request.url ?? "/", origin);
