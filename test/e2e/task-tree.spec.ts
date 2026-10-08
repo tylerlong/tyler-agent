@@ -165,6 +165,14 @@ for (const language of ["en", "zh-CN"]) {
 				exact: true,
 			});
 			await expect(page.getByRole("log")).toContainText("Root context line 39");
+			await expect(
+				page
+					.getByRole("log")
+					.locator("strong")
+					.filter({ hasText: `Agent #${accepted.agentId}` }),
+			).toHaveText(
+				`Agent #${accepted.agentId} · ${labels.pending}${zh ? "：" : ":"}`,
+			);
 			await chatView.evaluate((element) => {
 				element.scrollTop = 240;
 				element.dispatchEvent(new Event("scroll", { bubbles: true }));

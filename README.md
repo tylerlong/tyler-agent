@@ -314,9 +314,9 @@ Use the task path, sibling links or **Back to chat** to navigate. The selected A
 
 ## 界面标签与提示 / UI labels and help
 
-模型生成内容统一标为 Reasoning（推理），其整个标题均可点击展开或折叠，沿用 Request/Response 的展示方式；回答始终直接可见。思考强度显示本地化名称（例如 Extra high / 超高），省略强度显示 Model default / 模型默认，不改变 API 值。任务详情、路径与任务树中的活动状态为 In progress / 进行中。子任务详情将显式 context 标为 Background / 背景；为空时说明未提供背景、不会继承父级对话历史，创建参数仍名为 context。
+模型生成内容统一标为 Reasoning（推理），其整个标题均可点击展开或折叠，沿用 Request/Response 的展示方式；回答始终直接可见。思考强度显示本地化名称（例如 Extra high / 超高），省略强度显示 Model default / 模型默认，不改变 API 值。任务详情与任务树中的活动状态为 In progress / 进行中。子任务详情将显式 context 标为 Background / 背景；为空时说明未提供背景、不会继承父级对话历史，创建参数仍名为 context。
 
-Generated content uses Reasoning, with the same disclosure header treatment as Request/Response; answers remain directly visible. Reasoning effort labels are localized, including Extra high and Model default, without changing API values. Active task details, paths and trees say In progress. Delegated details label explicit context Background; an empty background explains that parent conversation history is not inherited. The protocol parameter stays context.
+Generated content uses Reasoning, with the same disclosure header treatment as Request/Response; answers remain directly visible. Reasoning effort labels are localized, including Extra high and Model default, without changing API values. Active task details and trees say In progress. Delegated details label explicit context Background; an empty background explains that parent conversation history is not inherited. The protocol parameter stays context.
 
 已确认的输出修正方向（待实现）：主／子 Agent 的回答与推理正文共用安全 Markdown 呈现，支持标题、粗体、列表、链接、代码块和表格，流式内容继续实时更新。使用成熟组件的安全默认行为，禁用原始 HTML，不增加代码语法高亮。Request、Response 和工具调用记录继续展示原始内容；渲染不改变保存的响应或模型输入。
 
