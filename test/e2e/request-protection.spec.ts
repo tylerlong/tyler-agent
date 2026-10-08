@@ -51,8 +51,8 @@ test("ordinary text/plain form from another loopback port cannot submit a task",
 		expect(saved.agents).toEqual([]);
 		expect(saved.busy).toBe(false);
 		await page.goto(`${app.url}/?chat=${chat.id}`);
-		await page.getByRole("textbox", { name: "Prompt" }).fill("Same origin");
-		await page.getByRole("button", { name: "Send", exact: true }).click();
+		await page.getByLabel("Prompt", { exact: true }).fill("Same origin");
+		await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 		await expect(page.getByText("Test answer", { exact: true })).toBeVisible();
 	} finally {
 		await context.close();
