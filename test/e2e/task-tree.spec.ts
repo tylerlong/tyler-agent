@@ -244,7 +244,9 @@ for (const language of ["en", "zh-CN"]) {
 				})
 				.last();
 			if ((await branchDisclosure.getAttribute("open")) === null)
-				await branchDisclosure.locator(":scope > summary").click({ position: {x:5,y:10} });
+				await branchDisclosure
+					.locator(":scope > summary")
+					.click({ position: { x: 5, y: 10 } });
 			await creationCard.locator("summary").click();
 			await expect(creationCard).not.toHaveAttribute("open");
 			await detail

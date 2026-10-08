@@ -229,7 +229,10 @@ export function ToolCallCard({
 						)}
 					</span>
 					{copyError && (
-						<span role="alert" className="block whitespace-pre-wrap text-red-700">
+						<span
+							role="alert"
+							className="block whitespace-pre-wrap text-red-700"
+						>
 							{t("copyFailed")}
 						</span>
 					)}
