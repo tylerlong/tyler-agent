@@ -19,6 +19,8 @@ pnpm start --port 3001
 
 端口须为 1–65535 的整数，默认 3000。启动前通过 `lsof` 检查所选端口；如果被占用，先终止监听进程及其 Node watcher，再启动服务。需要系统提供 `lsof` 和 `ps`；停止服务使用终端 Ctrl+C。启动和前端构建不加载 `.env` 文件，应用配置不从环境变量读取。
 
+已确认的安全要求（待实现）：服务继续只监听本机回环地址；统一 HTTP 入口只接受本应用合法本机 Host 和实际端口，所有修改操作（包括启动／取消 Agent 和修改设置）的 Origin 必须与请求目标的协议、主机和端口完全一致；来源不同、缺失或为 null 时，在产生副作用之前拒绝请求。继续不开放跨来源 CORS，不新增自定义防伪请求头、token 或依赖；测试／脚本调用修改接口时显式提供同源 Origin。浏览器禁止跨来源读取响应不代表请求未执行。
+
 默认数据库为项目根目录的 `data/tyler-agent.sqlite`，默认目录自动创建。可指定数据库：
 
 ```sh
@@ -37,7 +39,7 @@ Folder browsing: the server-machine path wraps in full. Use Up one level (disabl
 
 创建框预填 `New project` / `New chat`，可修改，也可直接提交。名称会去掉首尾空白、不得为空，允许重复。隐藏再打开保留当前草稿和错误；创建成功后的新草稿重新使用默认名称。
 
-project 可以有零个或多个文件夹，无需选择目录即可创建。添加文件夹时 server 再次检查存在、可访问且为目录，拒绝重复解析路径和失效目录，失败保留表单。相对 API 路径按启动工作目录解析，符号链接使用 lexical 路径，不按物理目录去重。所有文件夹平等，本阶段只保存配置，不向模型发送文件夹。
+project 可以有零个或多个文件夹，无需选择目录即可创建。添加文件夹时 server 再次检查存在、可访问且为目录，拒绝重复解析路径和失效目录，失败保留表单。相对 API 路径按启动工作目录解析，符号链接使用 lexical 路径，不按物理目录去重。所有文件夹平等，共同界定 Agent 的文件访问范围；每次模型请求在 instructions 中提供当前 Target Folders。
 
 普通管理 modal 始终挂载，取消或 Escape 只隐藏界面，提交期间也允许关闭，不取消请求或重置输入、错误及进行中状态；再次显示直接使用现有状态，不另行缓存或恢复。提交中禁止修改创建输入或切换创建目标，并禁止重复提交；原目标的创建入口可重新显示进行中的表单，设置仍可打开。创建成功后独立清空对应表单；失败保留输入，旧创建响应不关闭设置框。切换到不同的创建目标是显式动作，可以重置创建表单。
 
@@ -112,6 +114,12 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
+测试和 review 的服务必须使用独立临时数据库／目录及非 3000 端口；默认 3000 保留给用户应用，不得抢占端口或停止用户进程。普通服务测试优先使用操作系统分配的空闲端口，CLI 测试显式传入独立空闲端口。当前无效数据库 CLI 测试遗漏端口参数，尚需修正后才能保证该要求。
+
+本次端口问题仅修正测试／review 隔离，保留正常 CLI 启动及端口替换行为；不增加数据库预检查或调整启动顺序。
+
+测试场景必须对应已有功能、现实中可能发生的输入／故障或已复现缺陷。临时数据和假模型用于隔离资源及控制时序，不凭空创造产品行为或据此扩展功能。无效数据库路径用例对应用户将 `--db` 指向不存在父目录的真实输入，只在独立测试端口验证错误退出；测试不得启动或停止默认 3000 上的用户服务。
+
 自动测试使用真实本地 HTTP server、临时 SQLite/目录、假的 OpenRouter 流和 Chromium；不使用真实密钥或付费 API。覆盖 HTTP 202 提前确认、确认期间输入锁、接受清空、拒绝及确认网络失败保留、终态先于确认、下一条草稿及 Chat/页面隔离；提交调用者分别等待接受和读取终态。覆盖目录列表、glob 路径发现、字面内容搜索、UTF-8 行／列读取、100 条及 2,000 行／50 KiB 限制与续读、二进制拒绝／跳过、多根／改变／零目标范围、范围内隐藏及 `.git` 路径、特殊文件名、越界／符号链接保护、重复同名调用与配对结果、工具错误修正、完成协议、模型调用上限、多次调用输出归属回读、真实 DOM 的逐次 Request/输出/Response 顺序、独立状态/折叠/Copy、按需下载及整个 Agent 的 Send/busy，以及有序增量、partial failure/restart、重连追赶、懒加载与缓存、不保存 SSE/delta 日志、完整 JSON 与服务方元数据、最终响应替换不同或被省略的暂存内容、普通 HTTP 错误正文、格式化 JSON/Copy、标题状态与读取资格、剪贴板反馈、限高换行及内部/外部阅读位置、折叠和 Chat 状态恢复、刷新重置、旧读取保护、分页和阅读锚点；分页不截断完整成功上下文，失败根任务的部分内容不进入后续 Chat 历史上下文；子任务的失败或取消部分输出如实进入父模型通知或取消工具结果。
 
 递归委派验证复用 `test/sub-agents.test.ts` 的真实 HTTP 服务与可控响应，验证多个创建结果立即同批配对、无状态完整历史重放、最终响应与暂存内容不同时的权威子结果、请求／工具执行期间按序排队及无重复工具结果；覆盖两 blind 子请求同时开始后释放 3/7、父模型收到终态后输出 10，以及 A 部分失败后由父模型主动取消 B、等待流/工具清理并原样回传部分结果。覆盖递归终态与 busy、当前配置/祖先覆盖、16/32 及当前上限计数、八表归属、重启保留记录且不重放。Chromium 覆盖完整工具卡片、树与详情、两种语言、局部/根停止、阅读位置及刷新恢复；显示折叠不改变实际模型输入。
@@ -178,6 +186,8 @@ The seven file tools are `list_files`, `search_files`, `read_file`, `write_file`
 | `read_file` | Absolute file `path`; optional 1-based `startLine` (default 1), inclusive `endLine`, and `startColumn` (default 1, Unicode code points). Return at most 2,000 lines or 50 KiB of text, whichever comes first. |
 
 For truncated lists/searches, repeat the same arguments with the returned `nextOffset`. For truncated reads, use `nextLine` and `nextColumn` as `startLine` and `startColumn`, retaining the requested `endLine` if any. Column continuation allows reading a single line longer than 50 KiB without dropping text. Search returns one result per matching line, with up to 4,096 Unicode code points of text around its first match; `textStartColumn` and `textTruncated` identify a clipped excerpt. Read rejects binary/invalid UTF-8; search skips those unsupported files. Listing can include binary files. Recursive listing/search does not follow descendant symlinks, even within scope.
+
+复审修正计划（待实现）：`read_file`／`search_files` 分块处理文本，只保留有限分页结果、搜索窗口及位置计数，不积累完整文件或完整超长行。不增加文件大小／行长度上限；保持既有分页、Unicode 列位置、取消及二进制／UTF-8 规则。即使返回页已满，仍完成该文件的流式校验；后部无效内容使读取失败或让搜索跳过整个文件。
 
 Every execution reads the Project's current Target Folders. All selected roots are equal; absolute paths must resolve inside at least one root. Changes affect future calls and leave saved results intact. Traversal, sibling-prefix paths and escaping symlinks are rejected; recursive discovery/search does not follow links outside scope. Hidden paths and `.git` are accessible inside scope, and Git is not required. OS permissions still apply. With no selected folders, text-only chat still works and file tools return a scope error; choose **Edit project → Add folder** to enable file access.
 
@@ -294,9 +304,13 @@ Each running root Agent has a Stop button in chat history, including archived re
 
 Each root prompt in Chat history has a **Task tree** button. The tree shows recursive children with their own In progress, Succeeded, Failed or Cancelled state. Expand a node to see deeper descendants; select any node to use the same Agent output, Reasoning, Tool Call and lazy communication view as root history. The detail shows the full prompt, explicit Background and unmodified creation arguments, including model/reasoning overrides. A successful `create_sub_agent` Tool Call means the child was created; its own tree status shows whether its execution succeeded.
 
-Use the task path, sibling links or **Back to chat** to navigate. The selected Agent is encoded in the URL, so refresh and reconnect restore its persisted tree and details. Task details have no prompt composer. **Stop** acts on the selected pending Agent and its descendants, including in archived Chats; siblings and parents continue, and Cancelled appears only after cleanup. Child updates do not enter root history, change recent activity or release Chat busy.
+Use the task path, sibling links or **Back to chat** to navigate. The selected Agent is encoded in the URL, so refresh and reconnect restore its persisted tree and details. Task details have no prompt composer. **Stop** acts on the selected pending Agent and its descendants, including in archived Chats; siblings and parents continue, and Cancelled appears only after cleanup. Child updates do not create additional root history entries, change recent activity or release Chat busy; the accepted card improvement updates their existing creation cards.
 
 对话历史中每个根 prompt 的“任务树”可展开递归后代并查看各自状态。点击节点复用根任务的输出、思考、Tool 卡片和按需通信读取，详情展示完整 prompt、显式背景及原始创建参数（包括模型与思考强度覆盖）。创建工具成功只代表子任务已创建，不代表子任务执行成功。任务路径、兄弟链接和“返回对话”用于导航；URL 保存所选 Agent，刷新或重连恢复持久化关系。子任务详情无追加输入；“停止”只取消所选进行中节点及后代，归档中仍可用，清理结束后才显示已取消。
+
+已确认的界面修正方向（待实现）：主 Agent 时间线中的子任务概览集中在对应的创建卡片，显示子 Agent 编号、创建 prompt 摘要、实时状态及详情入口。长 prompt 明确截断；结果使用原文预览，最多两行，完整结果通过详情查看；失败／取消的已有输出明确标为部分输出，进行中的完整实时过程留在详情页。关联子 Agent 的状态变化更新同一卡片，不在父 Agent 下一次模型请求旁重复展示子任务结果。沿用现有卡片样式；调用记录保留原始创建参数和回执。复杂子任务的完整 prompt、输出、推理、模型／工具调用及后代过程通过点击进入已有子 Agent 详情查看。子 Agent 当前状态与历史创建工具回执分别保留；子任务完成不等于父模型已收到或处理其结果。
+
+已确认的导航修正方向（待实现）：路径只显示可点击的 Agent 编号层级；任务树及兄弟列表显示编号、prompt 首行摘要和状态，长摘要以省略号明确截断，鼠标悬停可看完整首行。主 Agent 和详情标题统一显示编号及真实状态；完整 prompt 保留在详情正文。不生成或保存额外任务标题。
 
 ## 界面标签与提示 / UI labels and help
 
@@ -304,9 +318,13 @@ Use the task path, sibling links or **Back to chat** to navigate. The selected A
 
 Generated content uses Reasoning, with the same disclosure header treatment as Request/Response; answers remain directly visible. Reasoning effort labels are localized, including Extra high and Model default, without changing API values. Active task details, paths and trees say In progress. Delegated details label explicit context Background; an empty background explains that parent conversation history is not inherited. The protocol parameter stays context.
 
+已确认的输出修正方向（待实现）：主／子 Agent 的回答与推理正文共用安全 Markdown 呈现，支持标题、粗体、列表、链接、代码块和表格，流式内容继续实时更新。使用成熟组件的安全默认行为，禁用原始 HTML，不增加代码语法高亮。Request、Response 和工具调用记录继续展示原始内容；渲染不改变保存的响应或模型输入。
+
 目标文件夹为空时，选择“编辑项目”，再选择“添加文件夹”以使用文件工具；项目表单解释已选文件夹界定文件访问范围，纯文本任务无需文件夹。模型操作的提示和无障碍名称明确指出移除或设为默认的模型。取消引起的 Response 显示已取消；应用错误摘要按错误码本地化，服务提供方原始诊断保留原文。真正的错误采用失败强调，取消保持普通状态。
 
 With no Target Folders, choose Edit project, then Add folder to use file tools. Project forms explain that selected folders define file access; zero folders remains valid for text-only work. Model action names and tooltips identify the target model. An Agent-cancelled Response says Cancelled; application-owned error summaries are localized by code while original provider diagnostics remain unchanged. Actual errors use failure emphasis; cancellation uses ordinary status presentation.
+
+复审修正计划（待实现）：补齐 Tool Call 读取／复制失败的现有错误强调，复用当前应用的错误样式和本地化提示，取消仍使用普通状态样式。
 
 Settings 保留 General、Models、Execution 三个页签与自动保存；常规页预留紧凑的保存反馈行。初次 Models 读取失败显示错误和 Retry，不同时显示 Loading。API 密钥保持遮罩，离开输入框时保存，清空可移除；默认模型用于新对话和尚未选择模型的对话。每个 Agent 的 Model Calls 包括自己的失败请求与通知触发请求；每根 Agent 的后代上限累计所有深度的已创建子任务，不计根任务，成功、失败或取消后不退名额。
 
