@@ -232,8 +232,10 @@ for (const language of ["en", "zh-CN"]) {
 				.last();
 			if ((await branchDisclosure.getAttribute("open")) === null)
 				await branchDisclosure.locator(":scope > summary").click();
-			await tree
-				.getByRole("button", { name: new RegExp(`#${deepId} Deep task`) })
+			await creationCard.locator("summary").click();
+			await expect(creationCard).not.toHaveAttribute("open");
+			await detail
+				.locator(`[data-child-agent-id="${deepId}"] > button`)
 				.click();
 			await expect(detail).toContainText("Complete deep prompt");
 			await expect(detail).toContainText("Explicit deep context");
