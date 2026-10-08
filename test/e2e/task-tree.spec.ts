@@ -358,7 +358,7 @@ for (const language of ["en", "zh-CN"]) {
 					delta: Array.from(
 						{ length: 50 },
 						(_, i) => `Later output line ${i}`,
-					).join("\n"),
+					).join("\n\n"),
 				}),
 			);
 			await expect(detail).toContainText("Later output line 49");
@@ -398,7 +398,7 @@ for (const language of ["en", "zh-CN"]) {
 						Array.from(
 							{ length: 30 },
 							(_, i) => `Earlier output expansion ${i}`,
-						).join("\n"),
+						).join("\n\n"),
 				}),
 			);
 			await expect(detail).toContainText("Earlier output expansion 29");

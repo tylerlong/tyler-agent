@@ -120,7 +120,7 @@
 	overflow-wrap: anywhere;
 }
 .markdown > * + * {
-	margin-top: 0.75em;
+	margin-top: 0.75rem;
 }
 .markdown :is(h1, h2, h3, h4, h5, h6) {
 	font-weight: 600;

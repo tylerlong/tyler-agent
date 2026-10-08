@@ -281,7 +281,7 @@ test("growth and folding above an answer in the same agent preserve its reading 
 			item: {
 				id: "r",
 				type: "reasoning",
-				content: [{ type: "reasoning_text", text: "thinking\n".repeat(50) }],
+				content: [{ type: "reasoning_text", text: "thinking\n\n".repeat(50) }],
 			},
 		}) +
 			frame("response.output_item.added", {
@@ -289,7 +289,7 @@ test("growth and folding above an answer in the same agent preserve its reading 
 				item: {
 					id: "m",
 					type: "message",
-					content: [{ type: "output_text", text: "answer\n".repeat(100) }],
+					content: [{ type: "output_text", text: "answer\n\n".repeat(100) }],
 				},
 			}),
 	);
@@ -320,7 +320,7 @@ test("growth and folding above an answer in the same agent preserve its reading 
 			output_index: 0,
 			content_index: 0,
 			item_id: "r",
-			delta: "growing\n".repeat(25),
+			delta: "growing\n\n".repeat(25),
 		}),
 	);
 	await expect(log).toContainText("growing");
@@ -345,7 +345,7 @@ test("growth and folding above an answer in the same agent preserve its reading 
 			output_index: 1,
 			content_index: 1,
 			item_id: "m",
-			delta: "later answer part\n".repeat(100),
+			delta: "later answer part\n\n".repeat(100),
 		}),
 	);
 	const laterPart = answer.locator(":scope > div").last();
@@ -370,7 +370,7 @@ test("growth and folding above an answer in the same agent preserve its reading 
 			output_index: 1,
 			content_index: 0,
 			item_id: "m",
-			delta: "earlier part grows\n".repeat(25),
+			delta: "earlier part grows\n\n".repeat(25),
 		}),
 	);
 	await expect(answer).toContainText("earlier part grows");
