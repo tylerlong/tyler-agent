@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
+	lstat,
 	mkdir,
 	mkdtemp,
 	readdir,
 	readFile,
+	readlink,
 	realpath,
 	rm,
 	symlink,
@@ -2179,5 +2181,230 @@ test("concurrent Agents cannot overwrite one move destination", async () => {
 		release();
 		await f.close();
 		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("link entries move/delete independently while content follows combined roots", async () => {
+	const base = await realpath(await mkdtemp(join(tmpdir(), "link-tools-")));
+	const root = join(base, "root"),
+		second = join(base, "second"),
+		outside = join(base, "outside");
+	await Promise.all([root, second, outside].map((path) => mkdir(path)));
+	await writeFile(join(root, "file"), "same");
+	await writeFile(join(second, "file"), "cross");
+	await writeFile(join(outside, "file"), "outside");
+	await mkdir(join(root, "directory"));
+	await mkdir(join(second, "directory"));
+	await writeFile(join(second, "directory", "keep"), "second-keep");
+	await writeFile(join(root, "directory", "keep"), "keep");
+	const targets = ["file", "directory", "missing", join(outside, "file")];
+	const calls: ReturnType<typeof fileCall>[] = [];
+	for (const [index, target] of targets.entries()) {
+		const path = join(root, `link-${index}`),
+			destination = join(
+				index === 3 ? join(root, "parent") : second,
+				`moved-${index}`,
+			);
+		await symlink(target, path);
+		calls.push(fileCall("move_path", { path, destination }, `move-${index}`));
+	}
+	await symlink("missing", join(second, "collision"));
+	await symlink(join(second, "file"), join(root, "cross"));
+	await symlink("file", join(root, "same"));
+	await symlink(second, join(root, "parent"));
+	await symlink(outside, join(root, "escape"));
+	await symlink("absent", join(root, "dangling"));
+	calls.push(
+		fileCall("read_file", { path: join(root, "same") }, "same-read"),
+		fileCall("read_file", { path: join(root, "cross") }, "cross-read"),
+		fileCall(
+			"write_file",
+			{ path: join(root, "cross"), content: "changed" },
+			"cross-write",
+		),
+		fileCall(
+			"edit_file",
+			{ path: join(root, "cross"), oldText: "changed", newText: "edited" },
+			"cross-edit",
+		),
+		fileCall(
+			"read_file",
+			{ path: join(root, "parent", "file") },
+			"parent-read",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "parent", "new", "file"), content: "new" },
+			"parent-write",
+		),
+		fileCall(
+			"edit_file",
+			{ path: join(root, "same"), oldText: "same", newText: "updated" },
+			"same-edit",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "same"), content: "same-final" },
+			"same-write",
+		),
+		fileCall(
+			"move_path",
+			{ path: join(root, "same"), destination: join(second, "collision") },
+			"collision",
+		),
+		fileCall(
+			"move_path",
+			{ path: join(root, "same"), destination: join(second, "file") },
+			"file-collision",
+		),
+		fileCall(
+			"move_path",
+			{
+				path: join(root, "same"),
+				destination: join(root, "missing-parent", "new"),
+			},
+			"missing-parent",
+		),
+		fileCall(
+			"move_path",
+			{ path: join(root, "same"), destination: join(root, "escape", "new") },
+			"outside-destination",
+		),
+		fileCall(
+			"delete_path",
+			{ path: join(root, "escape", "file") },
+			"outside-entry",
+		),
+		fileCall(
+			"read_file",
+			{ path: join(root, "escape", "file") },
+			"outside-read",
+		),
+		fileCall(
+			"write_file",
+			{ path: join(root, "escape", "file"), content: "bad" },
+			"outside-write",
+		),
+		fileCall(
+			"edit_file",
+			{
+				path: join(root, "escape", "file"),
+				oldText: "outside",
+				newText: "bad",
+			},
+			"outside-edit",
+		),
+		fileCall("read_file", { path: join(root, "dangling") }, "dangling-read"),
+		fileCall(
+			"write_file",
+			{ path: join(root, "dangling"), content: "bad" },
+			"dangling-write",
+		),
+		fileCall(
+			"edit_file",
+			{ path: join(root, "dangling"), oldText: "absent", newText: "bad" },
+			"dangling-edit",
+		),
+	);
+	const failures = new Set([
+		"collision",
+		"file-collision",
+		"missing-parent",
+		"outside-destination",
+		"outside-entry",
+		"outside-read",
+		"outside-write",
+		"outside-edit",
+		"dangling-read",
+		"dangling-write",
+		"dangling-edit",
+	]);
+	let requests = 0;
+	const f = await fixture(
+		async (_url, init) => {
+			requests++;
+			if (requests === 1) return new Response(completed(calls));
+			if (requests === 3) {
+				assert.equal(await readFile(join(second, "file"), "utf8"), "edited");
+				assert.equal(
+					await readFile(join(second, "directory", "keep"), "utf8"),
+					"second-keep",
+				);
+				for (const [index] of targets.entries())
+					await assert.rejects(lstat(join(second, `moved-${index}`)), {
+						code: "ENOENT",
+					});
+				assert.equal(await readFile(join(root, "file"), "utf8"), "same-final");
+				assert.equal(
+					await readFile(join(root, "directory", "keep"), "utf8"),
+					"keep",
+				);
+				assert.equal(await readFile(join(outside, "file"), "utf8"), "outside");
+				return new Response(completed([message("done")]));
+			}
+			const outputs = JSON.parse(String(init?.body)).input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			assert.equal(outputs.length, calls.length);
+			for (const item of outputs) {
+				const result = JSON.parse(item.output);
+				assert.equal(
+					Boolean(result.error),
+					failures.has(item.call_id),
+					item.call_id,
+				);
+				if (failures.has(item.call_id))
+					assert.equal(result.mutationMayHaveOccurred, undefined, item.call_id);
+				if (item.call_id === "same-read") assert.equal(result.text, "same");
+				if (item.call_id === "cross-read") assert.equal(result.text, "cross");
+				if (item.call_id === "parent-read") assert.equal(result.text, "edited");
+			}
+			for (const [index, target] of targets.entries()) {
+				const moved = join(second, `moved-${index}`);
+				assert((await lstat(moved)).isSymbolicLink());
+				assert.equal(await readlink(moved), target);
+				await assert.rejects(lstat(join(root, `link-${index}`)), {
+					code: "ENOENT",
+				});
+			}
+			assert.equal(await readlink(join(root, "cross")), join(second, "file"));
+			assert.equal(await readlink(join(root, "same")), "file");
+			assert.equal(await readlink(join(second, "collision")), "missing");
+			assert.equal(await readlink(join(root, "dangling")), "absent");
+			assert.equal(await readFile(join(root, "file"), "utf8"), "same-final");
+			assert.equal(await readFile(join(second, "file"), "utf8"), "edited");
+			assert.equal(await readFile(join(second, "new", "file"), "utf8"), "new");
+			assert.equal(await readFile(join(outside, "file"), "utf8"), "outside");
+			assert.equal(
+				await readFile(join(root, "directory", "keep"), "utf8"),
+				"keep",
+			);
+			await assert.rejects(lstat(join(outside, "new")), { code: "ENOENT" });
+			await assert.rejects(lstat(join(root, "absent")), { code: "ENOENT" });
+			return new Response(
+				completed(
+					targets.map((_, index) =>
+						fileCall(
+							"delete_path",
+							{
+								path: join(
+									index === 3 ? join(root, "parent") : second,
+									`moved-${index}`,
+								),
+							},
+							`delete-${index}`,
+						),
+					),
+				),
+			);
+		},
+		[root, second],
+	);
+	try {
+		const { agentId } = await (await f.ask()).json();
+		assert.equal((await f.wait(agentId)).status, "succeeded");
+	} finally {
+		await f.close();
+		await rm(base, { recursive: true, force: true });
 	}
 });

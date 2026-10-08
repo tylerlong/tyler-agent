@@ -78,13 +78,13 @@ export const fileTools = [
 	),
 	tool(
 		"move_path",
-		"Move or rename one file or folder from path to destination within selected roots. Destination must not exist; its parent must exist.",
+		"Move or rename one file, folder or symlink entry from path to destination within selected roots. Destination must not exist; its parent must exist.",
 		{ destination: pathParameter },
 		["path", "destination"],
 	),
 	tool(
 		"delete_path",
-		"Delete one file or recursively delete one directory within scope, without following descendant symlinks.",
+		"Delete one file, symlink entry or recursively delete one directory within scope, without following symlinks.",
 		{},
 		["path"],
 	),
@@ -114,6 +114,7 @@ export async function scopedPath(
 	path: string,
 	roots: string[],
 	allowMissing = false,
+	preserveEntry = false,
 ) {
 	if (
 		!isAbsolute(path) ||
@@ -131,9 +132,16 @@ export async function scopedPath(
 		);
 	let resolved: string;
 	try {
-		resolved = await realpath(path);
+		if (preserveEntry) {
+			if (!allowMissing) await lstat(path);
+			resolved = join(await realpath(dirname(path)), basename(path));
+		} else resolved = await realpath(path);
 	} catch (error) {
-		if (!allowMissing || (error as NodeJS.ErrnoException).code !== "ENOENT")
+		if (
+			preserveEntry ||
+			!allowMissing ||
+			(error as NodeJS.ErrnoException).code !== "ENOENT"
+		)
 			throw error;
 		// A dangling link is an existing path, not a new destination.
 		try {
@@ -308,12 +316,17 @@ export const executeTool: ToolExecutor = async (
 		}
 		if (name === "move_path" && typeof args.destination !== "string")
 			throw new FileToolError("validation", "Expected a destination path");
-		const path = await scopedPath(args.path, roots, name === "write_file");
+		const path = await scopedPath(
+			args.path,
+			roots,
+			name === "write_file",
+			name === "move_path" || name === "delete_path",
+		);
 		let result: object;
 		if (name === "write_file" || name === "edit_file" || name === "move_path") {
 			destinationReservation =
 				name === "move_path"
-					? await scopedPath(String(args.destination), roots, true)
+					? await scopedPath(String(args.destination), roots, true, true)
 					: path;
 			if (mutationDestinations.has(destinationReservation)) {
 				destinationReservation = undefined;
