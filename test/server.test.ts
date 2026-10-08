@@ -16,6 +16,20 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
 
+// CLI startup releases its selected port, so never use the user's default.
+async function freeCliPort() {
+	const probe = createPortProbe().listen(0, "127.0.0.1");
+	try {
+		await once(probe, "listening");
+		const address = probe.address();
+		assert(address && typeof address !== "string");
+		assert.notEqual(address.port, 3000);
+		return address.port;
+	} finally {
+		await new Promise<void>((resolve) => probe.close(() => resolve()));
+	}
+}
+
 test("CLI replaces an occupied port, uses --port independently of environment and rejects invalid ports before opening the database", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-port-"));
 	const path = join(directory, "db.sqlite");
@@ -30,18 +44,14 @@ test("CLI replaces an occupied port, uses --port independently of environment an
 			assert.match(result.stderr, /--port must be an integer/);
 		}
 		await assert.rejects(readFile(path), { code: "ENOENT" });
-		const probe = createPortProbe().listen(0, "127.0.0.1");
-		await once(probe, "listening");
-		const address = probe.address();
-		assert(address && typeof address !== "string");
-		await new Promise<void>((resolve) => probe.close(() => resolve()));
+		const port = await freeCliPort();
 		const old = spawn(
 			process.execPath,
 			[
 				"--watch",
 				"src/server.ts",
 				"--port",
-				String(address.port),
+				String(port),
 				"--db",
 				join(directory, "old.sqlite"),
 			],
@@ -52,7 +62,7 @@ test("CLI replaces an occupied port, uses --port independently of environment an
 
 		const child = spawn(
 			process.execPath,
-			["src/server.ts", "--port", String(address.port), "--db", path],
+			["src/server.ts", "--port", String(port), "--db", path],
 			{ env: { ...process.env, PORT: "must-not-read" }, timeout: 5000 },
 		);
 		const exited = once(child, "exit");
@@ -62,8 +72,7 @@ test("CLI replaces an occupied port, uses --port independently of environment an
 				new Promise<void>((resolve) =>
 					child.stdout.on("data", (data) => {
 						output += data;
-						if (output.includes(`Open http://127.0.0.1:${address.port}`))
-							resolve();
+						if (output.includes(`Open http://127.0.0.1:${port}`)) resolve();
 					}),
 				),
 				exited.then(() => {
@@ -73,7 +82,7 @@ test("CLI replaces an occupied port, uses --port independently of environment an
 			assert.match(output, /Releasing port/);
 			await oldExited;
 			assert.equal(
-				(await fetch(`http://127.0.0.1:${address.port}/api/projects`)).status,
+				(await fetch(`http://127.0.0.1:${port}/api/projects`)).status,
 				200,
 			);
 		} finally {
@@ -396,10 +405,11 @@ test("unsupported, invalid, corrupt and read-only databases fail without resetti
 		assert.throws(() => createServer(fetch, missing));
 		const result = spawnSync(
 			process.execPath,
-			["src/server.ts", "--db", missing],
+			["src/server.ts", "--port", String(await freeCliPort()), "--db", missing],
 			{
 				cwd: new URL("..", import.meta.url),
 				encoding: "utf8",
+				timeout: 5000,
 			},
 		);
 		assert.notEqual(result.status, 0);
