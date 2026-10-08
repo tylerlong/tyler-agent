@@ -184,6 +184,7 @@ test("archiving preserves edit drafts, shows failures and keeps activity order a
 	const modal = page.getByRole("dialog", { name: "Edit project", exact: true });
 	await modal.getByLabel("Name", { exact: true }).fill("local edit");
 	await other.request.put(`${app.url}/api/projects/${work.id}/archive`, {
+		headers: { Origin: app.url },
 		data: { archived: true },
 	});
 	await expect(modal.getByLabel("Name", { exact: true })).toBeDisabled();

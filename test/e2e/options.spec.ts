@@ -247,7 +247,9 @@ test("cross-page removals preserve drafts and distinguish alternative selection 
 	await page.getByLabel("Prompt", { exact: true }).fill("Keep my draft");
 	const peer = await context.newPage();
 	await peer.goto(app.url);
-	await peer.request.delete(`${app.url}/api/models/test`);
+	await peer.request.delete(`${app.url}/api/models/test`, {
+		headers: { Origin: app.url },
+	});
 	await expectModel(page, "second");
 	const settings = page.getByRole("dialog", { name: "Settings", exact: true });
 	await expect(settings).toBeHidden();
@@ -255,7 +257,9 @@ test("cross-page removals preserve drafts and distinguish alternative selection 
 	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
 		"Keep my draft",
 	);
-	await peer.request.delete(`${app.url}/api/models/second`);
+	await peer.request.delete(`${app.url}/api/models/second`, {
+		headers: { Origin: app.url },
+	});
 	await expect(settings).toBeVisible();
 	await settings.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(settings).toBeVisible();
