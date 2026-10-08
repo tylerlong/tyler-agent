@@ -381,18 +381,17 @@ export function createServer(
 			.get(toolId);
 		if (!row) return null;
 		const id = Number(row.id);
+		const status = persistenceError(id).status ?? row.status;
 		const prompt = agentSource(id).question.trim();
 		const firstLine = prompt.split(/\r?\n/)[0];
 		return {
 			id,
-			status: row.status,
+			status,
 			promptSummary:
 				firstLine.slice(0, 120) +
 				(firstLine.length > 120 || prompt.includes("\n") ? "…" : ""),
 			preview:
-				row.status === "pending"
-					? null
-					: answerText(agentOutput(id)).slice(0, 500),
+				status === "pending" ? null : answerText(agentOutput(id)).slice(0, 500),
 		};
 	};
 

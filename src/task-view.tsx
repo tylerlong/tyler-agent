@@ -161,11 +161,16 @@ export function TaskView({
 		events.onopen = sync;
 		events.onmessage = sync;
 		events.addEventListener("agent", (event) => {
-			const { agentId: changedId, chatId } = JSON.parse(event.data);
+			const {
+				agentId: changedId,
+				chatId,
+				parentAgentId,
+			} = JSON.parse(event.data);
 			if (changedId !== selected.current && chatId !== treeRef.current?.chatId)
 				return;
 			void refreshTree(selected.current);
-			void refresh(selected.current);
+			if (changedId === selected.current || parentAgentId === selected.current)
+				void refresh(selected.current);
 		});
 		events.onerror = () => setError("networkFailed");
 		const visible = () => {

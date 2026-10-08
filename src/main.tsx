@@ -524,6 +524,13 @@ function App() {
 		selectedRef.current = id;
 		setSelected(id);
 	}, []);
+	function selectAgent(id: number) {
+		const url = new URL(location.href);
+		url.searchParams.set("agent", String(id));
+		history.pushState(null, "", url);
+		setSelectedAgent(id);
+	}
+
 	function selectChat(id: number) {
 		const url = new URL(location.href);
 		url.searchParams.set("chat", String(id));
@@ -805,7 +812,12 @@ function App() {
 		events.addEventListener("agent", (event) => {
 			const { chatId, agentId, parentAgentId } = JSON.parse(event.data);
 			if (parentAgentId != null) {
-				void refreshAgent(chatId, parentAgentId);
+				if (
+					cacheRef.current[chatId]?.agents.some(
+						(agent) => agent.id === parentAgentId,
+					)
+				)
+					void refreshAgent(chatId, parentAgentId);
 				return;
 			}
 			void refreshAgent(chatId, agentId);
@@ -1662,12 +1674,7 @@ function App() {
 											</strong>
 											{message.role === "assistant" ? (
 												<AgentContent
-													onSelectAgent={(id) => {
-														const url = new URL(location.href);
-														url.searchParams.set("agent", String(id));
-														history.pushState(null, "", url);
-														setSelectedAgent(id);
-													}}
+													onSelectAgent={selectAgent}
 													agent={chatState.agents.find(
 														(agent) =>
 															agent.id === Number(message.id.split("-")[0]),
@@ -1698,13 +1705,9 @@ function App() {
 														<button
 															type="button"
 															className={button}
-															onClick={() => {
-																const id = Number(message.id.split("-")[0]);
-																const url = new URL(location.href);
-																url.searchParams.set("agent", String(id));
-																history.pushState(null, "", url);
-																setSelectedAgent(id);
-															}}
+															onClick={() =>
+																selectAgent(Number(message.id.split("-")[0]))
+															}
 														>
 															{t("taskTree")}
 														</button>
