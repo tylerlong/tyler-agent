@@ -1,0 +1,342 @@
+{
+	"platform": "darwin",
+	"node": "v24.20.0",
+	"version": "0.0.78",
+	"defaultWritePaths": [
+		"/dev/stdout",
+		"/dev/stderr",
+		"/dev/null",
+		"/dev/tty",
+		"/dev/dtracehelper",
+		"/dev/autofs_nowait",
+		"/tmp/claude",
+		"/private/tmp/claude",
+		"/Users/tyler.liu/.npm/_logs",
+		"/Users/tyler.liu/.claude/debug"
+	],
+	"results": [
+		{
+			"name": "A: create within target",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "A: deny outside target",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/outside/created'"
+			}
+		},
+		{
+			"name": "A: deny sibling with same prefix",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-a-sibling/created'"
+			}
+		},
+		{
+			"name": "A: deny traversal",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-a/../outside/traversal'"
+			}
+		},
+		{
+			"name": "B: dynamically switch target",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "B: previous target A is no longer writable",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-a/revoked'"
+			}
+		},
+		{
+			"name": "A: B is no longer writable",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-b/revoked'"
+			}
+		},
+		{
+			"name": "empty targets: deny project writes",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-a/empty'"
+			}
+		},
+		{
+			"name": "multiple targets: write A and B",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "outside existing file: deny write",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/outside/write'"
+			}
+		},
+		{
+			"name": "outside existing file: deny append",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/outside/append'"
+			}
+		},
+		{
+			"name": "outside existing file: deny delete",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, lstat '<fixture>/outside/delete'"
+			}
+		},
+		{
+			"name": "outside existing file: deny chmod",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, chmod '<fixture>/outside/chmod'"
+			}
+		},
+		{
+			"name": "outside existing file: deny descendant",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "node:fs:2483\n    return binding.writeFileUtf8(\n                   ^\n\nError: EPERM: operation not permitted, open '<fixture>/outside/descendant'\n    at Object.writeFileSync (node:fs:2483:20)\n    at [eval]:1:20\n    at runScriptInThisContext (node:internal/vm:219:10)\n    at node:internal/process/execution:451:12\n    at [eval]-wrapper:6:24\n    at runScriptInContext (node:internal/process/execution:449:60)\n    at evalFunction (node:internal/process/execution:283:30)\n    at evalTypeScript (node:internal/process/execution:295:3)\n    at node:internal/main/eval_string:71:3 {\n  errno: -1,\n  code: 'EPERM',\n  syscall: 'open',\n  path: '<fixture>/outside/descendant'\n}\n\nNode.js v24.20.0"
+			}
+		},
+		{
+			"name": "outside directory: deny recursive deletion",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM, Operation not permitted: <fixture>/outside '<fixture>/outside'"
+			}
+		},
+		{
+			"name": "rename within target",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "deny moving outside into target",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, rename '<fixture>/outside/move-in' -> '<fixture>/target-a/moved-outside'"
+			}
+		},
+		{
+			"name": "deny moving target outside",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, rename '<fixture>/target-a/move-out' -> '<fixture>/outside/moved-target'"
+			}
+		},
+		{
+			"name": "symlink file: deny out-of-scope target mutation",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-a/file-link'"
+			}
+		},
+		{
+			"name": "symlink parent: deny outside creation",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-a/directory-link/created-through-link'"
+			}
+		},
+		{
+			"name": "symlink to another selected target: allowed",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "symlink to unselected target: denied",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/target-a/b-link/unauthorized-link'"
+			}
+		},
+		{
+			"name": "literal target path containing glob characters",
+			"passed": false,
+			"error": "{\"code\":1,\"signal\":null,\"stdout\":\"\",\"stderr\":\"EPERM: EPERM: operation not permitted, open '<fixture>/target [literal]*/created'\"}\n\nfalse !== true\n"
+		},
+		{
+			"name": "glob target must not authorize sibling paths",
+			"passed": false,
+			"error": "{\"code\":0,\"signal\":null,\"stdout\":\"\",\"stderr\":\"\"}\n\ntrue !== false\n"
+		},
+		{
+			"name": "concurrent commands retain independent target sets",
+			"passed": true,
+			"detail": {
+				"first": {
+					"code": 0,
+					"signal": null,
+					"stdout": "",
+					"stderr": ""
+				},
+				"second": {
+					"code": 0,
+					"signal": null,
+					"stdout": "",
+					"stderr": ""
+				}
+			}
+		},
+		{
+			"name": "read scope: outside fixture is unreadable",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<fixture>/outside/linked'"
+			}
+		},
+		{
+			"name": "unhardened default permits non-target scratch writes",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "hardened policy denies non-target scratch",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, open '<default-scratch-probe>/hardened'"
+			}
+		},
+		{
+			"name": "Git initializes, stages and commits inside target",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "pnpm test launches Node and writes only within target",
+			"passed": true,
+			"detail": {
+				"code": 0,
+				"signal": null,
+				"stdout": "Already up to date\n\nDone in 86ms using pnpm v11.22.0\n✔ write fixture (0.619375ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 65.13625",
+				"stderr": "$ node --test test.cjs"
+			}
+		},
+		{
+			"name": "deny creating hardlink from outside into target",
+			"passed": true,
+			"detail": {
+				"code": 1,
+				"signal": null,
+				"stdout": "",
+				"stderr": "EPERM: EPERM: operation not permitted, link '<fixture>/outside/new-hardlink-source' -> '<fixture>/target-a/new-hardlink'"
+			}
+		},
+		{
+			"name": "hardlink alias: observe whether outside inode stays unchanged",
+			"passed": false,
+			"error": "{\"code\":0,\"signal\":null,\"stdout\":\"\",\"stderr\":\"\"}\n+ actual - expected\n\n+ 'changed'\n- 'original'\n"
+		}
+	],
+	"failures": [
+		"literal target path containing glob characters",
+		"glob target must not authorize sibling paths",
+		"hardlink alias: observe whether outside inode stays unchanged"
+	],
+	"pnpm": "11.22.0",
+	"macOS": "26.7.1",
+	"date": "2026-10-08",
+	"passed": 29,
+	"cases": 32
+}
