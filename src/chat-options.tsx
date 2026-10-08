@@ -1,8 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { ManagedModel } from "./database.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
+import type { ManagedModel } from "./model-settings.ts";
 
 export type ChatOptions = {
 	modelId: string | null;

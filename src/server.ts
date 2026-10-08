@@ -9,14 +9,10 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import {
-	listProjects,
-	type ManagedModel,
-	modelSettings,
-	openDatabase,
-} from "./database.ts";
+import { listProjects, openDatabase } from "./database.ts";
 import { executeTool, type ToolExecutor } from "./file-tools.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
+import { createModelSettings, ModelSettingsError } from "./model-settings.ts";
 import {
 	answerText,
 	ModelError,
@@ -107,6 +103,7 @@ function errorBody(code: string) {
 	return { code, error: errorMessages[code] };
 }
 function caughtError(error: unknown, fallback: string) {
+	if (error instanceof ModelSettingsError) return errorBody(error.code);
 	return error instanceof InputError || error instanceof ModelError
 		? {
 				code: error.code,
@@ -440,7 +437,7 @@ export function createServer(
 		override?: Record<string, unknown>,
 	) => {
 		let options = chatOptions(id);
-		const models = modelSettings(database).models;
+		const models = modelSettings.read().models;
 		const overrides: Record<string, unknown>[] = [];
 		while (agentId !== undefined) {
 			const source = agentSource(agentId);
@@ -473,10 +470,7 @@ export function createServer(
 			if (Object.hasOwn(value, "reasoning_effort"))
 				options.reasoningEffort = value.reasoning_effort as string | null;
 		}
-		const apiKey = String(
-			database.prepare("SELECT api_key FROM settings WHERE id=1").get()
-				?.api_key ?? "",
-		);
+		const apiKey = String(modelSettings.readCredential());
 		if (!apiKey) throw new InputError("modelConfigMissing");
 		const model = models.find((model) => model.id === options.modelId);
 		if (!model) throw new InputError("invalidModel");
@@ -546,6 +540,11 @@ export function createServer(
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
 	};
+	const modelSettings = createModelSettings(
+		database,
+		fetchCatalog,
+		notifyChange,
+	);
 	const cancelAgent = async (agentId: number, callerId?: number) => {
 		const source = agentSource(agentId);
 		if (callerId !== undefined && source.parentAgentId !== callerId)
@@ -631,10 +630,7 @@ export function createServer(
 		},
 	) => {
 		const id = agentSource(agentId).chatId;
-		const apiKey = String(
-			database.prepare("SELECT api_key FROM settings WHERE id=1").get()
-				?.api_key ?? "",
-		);
+		const apiKey = String(modelSettings.readCredential());
 
 		let failure: unknown;
 		let callId: number | undefined;
@@ -895,13 +891,7 @@ export function createServer(
 				{
 					signal: state.controller.signal,
 					targetFolders: () => {
-						rememberKey(
-							String(
-								database
-									.prepare("SELECT api_key FROM settings WHERE id=1")
-									.get()?.api_key ?? "",
-							),
-						);
+						rememberKey(String(modelSettings.readCredential()));
 						return currentFolders(id);
 					},
 					limit: () =>
@@ -984,86 +974,6 @@ export function createServer(
 		}
 	};
 
-	let catalog: ManagedModel[] | undefined;
-	let catalogLoading: Promise<ManagedModel[]> | undefined;
-	const loadCatalog = (refresh = false): Promise<ManagedModel[]> => {
-		if (!refresh && catalog) return Promise.resolve(catalog);
-		if (catalogLoading) return catalogLoading;
-		catalogLoading = (async () => {
-			const response = await fetchCatalog(
-				"https://openrouter.ai/api/v1/models?sort=most-popular&limit=100&output_modalities=text",
-				{ method: "GET" },
-			);
-			if (!response.ok) throw new InputError("modelCatalogFailed");
-			const body = await response.json();
-			if (!Array.isArray(body?.data))
-				throw new InputError("modelCatalogFailed");
-			const rows = body.data as {
-				id: string;
-				name: string;
-				architecture?: { output_modalities?: string[] };
-				reasoning?: { supported_efforts?: unknown; mandatory?: boolean };
-			}[];
-			if (
-				rows.some(
-					(row) =>
-						typeof row?.id !== "string" ||
-						!row.id.trim() ||
-						typeof row.name !== "string" ||
-						!Array.isArray(row.architecture?.output_modalities),
-				)
-			)
-				throw new InputError("modelCatalogFailed");
-			const next: ManagedModel[] = rows
-				.filter(
-					(row) =>
-						typeof row?.id === "string" &&
-						row.id.trim() &&
-						typeof row.name === "string" &&
-						Array.isArray(row.architecture?.output_modalities) &&
-						row.architecture.output_modalities.includes("text"),
-				)
-				.slice(0, 100)
-				.map((row) => ({
-					id: row.id,
-					name: row.name,
-					...(row.reasoning &&
-					Object.hasOwn(row.reasoning, "supported_efforts") &&
-					(row.reasoning.supported_efforts === null ||
-						(Array.isArray(row.reasoning.supported_efforts) &&
-							row.reasoning.supported_efforts.every(
-								(effort: unknown) => typeof effort === "string",
-							)))
-						? { supportedEfforts: row.reasoning.supported_efforts }
-						: {}),
-					reasoningRequired: row.reasoning?.mandatory === true,
-					catalogMissing: false,
-				}));
-			database.exec("BEGIN");
-			try {
-				// Read membership after the network wait, preserving concurrent additions/removals.
-				for (const model of modelSettings(database).models) {
-					const found = next.find((row) => row.id === model.id);
-					if (!found) continue;
-					const { id, name, ...metadata } = found;
-					database
-						.prepare("UPDATE managed_models SET name=?,metadata=? WHERE id=?")
-						.run(name, JSON.stringify(metadata), id);
-				}
-				database.exec("COMMIT");
-			} catch (error) {
-				database.exec("ROLLBACK");
-				throw error;
-			}
-			catalog = next;
-			notifyChange();
-			return next;
-		})().finally(() => {
-			catalogLoading = undefined;
-		});
-		return catalogLoading;
-	};
-
 	return createHttpServer(async (request, response) => {
 		const host = request.headers.host;
 		// Only canonical loopback aliases and this listener's actual port are valid.
@@ -1143,9 +1053,7 @@ export function createServer(
 			response.setHeader("cache-control", "no-store");
 			try {
 				json(response, 200, {
-					apiKey:
-						database.prepare("SELECT api_key FROM settings WHERE id=1").get()
-							?.api_key ?? "",
+					apiKey: modelSettings.readCredential(),
 				});
 			} catch (error) {
 				json(response, 500, caughtError(error, "modelSettingsFailed"));
@@ -1157,53 +1065,19 @@ export function createServer(
 			["GET", "PUT"].includes(request.method ?? "")
 		) {
 			try {
-				if (request.method === "PUT") {
-					const input = await readJson(request);
-					if (
-						input.apiKey !== undefined &&
-						(typeof input.apiKey !== "string" || /[\r\n]/.test(input.apiKey))
-					)
-						throw new InputError("invalidApiKey");
-					if (
-						input.removeApiKey !== undefined &&
-						typeof input.removeApiKey !== "boolean"
-					)
-						throw new InputError("invalidInput");
-					if (
-						input.defaultModelId !== undefined &&
-						input.defaultModelId !== null &&
-						(typeof input.defaultModelId !== "string" ||
-							!database
-								.prepare("SELECT 1 FROM managed_models WHERE id=?")
-								.get(input.defaultModelId))
-					)
-						throw new InputError("invalidModel");
-					database.exec("BEGIN");
-					try {
-						if (input.removeApiKey === true)
-							database
-								.prepare("UPDATE settings SET api_key=NULL WHERE id=1")
-								.run();
-						else if (typeof input.apiKey === "string")
-							database
-								.prepare("UPDATE settings SET api_key=? WHERE id=1")
-								.run(input.apiKey.trim() || null);
-						if (input.defaultModelId !== undefined)
-							database
-								.prepare("UPDATE settings SET default_model_id=? WHERE id=1")
-								.run(input.defaultModelId as string | null);
-						database.exec("COMMIT");
-					} catch (error) {
-						database.exec("ROLLBACK");
-						throw error;
-					}
-					notifyChange();
-				}
-				json(response, 200, modelSettings(database));
+				json(
+					response,
+					200,
+					request.method === "PUT"
+						? modelSettings.update(await readJson(request))
+						: modelSettings.read(),
+				);
 			} catch (error) {
 				json(
 					response,
-					error instanceof InputError ? 400 : 500,
+					error instanceof InputError || error instanceof ModelSettingsError
+						? 400
+						: 500,
 					caughtError(error, "modelSettingsFailed"),
 				);
 			}
@@ -1215,7 +1089,7 @@ export function createServer(
 		) {
 			try {
 				json(response, 200, {
-					models: await loadCatalog(request.method === "POST"),
+					models: await modelSettings.loadCatalog(request.method === "POST"),
 				});
 			} catch {
 				json(response, 502, errorBody("modelCatalogFailed"));
@@ -1225,42 +1099,13 @@ export function createServer(
 		if (path === "/api/models" && request.method === "POST") {
 			try {
 				const { id } = await readJson(request);
-				if (typeof id !== "string" || !id.trim())
-					throw new InputError("invalidModel");
-				const existing = modelSettings(database);
-				if (existing.models.some((model) => model.id === id)) {
-					json(response, 200, { ...existing, firstModelAdded: false });
-					return;
-				}
-				const model = catalog?.find((model) => model.id === id);
-				if (!model) throw new InputError("invalidModel");
-				const { name, ...metadata } = model;
-				delete (metadata as Partial<ManagedModel>).id;
-				let firstModelAdded = false;
-				database.exec("BEGIN");
-				try {
-					const wasEmpty = modelSettings(database).models.length === 0;
-					const inserted = database
-						.prepare(
-							"INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING",
-						)
-						.run(id, name, JSON.stringify(metadata));
-					firstModelAdded = wasEmpty && inserted.changes > 0;
-					if (firstModelAdded)
-						database
-							.prepare("UPDATE settings SET default_model_id=? WHERE id=1")
-							.run(id);
-					database.exec("COMMIT");
-				} catch (error) {
-					database.exec("ROLLBACK");
-					throw error;
-				}
-				notifyChange();
-				json(response, 200, { ...modelSettings(database), firstModelAdded });
+				json(response, 200, modelSettings.add(id));
 			} catch (error) {
 				json(
 					response,
-					error instanceof InputError ? 400 : 500,
+					error instanceof InputError || error instanceof ModelSettingsError
+						? 400
+						: 500,
 					caughtError(error, "modelSettingsFailed"),
 				);
 			}
@@ -1269,32 +1114,7 @@ export function createServer(
 		if (path.startsWith("/api/models/") && request.method === "DELETE") {
 			try {
 				const id = decodeURIComponent(path.slice("/api/models/".length));
-				database.exec("BEGIN");
-				try {
-					const settings = modelSettings(database);
-					database
-						.prepare("UPDATE chats SET reasoning_effort=NULL WHERE model_id=?")
-						.run(id);
-					database.prepare("DELETE FROM managed_models WHERE id=?").run(id);
-					if (settings.defaultModelId === id) {
-						const remaining = settings.models.filter(
-							(model) => model.id !== id,
-						);
-						const replacement =
-							catalog?.find((model) =>
-								remaining.some((enabled) => enabled.id === model.id),
-							) ?? remaining[0];
-						database
-							.prepare("UPDATE settings SET default_model_id=? WHERE id=1")
-							.run(replacement?.id ?? null);
-					}
-					database.exec("COMMIT");
-				} catch (error) {
-					database.exec("ROLLBACK");
-					throw error;
-				}
-				notifyChange();
-				json(response, 200, modelSettings(database));
+				json(response, 200, modelSettings.remove(id));
 			} catch {
 				json(response, 500, errorBody("modelSettingsFailed"));
 			}
@@ -1879,9 +1699,9 @@ export function createServer(
 						input.modelId === undefined ? options.modelId : input.modelId;
 					if (modelId !== null && typeof modelId !== "string")
 						throw new InputError("invalidModel");
-					const selected = modelSettings(database).models.find(
-						(model) => model.id === modelId,
-					);
+					const selected = modelSettings
+						.read()
+						.models.find((model) => model.id === modelId);
 					if (modelId !== null && !selected)
 						throw new InputError("invalidModel");
 					let effort =
@@ -2019,7 +1839,7 @@ export function createServer(
 							projectId,
 							chatName,
 							createdAt,
-							modelSettings(database).defaultModelId,
+							modelSettings.read().defaultModelId,
 						).lastInsertRowid,
 				);
 				json(response, 201, {

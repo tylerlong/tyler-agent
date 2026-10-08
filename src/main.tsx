@@ -18,10 +18,10 @@ import {
 	normalizeChatOptions,
 	validChatOptions,
 } from "./chat-options.tsx";
-import type { ModelSettings } from "./database.ts";
 import { ExecutionLimits } from "./execution-limits.tsx";
 import i18n from "./i18n.ts";
 import { ModelConfiguration } from "./model-configuration.tsx";
+import type { ModelSettings } from "./model-settings.ts";
 import {
 	type EditorResult,
 	type EditorTarget,

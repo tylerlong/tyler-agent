@@ -1,4 +1,4 @@
-import type { ManagedModel } from "./database.ts";
+import type { ManagedModel } from "./model-settings.ts";
 
 export function supportedReasoningEfforts(
 	model: ManagedModel,

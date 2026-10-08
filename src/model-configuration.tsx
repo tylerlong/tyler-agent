@@ -7,7 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { ManagedModel, ModelSettings } from "./database.ts";
+import type { ManagedModel, ModelSettings } from "./model-settings.ts";
 
 const input =
 	"mt-2 block w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-neutral-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600";

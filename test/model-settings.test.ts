@@ -193,6 +193,81 @@ test("database model metadata excludes credentials, durable anonymous lazy catal
 	}
 });
 
+test("concurrent catalog refreshes share one request while GET serves the successful cache and acceptance notifies once", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-catalog-sharing-"));
+	let calls = 0;
+	let release: (() => void) | undefined;
+	let started: (() => void) | undefined;
+	const refreshStarted = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	const server = createServer(
+		async () => {
+			assert.fail("Catalog requests must not call a model");
+		},
+		join(directory, "db.sqlite"),
+		async () => {
+			calls++;
+			if (calls > 1) {
+				started?.();
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+			}
+			return Response.json({
+				data: [catalogModel("one", calls === 1 ? "Old" : "New")],
+			});
+		},
+	).listen(0, "127.0.0.1");
+	await new Promise<void>((resolve) => server.once("listening", resolve));
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const base = `http://127.0.0.1:${address.port}`;
+	const request = (method = "GET") =>
+		fetch(`${base}/api/model-catalog`, { method });
+	const abort = new AbortController();
+	try {
+		const old = await (await request()).json();
+		assert.equal(old.models[0].name, "Old");
+		let refreshes = 0;
+		let endEvents: (() => void) | undefined;
+		const bothReceived = new Promise<void>((resolve) => {
+			server.on("request", (incoming, response) => {
+				if (
+					incoming.url === "/api/model-catalog" &&
+					incoming.method === "POST" &&
+					++refreshes === 2
+				)
+					resolve();
+				if (incoming.url === "/api/events") endEvents = () => response.end();
+			});
+		});
+		const events = await fetch(`${base}/api/events`, { signal: abort.signal });
+		const first = request("POST");
+		await refreshStarted;
+		const second = request("POST");
+		await bothReceived;
+		assert.deepEqual(await (await request()).json(), old);
+		assert.equal(calls, 2);
+		release?.();
+		const refreshed = await Promise.all([first, second]);
+		for (const response of refreshed) {
+			assert.equal(response.status, 200);
+			assert.equal((await response.json()).models[0].name, "New");
+		}
+		assert.equal(calls, 2);
+		// Finish the existing event response after acceptance so every notification is observed.
+		endEvents?.();
+		assert.equal(await events.text(), ": connected\n\ndata: changed\n\n");
+	} finally {
+		release?.();
+		abort.abort();
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("Settings credential read is scoped and uncached; empty writes remove it without provider calls or exposing events", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-credential-read-"));
 	const path = join(directory, "db.sqlite");

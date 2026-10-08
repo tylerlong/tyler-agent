@@ -146,36 +146,3 @@ export function listProjects(db: DatabaseSync) {
 				})),
 		}));
 }
-
-export type ManagedModel = {
-	id: string;
-	name: string;
-	supportedEfforts?: string[] | null;
-	reasoningRequired: boolean;
-	catalogMissing: boolean;
-};
-export type ModelSettings = {
-	apiKeyConfigured: boolean;
-	defaultModelId: string | null;
-	models: ManagedModel[];
-};
-export function modelSettings(db: DatabaseSync): ModelSettings {
-	const settings = db
-		.prepare("SELECT api_key,default_model_id FROM settings WHERE id=1")
-		.get();
-	return {
-		apiKeyConfigured: !!settings?.api_key,
-		defaultModelId:
-			settings?.default_model_id === null
-				? null
-				: String(settings?.default_model_id),
-		models: db
-			.prepare("SELECT id,name,metadata FROM managed_models ORDER BY rowid")
-			.all()
-			.map((row) => ({
-				id: String(row.id),
-				name: String(row.name),
-				...JSON.parse(String(row.metadata)),
-			})),
-	};
-}
