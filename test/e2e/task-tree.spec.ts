@@ -564,6 +564,7 @@ test("task preview keeps newer terminal data when an old unmounted read finishes
 	} finally {
 		releaseOld();
 		releaseFresh();
+		await page.unrouteAll({ behavior: "wait" });
 		await page.request.post(`${app.url}/api/agents/${accepted.agentId}/cancel`);
 	}
 });
