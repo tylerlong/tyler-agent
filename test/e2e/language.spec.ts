@@ -337,7 +337,7 @@ test("language changes keep stored content, edit and question drafts, raw failur
 	await expect(page.getByRole("log", { name: "对话历史" })).toContainText(
 		"original question",
 	);
-	await expect(page.getByRole("log")).toContainText("Agent：");
+	await expect(page.getByRole("log")).toContainText(/Agent #\d+ · 成功：/);
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await expect(page.getByText("请求 1", { exact: true })).toBeVisible();
 	await page.getByRole("button", { name: "项目操作", exact: true }).click();
