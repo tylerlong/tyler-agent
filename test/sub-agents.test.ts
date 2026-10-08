@@ -8,6 +8,7 @@ import { setTimeout } from "node:timers/promises";
 import { executeTool, type ToolExecutor } from "../src/file-tools.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedBody, completedResponse, frame } from "./model-fixture.ts";
 
 const message = (text: string) => ({

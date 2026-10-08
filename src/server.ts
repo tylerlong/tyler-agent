@@ -1065,7 +1065,37 @@ export function createServer(
 	};
 
 	return createHttpServer(async (request, response) => {
-		const url = new URL(request.url ?? "/", "http://localhost");
+		const host = request.headers.host;
+		// Only canonical loopback aliases and this listener's actual port are valid.
+		const match = host?.match(/^(127\.0\.0\.1|localhost|\[::1\]):([1-9]\d*)$/);
+		if (!match || Number(match[2]) !== request.socket.localPort) {
+			request.resume();
+			json(response, 403, { error: "Invalid local Host" });
+			return;
+		}
+		const origin = `http://${host}`;
+		let url: URL;
+		try {
+			url = new URL(request.url ?? "/", origin);
+		} catch {
+			request.resume();
+			json(response, 403, { error: "Invalid request target" });
+			return;
+		}
+		if (url.origin !== origin) {
+			request.resume();
+			json(response, 403, { error: "Invalid request target" });
+			return;
+		}
+		if (
+			url.pathname.startsWith("/api/") &&
+			!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "") &&
+			request.headers.origin !== origin
+		) {
+			request.resume();
+			json(response, 403, { error: "Matching Origin required" });
+			return;
+		}
 		const path = url.pathname;
 		if (request.method === "GET" && path === "/") {
 			try {

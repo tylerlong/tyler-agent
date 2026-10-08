@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { waitForAgent, waitForIdle } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedBody, frame } from "./model-fixture.ts";
 
 const item = (id: string, text: string) => ({

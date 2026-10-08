@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("archive flags remain independent, enforce read-only and persist without stopping answers", async () => {
@@ -215,7 +216,11 @@ test("accepted saves finish after archive while subsequent saves are refused", a
 			// 100 Continue acknowledges headers before the request body finishes; the server has accepted this save.
 			const request = httpRequest(base + path, {
 				method: "PUT",
-				headers: { "content-type": "application/json", expect: "100-continue" },
+				headers: {
+					"content-type": "application/json",
+					expect: "100-continue",
+					Origin: base,
+				},
 			});
 			const continued = new Promise<void>((resolve) =>
 				request.once("continue", resolve),

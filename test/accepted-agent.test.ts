@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("HTTP submission acknowledges its durable pending agent before the held model completes", {

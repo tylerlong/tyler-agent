@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { openDatabase } from "../src/database.ts";
 import { createServer } from "../src/server.ts";
 import { waitForAgent } from "./agent-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 const catalogModel = (id: string, name = id, reasoning?: unknown) => ({

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("accepted questions sort immediately, failures count, rejected questions and answers do not; activity survives restart", async (context) => {

@@ -19,6 +19,7 @@ import { executeTool, type ToolExecutor } from "../src/file-tools.ts";
 import { createServer } from "../src/server.ts";
 import { waitForAgent, waitForIdle } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedBody, frame } from "./model-fixture.ts";
 
 const message = (text: string) => ({

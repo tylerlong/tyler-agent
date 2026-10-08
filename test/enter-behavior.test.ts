@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { openDatabase } from "../src/database.ts";
 import { createServer } from "../src/server.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 
 test("enter-behavior defaults to Send, validates, persists and leaves other settings unchanged on failures", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-enter-behavior-"));

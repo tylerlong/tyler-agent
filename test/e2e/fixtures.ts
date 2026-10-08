@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test as base, expect } from "@playwright/test";
+import { type APIRequestContext, test as base, expect } from "@playwright/test";
 import { openDatabase } from "../../src/database.ts";
 import { executeTool, type ToolExecution } from "../../src/file-tools.ts";
 import { createServer } from "../../src/server.ts";
@@ -29,6 +29,39 @@ export const test = base.extend<{
 		streamModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
+	page: async ({ page, request }, use) => {
+		// page.request is an API client too; browser networking remains untouched.
+		Object.defineProperty(page, "request", { value: request });
+		await use(page);
+	},
+	request: async ({ playwright }, use) => {
+		const client = await playwright.request.newContext();
+		// Only programmatic API clients supply Origin here; browser requests use it natively.
+		const request = new Proxy(client, {
+			get(target, key) {
+				if (
+					["get", "head", "post", "put", "patch", "delete", "fetch"].includes(
+						String(key),
+					)
+				)
+					return (
+						url: string,
+						options: { headers?: Record<string, string> } = {},
+					) =>
+						target[key as "fetch"](url, {
+							...options,
+							headers: { Origin: new URL(url).origin, ...options.headers },
+						});
+				const value = Reflect.get(target, key);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as APIRequestContext;
+		try {
+			await use(request);
+		} finally {
+			await client.dispose();
+		}
+	},
 	app: async ({ browserName: _browserName }, use) => {
 		const folder = await mkdtemp(join(tmpdir(), "agent-e2e-"));
 		const configured = openDatabase(join(folder, "db.sqlite"), false);

@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 
 test("directory browsing uses isolated home, lexical paths and visible sorted direct directories; failures leave projects untouched", async () => {
 	const folder = await mkdtemp(join(tmpdir(), "agent-directory-"));

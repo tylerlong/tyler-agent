@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 test("HTTP errors provide stable identifiers independent of interface language", async () => {

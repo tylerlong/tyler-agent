@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 
 test("language defaults to English, validates, persists and leaves other settings unchanged on failures", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-language-"));

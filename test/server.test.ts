@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createServer } from "../src/server.ts";
+import { localFetch as fetch } from "./local-fetch.ts";
 
 // CLI startup releases its selected port, so never use the user's default.
 async function freeCliPort() {
