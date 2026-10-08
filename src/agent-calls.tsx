@@ -1,39 +1,11 @@
-import {
-	Fragment,
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-type Call = {
-	id: number;
-	url: string;
-	method: string;
-	requestedAt: string;
-	status: string;
-	requestBody?: string | null;
-	responseBody?: string | null;
-	partialOutput?: unknown[];
-	httpStatus: number | null;
-	durationMs: number | null;
-	error: string | null;
-	errorCode?: string;
-};
-type RecordState = {
-	open: boolean;
-	scrollTop: number;
-	calls?: Call[];
-	status?: string;
-	sourceRevision?: number;
-	error: boolean;
-	loading: boolean;
-	revision: number;
-};
-// Page lifetime only: switching chats must not discard downloaded records.
-const records = new Map<string, RecordState>();
+import { useCommunicationReader } from "./reader-lifetime.ts";
+
+type ReadingChoice = { open: boolean; scrollTop: number };
+// Page lifetime only: explicit reading choices remain with the display.
+const records = new Map<string, ReadingChoice>();
 function pretty(body: string) {
 	try {
 		return JSON.stringify(JSON.parse(body), null, 2);
@@ -68,13 +40,18 @@ export function AgentCalls({
 		state = {
 			open: false,
 			scrollTop: 0,
-			error: false,
-			loading: false,
-			revision: 0,
 		};
 		records.set(key, state);
 	}
-	const record = state;
+	const choice = state;
+	const { record, load } = useCommunicationReader(
+		agentId,
+		callId,
+		kind,
+		status,
+		revision,
+		choice,
+	);
 	const [, render] = useState(0);
 	const [query, setQuery] = useState("");
 	const [copyError, setCopyError] = useState(false);
@@ -85,8 +62,8 @@ export function AgentCalls({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	useEffect(() => () => clearTimeout(copyTimer.current), []);
 	useLayoutEffect(() => {
-		if (record.open && bodyRef.current)
-			bodyRef.current.scrollTop = record.scrollTop;
+		if (choice.open && bodyRef.current)
+			bodyRef.current.scrollTop = choice.scrollTop;
 	});
 	const calls =
 		kind === "response" &&
@@ -173,47 +150,15 @@ export function AgentCalls({
 			</Fragment>
 		));
 	};
-	const load = useCallback(async () => {
-		const readRevision = ++record.revision;
-		record.loading = true;
-		record.error = false;
-		render((value) => value + 1);
-		try {
-			const response = await fetch(
-				`/api/agents/${agentId}/calls?kind=${kind}&callId=${callId}`,
-			);
-			if (!response.ok) throw new Error("Unable to read communication");
-			const data = await response.json();
-			if (readRevision !== record.revision) return;
-			record.calls = data.calls;
-			record.status = status;
-			record.sourceRevision = revision;
-		} catch {
-			if (readRevision === record.revision) record.error = true;
-		} finally {
-			if (readRevision === record.revision) {
-				record.loading = false;
-				render((value) => value + 1);
-			}
-		}
-	}, [record, status, kind, agentId, callId, revision]);
-	useEffect(() => {
-		if (
-			(record.open || record.calls) &&
-			(record.status !== status ||
-				(record.status === "pending" && record.sourceRevision !== revision))
-		)
-			void load();
-	}, [status, revision, record, load]);
 	return (
 		<details
 			data-reading-anchor={key}
-			open={record.open}
+			open={choice.open}
 			className="communication-disclosure mt-2 rounded-md bg-neutral-50 px-3 py-2 text-sm"
 			onToggle={(event) => {
-				record.open = event.currentTarget.open;
+				choice.open = event.currentTarget.open;
 				render((value) => value + 1);
-				if (record.open && !record.calls && !record.loading) void load();
+				if (choice.open && !record.calls && !record.loading) void load();
 			}}
 		>
 			<summary className="cursor-pointer text-neutral-600 hover:text-neutral-950">
@@ -304,8 +249,8 @@ export function AgentCalls({
 				ref={bodyRef}
 				className="communication-body"
 				onScroll={(event) => {
-					if (record.open && calls)
-						record.scrollTop = event.currentTarget.scrollTop;
+					if (choice.open && calls)
+						choice.scrollTop = event.currentTarget.scrollTop;
 				}}
 			>
 				<div className="communication-text mt-3 font-mono text-xs whitespace-pre-wrap">

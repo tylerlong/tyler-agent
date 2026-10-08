@@ -1,11 +1,4 @@
-import {
-	Fragment,
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 export type ToolCall = {
@@ -30,7 +23,8 @@ export type ToolCall = {
 		preview: string | null;
 	} | null;
 };
-type ToolContent = ToolCall & { arguments: string; result: string | null };
+
+import { useToolReader } from "./reader-lifetime.ts";
 // Indent original tokens: parsing and reserializing would round numbers and drop duplicate fields.
 export function prettyToolContent(text: string) {
 	try {
@@ -59,16 +53,9 @@ export function prettyToolContent(text: string) {
 	}
 	return result;
 }
-type RecordState = {
-	open: boolean;
-	scrollTop: number;
-	content?: ToolContent;
-	error: boolean;
-	loading: boolean;
-	revision: number;
-};
-// Page lifetime only: identity, downloads and reading survive chat switches.
-const records = new Map<number, RecordState>();
+type ReadingChoice = { open: boolean; scrollTop: number };
+// Page lifetime only: explicit reading choices remain with the display.
+const records = new Map<number, ReadingChoice>();
 export function ToolCallCard({
 	call,
 	onSelectAgent,
@@ -84,13 +71,11 @@ export function ToolCallCard({
 		state = {
 			open: false,
 			scrollTop: 0,
-			error: false,
-			loading: false,
-			revision: 0,
 		};
 		records.set(call.id, state);
 	}
-	const record = state;
+	const choice = state;
+	const { record, load } = useToolReader(call, choice);
 	const [, render] = useState(0);
 	const [copyError, setCopyError] = useState(false);
 	const [copied, setCopied] = useState(false);
@@ -100,44 +85,10 @@ export function ToolCallCard({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	useEffect(() => () => clearTimeout(copyTimer.current), []);
 	useLayoutEffect(() => {
-		if (record.open && bodyRef.current)
-			bodyRef.current.scrollTop = record.scrollTop;
+		if (choice.open && bodyRef.current)
+			bodyRef.current.scrollTop = choice.scrollTop;
 		onLayoutChange();
 	});
-	const load = useCallback(async () => {
-		const reading = ++record.revision;
-		record.loading = true;
-		record.error = false;
-		render((value) => value + 1);
-		try {
-			const response = await fetch(
-				`/api/agents/${call.agentId}/tools?toolId=${call.id}`,
-			);
-			if (!response.ok) throw new Error("Unable to read tool record");
-			const data = await response.json();
-			if (!data.toolCalls?.[0]) throw new Error("Missing tool record");
-			if (reading === record.revision) record.content = data.toolCalls[0];
-		} catch {
-			if (reading === record.revision) record.error = true;
-		} finally {
-			if (reading === record.revision) {
-				record.loading = false;
-				render((value) => value + 1);
-			}
-		}
-	}, [call.agentId, call.id, record]);
-	useEffect(() => {
-		if (
-			(record.open || record.content) &&
-			(record.content?.status !== call.status ||
-				record.content?.reason !== call.reason)
-		)
-			void load();
-		return () => {
-			record.revision++;
-			record.loading = false;
-		};
-	}, [load, call.status, call.reason, record]);
 	const child = call.child;
 	const content = record.content;
 	const terminal = call.status !== "waiting" && call.status !== "running";
@@ -167,12 +118,12 @@ export function ToolCallCard({
 			<details
 				data-tool-call-id={call.id}
 				data-reading-anchor={`tool-${call.id}`}
-				open={record.open}
+				open={choice.open}
 				className="mt-2 rounded-md bg-neutral-50 px-3 py-2 text-sm"
 				onToggle={(event) => {
-					record.open = event.currentTarget.open;
+					choice.open = event.currentTarget.open;
 					render((value) => value + 1);
-					if (record.open && !record.content && !record.loading) void load();
+					if (choice.open && !record.content && !record.loading) void load();
 				}}
 			>
 				<summary className="cursor-pointer text-neutral-600 hover:text-neutral-950">
@@ -254,7 +205,7 @@ export function ToolCallCard({
 					ref={bodyRef}
 					className="communication-body tool-body mt-3"
 					onScroll={(event) => {
-						if (record.open) record.scrollTop = event.currentTarget.scrollTop;
+						if (choice.open) choice.scrollTop = event.currentTarget.scrollTop;
 					}}
 				>
 					<div className="communication-text font-mono text-xs whitespace-pre-wrap">

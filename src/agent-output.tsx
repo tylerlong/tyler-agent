@@ -1,19 +1,12 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Markdown } from "./markdown.tsx";
 
-export type ReaderItem = {
-	id: string;
-	callId: number;
-	index: number;
-	type: string;
-	content: { index: number; type: string; text?: string }[];
-};
-// Page-local downloads and explicit choices survive switching chats until refresh.
-const downloads = new Map<
-	string,
-	{ output: ReaderItem[]; status: string; stamp: string }
->();
+import { type ReaderItem, useReasoningReader } from "./reader-lifetime.ts";
+
+export type { ReaderItem } from "./reader-lifetime.ts";
+
+// Explicit disclosure choices survive navigation until refresh.
 const folds = new Map<string, boolean>();
 
 export function AgentOutput({
@@ -33,11 +26,7 @@ export function AgentOutput({
 }) {
 	const { t } = useTranslation();
 	useLayoutEffect(onLayoutChange);
-	const cacheKey = `${agentId}-${callId}`;
-	const [download, setDownload] = useState(() => downloads.get(cacheKey));
 	const [choices, setChoices] = useState(() => new Map(folds));
-	const [error, setError] = useState(false);
-	const [retry, setRetry] = useState(0);
 	const reasoning = output.filter(
 		(item) => item.type === "reasoning" && item.content.length > 0,
 	);
@@ -45,43 +34,14 @@ export function AgentOutput({
 		(item) =>
 			choices.get(`${agentId}-${callId}-${item.index}`) ?? status === "pending",
 	);
-	useEffect(() => {
-		const cached = downloads.get(cacheKey);
-		if (!reasoning.length || (!expanded && !cached)) return;
-		const stamp = `${revision}-${retry}`;
-		if (
-			cached &&
-			cached.status === status &&
-			(cached.status !== "pending" || cached.stamp === stamp)
-		)
-			return;
-		let current = true;
-		void fetch(`/api/agents/${agentId}/reasoning?callId=${callId}`)
-			.then(async (response) => {
-				if (!response.ok) throw new Error("Read failed");
-				const data = await response.json();
-				if (!current) return;
-				const next = { output: data.output as ReaderItem[], status, stamp };
-				downloads.set(cacheKey, next);
-				setDownload(next);
-				setError(false);
-			})
-			.catch(() => {
-				if (current) setError(true);
-			});
-		return () => {
-			current = false;
-		};
-	}, [
+	const { download, error, retry } = useReasoningReader(
 		agentId,
 		callId,
-		cacheKey,
 		status,
 		revision,
 		expanded,
 		reasoning.length,
-		retry,
-	]);
+	);
 	return output.map((item) => {
 		if (item.type === "message") {
 			if (
@@ -165,11 +125,7 @@ export function AgentOutput({
 						{error && (
 							<p role="alert" className="text-red-700">
 								{t("reasoningReadFailed")}{" "}
-								<button
-									type="button"
-									className="underline"
-									onClick={() => setRetry((value) => value + 1)}
-								>
+								<button type="button" className="underline" onClick={retry}>
 									{t("retry")}
 								</button>
 							</p>
