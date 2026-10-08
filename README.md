@@ -318,7 +318,7 @@ Use the task path, sibling links or **Back to chat** to navigate. The selected A
 
 Generated content uses Reasoning, with the same disclosure header treatment as Request/Response; answers remain directly visible. Reasoning effort labels are localized, including Extra high and Model default, without changing API values. Active task details and trees say In progress. Delegated details label explicit context Background; an empty background explains that parent conversation history is not inherited. The protocol parameter stays context.
 
-已确认的输出修正方向（待实现）：主／子 Agent 的回答与推理正文共用安全 Markdown 呈现，支持标题、粗体、列表、链接、代码块和表格，流式内容继续实时更新。使用成熟组件的安全默认行为，禁用原始 HTML，不增加代码语法高亮。Request、Response 和工具调用记录继续展示原始内容；渲染不改变保存的响应或模型输入。
+主／子 Agent 的回答与推理正文共用安全 Markdown 呈现，支持标题、粗体、列表、链接、代码块和表格，流式内容继续实时更新。使用成熟组件的安全默认行为，禁用原始 HTML，不增加代码语法高亮。Request、Response 和工具调用记录继续展示原始内容；渲染不改变保存的响应或模型输入。
 
 目标文件夹为空时，选择“编辑项目”，再选择“添加文件夹”以使用文件工具；项目表单解释已选文件夹界定文件访问范围，纯文本任务无需文件夹。模型操作的提示和无障碍名称明确指出移除或设为默认的模型。取消引起的 Response 显示已取消；应用错误摘要按错误码本地化，服务提供方原始诊断保留原文。真正的错误采用失败强调，取消保持普通状态。
 
@@ -329,3 +329,5 @@ Tool Call 读取／复制失败与通信记录和 Reasoning 使用相同的本�
 Settings 保留 General、Models、Execution 三个页签与自动保存；常规页预留紧凑的保存反馈行。初次 Models 读取失败显示错误和 Retry，不同时显示 Loading。API 密钥保持遮罩，离开输入框时保存，清空可移除；默认模型用于新对话和尚未选择模型的对话。每个 Agent 的 Model Calls 包括自己的失败请求与通知触发请求；每根 Agent 的后代上限累计所有深度的已创建子任务，不计根任务，成功、失败或取消后不退名额。
 
 Settings keeps General, Models and Execution tabs and autosave, with compact reserved feedback space in General. A failed initial Models read shows failure and Retry without Loading. The API key stays masked and saves on blur; clearing it removes the key. The default model applies to new chats and chats without a model. Model Calls per Agent counts that Agent’s own failed and notification-triggered requests. Descendants per root Agent counts created children at every depth, excludes the root, and does not refund finished, failed or cancelled children.
+
+Root and child Answer and Reasoning bodies share safe Markdown presentation (headings, emphasis, lists, links, fenced code and tables). Live content updates immediately and successful Complete Response content replaces it; failed/cancelled calls retain available partial content. Reasoning remains lazy and foldable. Request/Response and Tool Call records, communication Copy, persistence and model input retain their original source representations. Raw HTML is disabled and links use the renderer’s safe URL handling. `react-markdown` provides the mature React renderer; `remark-gfm` supplies table support. No syntax highlighting is added.

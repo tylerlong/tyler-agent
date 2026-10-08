@@ -48,3 +48,7 @@ Agent 不另存完整历史上下文：当前 prompt 属于 Agent，既有成功
 ## 本机 HTTP 访问
 
 服务保持回环监听。统一入口只接受规范的 `127.0.0.1`、`localhost` 或 `[::1]` Host 与实际监听端口，不使用转发 Host。每个修改 API 请求（包括无正文的取消）必须携带与目标 `http://Host:port` 完全相同的 Origin；缺失、null、不同主机／端口／协议或无效 Host 在任何副作用之前返回 403。普通浏览器使用自身 Origin，脚本及测试显式设置实际目标 Origin。读取页面保持可用，不开放跨来源 CORS，不引入 token、登录、自定义防伪头或 Content-Type 限制。验证使用临时数据、操作系统分配的独立端口与假模型，跨端口普通表单同样受到保护。
+
+## Reader presentation
+
+Root and child Answer and Reasoning use the same safe Markdown renderer, with raw HTML disabled and default safe URL handling. `react-markdown` and its `remark-gfm` table plugin are the only presentation dependencies; no highlighting or storage conversion is needed. Rendering applies to both provisional and authoritative final text, without changing Complete Response ownership, lazy Reasoning reads, communication/Tool Call source records, Copy or remote model input.

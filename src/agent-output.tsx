@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Markdown } from "./markdown.tsx";
 
 export type ReaderItem = {
 	id: string;
@@ -106,7 +107,7 @@ export function AgentOutput({
 								key={`${part.index}-${part.type}`}
 								data-reading-anchor={`${agentId}-${callId}-output-${item.index}-${part.type}-${part.index}`}
 							>
-								{part.text}
+								<Markdown text={part.text} />
 							</div>
 						))}
 				</div>
@@ -157,7 +158,7 @@ export function AgentOutput({
 									)}
 									{t("labelSeparator")}
 								</strong>
-								{part.text}
+								<Markdown text={part.text} />
 							</div>
 						))}
 						{!content && !error && <p role="status">{t("loading")}</p>}
