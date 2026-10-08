@@ -109,7 +109,7 @@ export const createSubAgentTool = {
 	type: "function",
 	name: "create_sub_agent",
 	description:
-		"Create an independent sub-agent and return immediately. Its terminal result is delivered automatically. No ancestor conversation is inherited; supply any background explicitly as context.",
+		"Create an independent sub-agent and immediately return its identity and initial status. Success, failure or cancellation results arrive automatically in subsequent requests. Continue independent work, or finish your current response without Tool Calls to yield while the runtime awaits child results. No ancestor conversation is inherited; supply any background explicitly as context.",
 	parameters: {
 		type: "object",
 		properties: {

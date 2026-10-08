@@ -230,6 +230,7 @@ export function createServer(
 			.map((call) => ({
 				...call,
 				id: call.id,
+				...(!content && { child: childOverview(Number(call.id)) }),
 				...(unsavedTools.has(Number(call.id)) && {
 					status: "interrupted",
 					reason: "toolSaveFailed",
@@ -372,6 +373,29 @@ export function createServer(
 			toolCalls: toolCalls(Number(row.id)),
 		};
 	};
+	const childOverview = (toolId: number) => {
+		const row = database
+			.prepare(
+				"SELECT id,status,error_code AS errorCode FROM agents WHERE created_by_tool_call_id=?",
+			)
+			.get(toolId);
+		if (!row) return null;
+		const id = Number(row.id);
+		const prompt = agentSource(id).question.trim();
+		const firstLine = prompt.split(/\r?\n/)[0];
+		return {
+			id,
+			status: row.status,
+			promptSummary:
+				firstLine.slice(0, 120) +
+				(firstLine.length > 120 || prompt.includes("\n") ? "…" : ""),
+			preview:
+				row.status === "pending"
+					? null
+					: answerText(agentOutput(id)).slice(0, 500),
+		};
+	};
+
 	const agentPage = (
 		id: number,
 		before: number | null,

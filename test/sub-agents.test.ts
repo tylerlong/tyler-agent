@@ -338,6 +338,19 @@ test("parallel blind children return 3 and 7 through notifications while root st
 			[1, 1],
 		);
 		const tools = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
+		const cards = (await f.get(`/api/agents/${rootId}`)).agents[0].toolCalls;
+		assert.deepEqual(
+			cards.map(
+				(card: { child: { status: string; preview: string | null } }) => [
+					card.child.status,
+					card.child.preview,
+				],
+			),
+			[
+				["pending", null],
+				["pending", null],
+			],
+		);
 		assert.equal(tools.length, 2);
 		const creations = tools.map((tool: { result: string }) =>
 			JSON.parse(tool.result),
@@ -379,6 +392,16 @@ test("parallel blind children return 3 and 7 through notifications while root st
 		const root = await f.wait(rootId);
 		assert.equal(root.status, "succeeded");
 		assert.equal(root.output.at(-1).content[0].text, "10");
+		assert.deepEqual(
+			root.toolCalls.map((card: { child: { id: number; preview: string } }) => [
+				card.child.id,
+				card.child.preview,
+			]),
+			creations.map((creation: { agent_id: number }, index: number) => [
+				creation.agent_id,
+				index === 0 ? "3" : "7",
+			]),
+		);
 		assert.equal(
 			rootInputs.length,
 			4,

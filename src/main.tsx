@@ -804,7 +804,10 @@ function App() {
 		events.onmessage = sync;
 		events.addEventListener("agent", (event) => {
 			const { chatId, agentId, parentAgentId } = JSON.parse(event.data);
-			if (parentAgentId != null) return;
+			if (parentAgentId != null) {
+				void refreshAgent(chatId, parentAgentId);
+				return;
+			}
 			void refreshAgent(chatId, agentId);
 		});
 		events.onerror = () => {
@@ -1659,6 +1662,12 @@ function App() {
 											</strong>
 											{message.role === "assistant" ? (
 												<AgentContent
+													onSelectAgent={(id) => {
+														const url = new URL(location.href);
+														url.searchParams.set("agent", String(id));
+														history.pushState(null, "", url);
+														setSelectedAgent(id);
+													}}
 													agent={chatState.agents.find(
 														(agent) =>
 															agent.id === Number(message.id.split("-")[0]),

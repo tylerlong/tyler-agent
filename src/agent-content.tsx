@@ -24,6 +24,7 @@ export type AgentDetail = {
 
 export function AgentContent({
 	agent,
+	onSelectAgent,
 	revision,
 	onLayoutChange,
 	stopping,
@@ -31,6 +32,7 @@ export function AgentContent({
 	onStop,
 }: {
 	agent: AgentDetail | undefined;
+	onSelectAgent: (id: number) => void;
 	revision: number;
 	onLayoutChange: () => void;
 	stopping: boolean;
@@ -76,6 +78,7 @@ export function AgentContent({
 							<ToolCallCard
 								key={tool.id}
 								call={tool}
+								onSelectAgent={onSelectAgent}
 								onLayoutChange={onLayoutChange}
 							/>
 						))}

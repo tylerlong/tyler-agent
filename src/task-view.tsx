@@ -165,7 +165,7 @@ export function TaskView({
 			if (changedId !== selected.current && chatId !== treeRef.current?.chatId)
 				return;
 			void refreshTree(selected.current);
-			if (changedId === selected.current) void refresh(changedId);
+			void refresh(selected.current);
 		});
 		events.onerror = () => setError("networkFailed");
 		const visible = () => {
@@ -395,6 +395,7 @@ export function TaskView({
 						)}
 						<div className="mt-4">
 							<AgentContent
+								onSelectAgent={select}
 								agent={value.agent}
 								revision={value.revision}
 								stopping={cancellation === "stopping"}
