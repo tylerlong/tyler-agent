@@ -2409,3 +2409,88 @@ test("link entries move/delete independently while content follows combined root
 		await rm(base, { recursive: true, force: true });
 	}
 });
+
+test("streaming file pages preserve chunk boundaries and reject unsupported suffixes through HTTP", async () => {
+	const root = await realpath(
+		await mkdtemp(join(tmpdir(), "file-stream-http-")),
+	);
+	const large = join(root, "large.txt"),
+		boundary = join(root, "boundary.txt");
+	await writeFile(large, "x".repeat(20 * 1024 * 1024));
+	const text = `${"a".repeat(65534)}😀needle${"中".repeat(5000)}\r\naa😀needle\n`;
+	await writeFile(boundary, text);
+	await writeFile(
+		join(root, "a-invalid"),
+		Buffer.concat([
+			Buffer.from("needle\n".repeat(101) + "x".repeat(100000)),
+			Buffer.from([0xff]),
+		]),
+	);
+	await writeFile(join(root, "b-binary"), `needle\n${"x".repeat(100000)}\0`);
+	await writeFile(join(root, "bom"), "\ufeffone\r\ntwo\n");
+	const calls = [
+		fileCall("read_file", { path: large }, "large"),
+		fileCall(
+			"read_file",
+			{ path: large, startColumn: 20 * 1024 * 1024 - 2 },
+			"tail",
+		),
+		fileCall("read_file", { path: boundary, startColumn: 65535 }, "unicode"),
+		fileCall("read_file", { path: join(root, "bom") }, "bom"),
+		fileCall("read_file", { path: join(root, "a-invalid") }, "invalid"),
+		fileCall("read_file", { path: join(root, "b-binary") }, "binary"),
+		fileCall("search_files", { path: root, query: "aa😀needle" }, "boundary"),
+		fileCall(
+			"search_files",
+			{ path: root, query: "needle", offset: 1 },
+			"offset",
+		),
+	];
+	let requests = 0;
+	const f = await fixture(
+		async (_url, init) => {
+			if (++requests === 1) return new Response(completed(calls));
+			const outputs = JSON.parse(String(init?.body)).input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			const results = outputs.map((item: { output: string }) =>
+				JSON.parse(item.output),
+			);
+			assert.equal(results[0].text, "x".repeat(50 * 1024));
+			assert.equal(results[0].nextLine, 1);
+			assert.equal(results[0].nextColumn, 50 * 1024 + 1);
+			assert.equal(results[1].text, "xxx");
+			assert.equal(results[1].truncated, false);
+			assert.equal(results[2].text, text.slice(65534));
+			assert.equal(results[3].text, "\ufeffone\r\ntwo\n");
+			assert.equal(results[4].error.kind, "validation");
+			assert.equal(results[5].error.kind, "validation");
+			assert.equal(results[6].matches.length, 2);
+			assert.equal(results[6].matches[0].column, 65533);
+			assert.equal(results[6].matches[0].textStartColumn, 65533 - 128);
+			assert.equal(Array.from(results[6].matches[0].text).length, 4096);
+			assert.equal(results[6].matches[0].textTruncated, true);
+			assert.equal(results[6].matches[1].text, "aa😀needle");
+			assert.deepEqual(results[7].matches, [
+				{
+					path: boundary,
+					line: 2,
+					column: 4,
+					text: "aa😀needle",
+					textStartColumn: 1,
+					textTruncated: false,
+				},
+			]);
+			return new Response(completed([message("validated streamed pages")]));
+		},
+		[root],
+	);
+	try {
+		const { agentId } = await (await f.ask()).json();
+		assert.equal((await f.wait(agentId)).status, "succeeded");
+		assert.equal(requests, 2);
+	} finally {
+		await f.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});

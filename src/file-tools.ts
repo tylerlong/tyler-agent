@@ -196,10 +196,10 @@ async function* paths(
 		}
 	}
 }
-export async function textFile(
+async function* textChunks(
 	path: string,
 	signal?: AbortSignal,
-): Promise<string> {
+): AsyncGenerator<string> {
 	if (!(await stat(path)).isFile())
 		throw new FileToolError(
 			"validation",
@@ -207,18 +207,18 @@ export async function textFile(
 		);
 	const stream = createReadStream(path, { signal });
 	const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-	let text = "";
 	try {
 		for await (const chunk of stream) {
 			signal?.throwIfAborted();
-			text += decoder.decode(chunk, { stream: true });
+			const text = decoder.decode(chunk, { stream: true });
 			if (text.includes("\0"))
 				throw new FileToolError(
 					"validation",
 					"Binary content is not supported",
 				);
+			yield text;
 		}
-		text += decoder.decode();
+		yield decoder.decode();
 	} catch (error) {
 		if (error instanceof TypeError)
 			throw new FileToolError(
@@ -227,7 +227,145 @@ export async function textFile(
 			);
 		throw error;
 	}
+}
+export async function textFile(
+	path: string,
+	signal?: AbortSignal,
+): Promise<string> {
+	let text = "";
+	for await (const chunk of textChunks(path, signal)) text += chunk;
 	return text;
+}
+
+async function readPage(
+	path: string,
+	startLine: number,
+	startColumn: number,
+	endLine: number,
+	signal?: AbortSignal,
+) {
+	let output = "",
+		bytes = 0,
+		line = 1,
+		column = 1,
+		lastLine = startLine - 1;
+	let nextLine: number | null = null,
+		nextColumn: number | null = null;
+	let selectedLineExists = false,
+		invalidStartColumn = false;
+	for await (const chunk of textChunks(path, signal)) {
+		for (const character of chunk) {
+			if (line === startLine) selectedLineExists = true;
+			if (nextLine === null && line >= startLine && line <= endLine) {
+				if (line - startLine >= 2000) {
+					nextLine = line;
+					nextColumn = 1;
+				} else if (line !== startLine || column >= startColumn) {
+					const size = Buffer.byteLength(character);
+					if (bytes + size > 50 * 1024) {
+						nextLine = line;
+						nextColumn = column;
+					} else {
+						output += character;
+						bytes += size;
+						lastLine = line;
+					}
+				}
+			}
+			if (character === "\n") {
+				if (line === startLine && startColumn > column + 1)
+					invalidStartColumn = true;
+				line++;
+				column = 1;
+			} else column++;
+		}
+	}
+	if (
+		invalidStartColumn ||
+		(selectedLineExists && line === startLine && startColumn > column)
+	)
+		throw new FileToolError(
+			"validation",
+			"startColumn is beyond the selected line",
+		);
+	return {
+		text: output,
+		startLine,
+		endLine: lastLine,
+		truncated: nextLine !== null,
+		nextLine,
+		nextColumn,
+	};
+}
+
+// Retain query overlap and 128 preceding code points until the first match,
+// then only its 4096-code-point excerpt. Never retain an unbounded line.
+async function searchPage(
+	path: string,
+	query: string,
+	offset: number,
+	limit: number,
+	signal?: AbortSignal,
+) {
+	const matches: object[] = [];
+	let count = 0,
+		line = 1,
+		length = 0,
+		window = "",
+		windowStart = 0;
+	let column: number | null = null,
+		excerptStart = 0,
+		excerpt: string[] = [];
+	const finishLine = () => {
+		if (column !== null && count++ >= offset && matches.length < limit)
+			matches.push({
+				path,
+				line,
+				column,
+				text: excerpt.join(""),
+				textStartColumn: excerptStart + 1,
+				textTruncated: excerptStart > 0 || length > excerptStart + 4096,
+			});
+		line++;
+		length = 0;
+		window = "";
+		windowStart = 0;
+		column = null;
+		excerptStart = 0;
+		excerpt = [];
+	};
+	for await (const chunk of textChunks(path, signal)) {
+		const segments = chunk.split("\n");
+		for (let i = 0; i < segments.length; i++) {
+			const segment = segments[i],
+				characters = Array.from(segment);
+			length += characters.length;
+			if (column !== null) {
+				if (excerpt.length < 4096)
+					excerpt.push(...characters.slice(0, 4096 - excerpt.length));
+			} else if (!query.includes("\n")) {
+				window += segment;
+				const index = window.indexOf(query);
+				const points = Array.from(window);
+				if (index >= 0) {
+					column = windowStart + Array.from(window.slice(0, index)).length + 1;
+					excerptStart = Math.max(0, column - 1 - 128);
+					excerpt = points.slice(
+						excerptStart - windowStart,
+						excerptStart - windowStart + 4096,
+					);
+					window = "";
+				} else {
+					const keep = query.length - 1 + 128;
+					windowStart += Math.max(0, points.length - keep);
+					window = points.slice(-keep).join("");
+				}
+			}
+			if (i < segments.length - 1) finishLine();
+		}
+	}
+	finishLine();
+	return { matches, count };
 }
 // ponytail: reservations cover service Agents; use OS no-replace support if cross-process coordination is required.
 const mutationDestinations = new Set<string>();
@@ -402,55 +540,9 @@ export const executeTool: ToolExecutor = async (
 					"validation",
 					"endLine must not precede startLine",
 				);
-			const text = await textFile(path, signal);
-			const lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-			let output = "",
-				bytes = 0,
-				nextLine: number | null = null,
-				nextColumn: number | null = null,
-				lastLine = startLine - 1;
-			outer: for (
-				let line = startLine;
-				line <= Math.min(lines.length, endLine);
-				line++
-			) {
-				signal?.throwIfAborted();
-				if (line - startLine >= 2000) {
-					nextLine = line;
-					nextColumn = 1;
-					break;
-				}
-				const characters = Array.from(lines[line - 1]);
-				if (line === startLine && startColumn > characters.length + 1)
-					throw new FileToolError(
-						"validation",
-						"startColumn is beyond the selected line",
-					);
-				for (
-					let column = line === startLine ? startColumn : 1;
-					column <= characters.length;
-					column++
-				) {
-					const character = characters[column - 1],
-						size = Buffer.byteLength(character);
-					if (bytes + size > 50 * 1024) {
-						nextLine = line;
-						nextColumn = column;
-						break outer;
-					}
-					output += character;
-					bytes += size;
-					lastLine = line;
-				}
-			}
 			result = {
 				path: args.path,
-				text: output,
-				startLine,
-				endLine: lastLine,
-				truncated: nextLine !== null,
-				nextLine,
-				nextColumn,
+				...(await readPage(path, startLine, startColumn, endLine, signal)),
 			};
 		} else {
 			if (!(await stat(path)).isDirectory())
@@ -480,43 +572,26 @@ export const executeTool: ToolExecutor = async (
 					}
 					entries.push(entry);
 				} else if (entry.type === "file") {
-					let content: string;
 					try {
-						content = await textFile(
+						const page = await searchPage(
 							await scopedPath(entry.path, roots),
+							String(args.query),
+							Math.max(0, offset - count),
+							101 - entries.length,
 							signal,
 						);
+						count += page.count;
+						for (const match of page.matches) {
+							if (entries.length === 100) {
+								truncated = true;
+								break outer;
+							}
+							entries.push(match);
+						}
 					} catch (error) {
 						if (error instanceof FileToolError && error.kind === "validation")
 							continue;
 						throw error;
-					}
-					const lines = content.split("\n");
-					for (let line = 0; line < lines.length; line++) {
-						signal?.throwIfAborted();
-						if (!lines[line].includes(String(args.query))) continue;
-						if (count++ < offset) continue;
-						if (entries.length === 100) {
-							truncated = true;
-							break outer;
-						}
-						const characters = Array.from(lines[line]);
-						const column =
-							Array.from(
-								lines[line].slice(0, lines[line].indexOf(String(args.query))),
-							).length + 1;
-						const excerptStart = Math.max(0, column - 1 - 128);
-						entries.push({
-							path: entry.path,
-							line: line + 1,
-							column,
-							text: characters
-								.slice(excerptStart, excerptStart + 4096)
-								.join(""),
-							textStartColumn: excerptStart + 1,
-							textTruncated:
-								excerptStart > 0 || characters.length > excerptStart + 4096,
-						});
 					}
 				}
 			}
