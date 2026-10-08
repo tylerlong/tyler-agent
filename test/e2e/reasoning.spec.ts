@@ -260,9 +260,21 @@ test("thinking reads retry and two pages catch up pending content with independe
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${chat.id}`);
-	let failed = true;
+	// Keep automatic refreshes failing until the user actually retries.
+	await page.evaluate(() => {
+		document.addEventListener("click", (event) => {
+			if (
+				event.target instanceof HTMLButtonElement &&
+				event.target.textContent === "Retry"
+			)
+				document.documentElement.dataset.reasoningRetried = "true";
+		});
+	});
 	await page.route("**/api/agents/*/reasoning?callId=*", async (route) => {
-		if (failed) {
+		const retried = await page.evaluate(
+			() => document.documentElement.dataset.reasoningRetried === "true",
+		);
+		if (!retried) {
 			await route.fulfill({
 				status: 500,
 				contentType: "application/json",
@@ -289,7 +301,6 @@ test("thinking reads retry and two pages catch up pending content with independe
 	await expect(page.getByRole("log")).toContainText(
 		"Unable to read reasoning. Please retry.",
 	);
-	failed = false;
 	await page
 		.getByRole("log")
 		.getByRole("button", { name: "Retry", exact: true })
