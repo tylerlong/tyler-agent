@@ -1669,7 +1669,9 @@ function App() {
 											className="whitespace-pre-wrap"
 										>
 											<strong>
-												{t(message.role === "user" ? "you" : "agent")}
+												{message.role === "user"
+													? t("you")
+													: `${t("agent")} #${Number(message.id.split("-")[0])} · ${t(`taskStatus_${chatState.agents.find((agent) => agent.id === Number(message.id.split("-")[0]))?.status}`)}`}
 												{t("labelSeparator")}
 											</strong>
 											{message.role === "assistant" ? (

@@ -258,6 +258,24 @@ test("failed refresh retains downloaded text and retries reading without executi
 	await expect(card.getByRole("alert")).toContainText(
 		"Could not read tool record",
 	);
+	const errorColor = await card
+		.getByRole("alert")
+		.evaluate((element) => getComputedStyle(element).color);
+	const response = page
+		.locator("details")
+		.filter({ has: page.locator("summary", { hasText: /^Response 1$/ }) });
+	await page.route("**/calls?kind=response&callId=*", (route) =>
+		route.fulfill({ status: 500 }),
+	);
+	await response.locator("summary").click();
+	await expect(response.getByRole("alert")).toContainText(
+		"Unable to read communication",
+	);
+	expect(
+		await response
+			.getByRole("alert")
+			.evaluate((element) => getComputedStyle(element).color),
+	).toBe(errorColor);
 	await expect(card.locator("pre")).toContainText("[REDACTED]");
 	await expect(
 		card.getByRole("button", { name: "Copy", exact: true }),
@@ -278,11 +296,15 @@ test("failed refresh retains downloaded text and retries reading without executi
 	await expect(card.getByRole("alert")).toHaveText(
 		"Unable to copy. Please retry.",
 	);
+	expect(
+		await card
+			.getByRole("alert")
+			.evaluate((element) => getComputedStyle(element).color),
+	).toBe(errorColor);
 	await page.evaluate(() => {
 		delete (navigator.clipboard as Partial<Clipboard>).writeText;
 	});
-	await copy.focus();
-	await page.keyboard.press("Enter");
+	await copy.click();
 	await expect(copy).toHaveText("✓");
 	await expect(card.getByRole("alert")).toHaveCount(0);
 	expect(reads).toBe(2);

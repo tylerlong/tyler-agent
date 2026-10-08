@@ -212,17 +212,19 @@ export function TaskView({
 			notifyCancellation();
 		}
 	}
-	const label = (node: TreeNode) =>
-		`#${node.id} ${node.question.trim().split(/\r?\n/)[0].slice(0, 80)}`;
+	const summary = (node: TreeNode) => node.question.trim().split(/\r?\n/)[0];
 	const nodeButton = (node: TreeNode) => (
 		<button
 			type="button"
-			className={`max-w-full break-words text-left underline-offset-2 hover:underline ${node.id === agentId ? "font-semibold text-blue-800" : ""}`}
+			className={`inline-flex max-w-[calc(100%-1.25rem)] items-baseline gap-1 text-left underline-offset-2 hover:underline ${node.id === agentId ? "font-semibold text-blue-800" : ""}`}
 			aria-current={node.id === agentId ? "page" : undefined}
 			onClick={() => select(node.id)}
 		>
-			{label(node)}{" "}
-			<span className="text-sm text-neutral-600">
+			<span className="shrink-0">#{node.id}</span>{" "}
+			<span className="min-w-0 truncate" title={summary(node)}>
+				{summary(node)}
+			</span>
+			<span className="shrink-0 text-sm text-neutral-600">
 				({t(`taskStatus_${node.status}`)})
 			</span>
 		</button>
@@ -324,7 +326,14 @@ export function TaskView({
 							{path.map((node, index) => (
 								<span key={node.id}>
 									{index > 0 && " / "}
-									{nodeButton(node)}
+									<button
+										type="button"
+										className="hover:underline"
+										aria-current={node.id === agentId ? "page" : undefined}
+										onClick={() => select(node.id)}
+									>
+										{t("agent")} #{node.id}
+									</button>
 								</span>
 							))}
 						</nav>
@@ -376,7 +385,9 @@ export function TaskView({
 								className="mt-3 flex flex-wrap gap-3"
 							>
 								{siblings.map((node) => (
-									<span key={node.id}>{nodeButton(node)}</span>
+									<span key={node.id} className="max-w-full">
+										{nodeButton(node)}
+									</span>
 								))}
 							</nav>
 						)}

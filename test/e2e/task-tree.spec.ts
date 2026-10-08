@@ -2,6 +2,8 @@ import type { Page } from "@playwright/test";
 import { completedBody, frame } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
+const branchSummary = `Branch ${"Long delegated task description 很长的委派任务描述 ".repeat(20)}`;
+
 const answer = (text: string) => ({
 	id: "same-answer",
 	type: "message",
@@ -112,7 +114,10 @@ for (const language of ["en", "zh-CN"]) {
 			root.push(
 				completedBody({
 					output: [
-						creation("Branch\nFull branch prompt", "Explicit branch context"),
+						creation(
+							`${branchSummary}\nFull branch prompt`,
+							"Explicit branch context",
+						),
 						creation("Sibling"),
 						creation("Failed child"),
 					],
@@ -231,11 +236,12 @@ for (const language of ["en", "zh-CN"]) {
 				})
 				.last();
 			if ((await branchDisclosure.getAttribute("open")) === null)
-				await branchDisclosure.locator(":scope > summary").click();
+				await branchDisclosure.locator(":scope > summary").click({ position: {x:5,y:10} });
 			await creationCard.locator("summary").click();
 			await expect(creationCard).not.toHaveAttribute("open");
 			await detail
 				.locator(`[data-child-agent-id="${deepId}"] > button`)
+
 				.click();
 			await expect(detail).toContainText("Complete deep prompt");
 			await expect(detail).toContainText("Explicit deep context");
@@ -248,7 +254,33 @@ for (const language of ["en", "zh-CN"]) {
 			await expect(page).toHaveURL(new RegExp(`agent=${deepId}`));
 			await expect(
 				page.getByRole("navigation", { name: labels.path }),
-			).toContainText("Branch");
+			).toHaveText(
+				`Agent #${accepted.agentId} / Agent #${branchId} / Agent #${deepId}`,
+			);
+			const longSummary = branchNode.locator("[title]");
+			await expect(longSummary).toHaveAttribute("title", branchSummary);
+			await longSummary.hover();
+			const clipping = await longSummary.evaluate((element) => ({
+				width: element.clientWidth,
+				fullWidth: element.scrollWidth,
+				ellipsis: getComputedStyle(element).textOverflow,
+			}));
+			expect(clipping.fullWidth).toBeGreaterThan(clipping.width);
+			expect(clipping.ellipsis).toBe("ellipsis");
+			await expect(detail.getByRole("heading", { level: 2 })).toHaveText(
+				`Agent #${deepId} · ${labels.pending}`,
+			);
+			for (const size of [
+				{ width: 1280, height: 720 },
+				{ width: 1600, height: 1000 },
+			]) {
+				await page.setViewportSize(size);
+				await page.screenshot({
+					path: `/tmp/navigation-${language}-${size.width}.png`,
+					fullPage: true,
+				});
+			}
+			await page.setViewportSize({ width: 1280, height: 720 });
 			expect(communicationReads).toBe(0);
 			const request = detail.locator("details").filter({
 				has: page.locator("summary", { hasText: /^(Request|请求) \d+$/ }),
@@ -367,7 +399,7 @@ for (const language of ["en", "zh-CN"]) {
 
 			await page
 				.getByRole("navigation", { name: labels.path })
-				.getByRole("button", { name: new RegExp(`#${branchId} Branch`) })
+				.getByRole("button", { name: `Agent #${branchId}`, exact: true })
 				.click();
 			await page
 				.getByRole("navigation", { name: labels.siblings })
@@ -422,7 +454,9 @@ for (const language of ["en", "zh-CN"]) {
 				}),
 			).toBeVisible();
 			if ((await branchDisclosure.getAttribute("open")) === null)
-				await branchDisclosure.locator(":scope > summary").click();
+				await branchDisclosure
+					.locator(":scope > summary")
+					.click({ position: { x: 5, y: 10 } });
 			await tree
 				.getByRole("button", { name: new RegExp(`#${deepId} Deep task`) })
 				.click();

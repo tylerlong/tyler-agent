@@ -310,7 +310,7 @@ Use the task path, sibling links or **Back to chat** to navigate. The selected A
 
 主 Agent 时间线中的子任务概览集中在对应的创建卡片，显示子 Agent 编号、创建 prompt 摘要、实时状态及详情入口。长 prompt 明确截断；结果使用原文预览，最多两行，完整结果通过详情查看；失败／取消的已有输出明确标为部分输出，进行中的完整实时过程留在详情页。关联子 Agent 的状态变化更新同一卡片，不在父 Agent 下一次模型请求旁重复展示子任务结果。沿用现有卡片样式；调用记录保留原始创建参数和回执。复杂子任务的完整 prompt、输出、推理、模型／工具调用及后代过程通过点击进入已有子 Agent 详情查看。子 Agent 当前状态与历史创建工具回执分别保留；子任务完成不等于父模型已收到或处理其结果。
 
-已确认的导航修正方向（待实现）：路径只显示可点击的 Agent 编号层级；任务树及兄弟列表显示编号、prompt 首行摘要和状态，长摘要以省略号明确截断，鼠标悬停可看完整首行。主 Agent 和详情标题统一显示编号及真实状态；完整 prompt 保留在详情正文。不生成或保存额外任务标题。
+导航：路径只显示可点击的 Agent 编号层级；任务树及兄弟列表显示编号、prompt 首行摘要和状态，长摘要以省略号明确截断，鼠标悬停可看完整首行。主 Agent 和详情标题统一显示编号及真实状态；完整 prompt 保留在详情正文。不生成或保存额外任务标题。
 
 ## 界面标签与提示 / UI labels and help
 
@@ -324,7 +324,7 @@ Generated content uses Reasoning, with the same disclosure header treatment as R
 
 With no Target Folders, choose Edit project, then Add folder to use file tools. Project forms explain that selected folders define file access; zero folders remains valid for text-only work. Model action names and tooltips identify the target model. An Agent-cancelled Response says Cancelled; application-owned error summaries are localized by code while original provider diagnostics remain unchanged. Actual errors use failure emphasis; cancellation uses ordinary status presentation.
 
-复审修正计划（待实现）：补齐 Tool Call 读取／复制失败的现有错误强调，复用当前应用的错误样式和本地化提示，取消仍使用普通状态样式。
+Tool Call 读取／复制失败与通信记录和 Reasoning 使用相同的本地化错误强调；读取失败可重试，复制失败可再次点击复制。取消仍使用普通状态样式。
 
 Settings 保留 General、Models、Execution 三个页签与自动保存；常规页预留紧凑的保存反馈行。初次 Models 读取失败显示错误和 Retry，不同时显示 Loading。API 密钥保持遮罩，离开输入框时保存，清空可移除；默认模型用于新对话和尚未选择模型的对话。每个 Agent 的 Model Calls 包括自己的失败请求与通知触发请求；每根 Agent 的后代上限累计所有深度的已创建子任务，不计根任务，成功、失败或取消后不退名额。
 

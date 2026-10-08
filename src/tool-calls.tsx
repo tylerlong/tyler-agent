@@ -229,14 +229,14 @@ export function ToolCallCard({
 						)}
 					</span>
 					{copyError && (
-						<span role="alert" className="block whitespace-pre-wrap">
+						<span role="alert" className="block whitespace-pre-wrap text-red-700">
 							{t("copyFailed")}
 						</span>
 					)}
 				</summary>
 				{record.loading && <p role="status">{t("loading")}</p>}
 				{record.error && (
-					<p role="alert">
+					<p role="alert" className="text-red-700">
 						{t("toolReadFailed")}{" "}
 						<button
 							type="button"
