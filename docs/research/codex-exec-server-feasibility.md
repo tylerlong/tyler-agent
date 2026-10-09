@@ -53,6 +53,25 @@
 
 每次 process/start 的 networkProxy 创建独立策略 state 和 OS 代理边界；`domains:{"*":"allow"}` 原生支持全域名。`mode:"full"` 是 HTTP 方法／CONNECT 模式，不能代替域名规则，也不意味着任意协议、Unix socket 或监听权限。省略 policyDecisionTimeoutMs 不安装权限请求 callback，仅返回允许／拒绝事实；由远程 AI 决定是否发起新调用申请权限，无须本地推断、自动扩权或自动重放。[网络启动](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/exec-server/src/process_sandbox.rs#L347)、[wildcard](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/network-proxy/src/policy.rs#L208)、[callback 条件](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/exec-server/src/local_process.rs#L297)
 
+**后续核查：本机网络是独立边界。** `*` 的主机匹配包含 localhost；此前把本机拒绝笼统归因于 wildcard 不准确。拒绝来自实验启用了受管代理并显式设置 `allowLocalBinding:false`：固定版本在域名 allowlist 前检查本机／私网地址，裸 `*` 不算明确本机授权。精确 localhost／IP 授权可允许代理访问对应主机，但不区分端口，且不能单凭该域名许可在命令中绑定测试服务端口。`allowLocalBinding:true` 则允许本机端口绑定与 loopback 直连，并解除代理的私网地址检查；经过代理的流量仍受域名规则约束，直接 loopback 流量不经过域名过滤。当前应用的 Host/Origin 校验能被原生客户端自填，且没有浏览器会话认证，因此不能独自证明批准由用户提交。已接受的首版选择是网络完全访问使用原生 Enabled 且无代理；受限模式保留默认保护，获批本机网络能力使用原生 local binding，不自制端口隔离。设计遵循默认优先，仅因已确认需求或实测失败调整，见 [ADR 0004](../adr/0004-command-tool-isolation-boundary.md)；应用审批入口仍须落实用户授权校验。[目标策略](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/network-proxy/src/runtime.rs)、[OS 端口规则](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/sandboxing/src/seatbelt.rs)、[现有请求保护](../../src/server.ts)
+
+上游特意保留此边界：引入全局 wildcard 的 [PR #15549](https://github.com/openai/codex/pull/15549) 用于公网的默认放行／具体拒绝模式，明确不自动解除本机／私网防护；[PR #19999](https://github.com/openai/codex/pull/19999) 说明允许的域名可能在 DNS 解析后连接到本机或私网服务，因此最终 socket 地址也要复核。地址分类包括 loopback、RFC1918 私网、链路本地、CGNAT 及其他特殊地址；DNS 检查失败、超时或返回任一被分类的地址也拒绝。这是策略来源和范围解释，不代表已覆盖完整 IANA 地址清单。[地址分类](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/network-proxy/src/policy.rs)
+
+exec-server 本身允许完整网络：权限 `network:"enabled"`、不设置受管代理时，macOS 可允许网络入站与出站，文件策略仍独立限制。代理 `mode:"full"` 仅是 HTTP 方法及 CONNECT 的模式；不等于这个原生网络权限。Codex CLI 默认不启用实验性的网络代理，`DangerFullAccess` 使用无外层沙箱／网络 Enabled；普通 network Restricted 在 macOS 没有 localhost 自动例外。本机测试可以通过明确网络许可，或代理的 `allowLocalBinding:true` 运行。[Full Access 映射](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/protocol/src/models.rs)、[绑定能力的官方说明](https://github.com/openai/codex/pull/46523)
+
+**新增 macOS 本机网络专项实测：10 项通过，0 项失败。** 与前述 27 项基线独立记录；同一个固定 0.162.0 执行器，使用临时配置、自有 loopback HTTP 服务和范围外 sentinel，不连接真实应用服务或私网机器，不调用模型。
+
+| 实际配置 | 访问已有 127.0.0.1 服务 | 命令自己启动并访问 HTTP 测试服务 |
+| --- | --- | --- |
+| 代理 `*`，local binding false | 拒绝，curl 收到 403 | 拒绝，Node listen EPERM |
+| 代理精确 127.0.0.1，local binding false | 成功 | 拒绝，Node listen EPERM |
+| 代理 `*`，local binding true | 本轮未单独测已有服务 | 成功 |
+| 代理域名列表空，local binding true | 本轮未单独测已有服务 | 成功；本机直连可用 |
+| 无代理，network Enabled | 本轮未单独测已有服务 | 成功 |
+| 无代理，network Restricted | 本轮未单独测已有服务 | 拒绝，Node listen EPERM |
+
+另两项确认 local binding true 和原生网络 Enabled 下，读取范围外自有 sentinel 仍被 EPERM 拒绝。没有据此声称两项已验证全部文件写入和全部网络协议。[专项结果](./codex-exec-server-local-network-results.json)、[复现脚本](./codex-exec-server-local-network-probe.mjs)。脚本预期退出 0，finally 关闭服务与执行器并清理自有 fixture；下载二进制及 tar 另行清理。可用 `node docs/research/codex-exec-server-local-network-probe.mjs /absolute/codex-0.162.0 /tmp/local-network-results.json` 复现，仍需该版本官方 macOS arm64 二进制。这里只更新研究和设计文档，应用尚未接入这些能力。
+
 本地 CLI 仍会加载 config 并初始化 OTEL。本轮使用自有 CODEX_HOME、中性启动 cwd、过滤环境，显式 analytics.enabled=false、otel exporter/trace_exporter 为 none；metrics 由 analytics=false 的代码分支关闭，生产配置可另外显式写 metrics_exporter=none。不使用 remote registration、不继承模型 keys 或日常 Codex `.env`。本轮未全网抓包，因此 **“fs/process 不调用模型”有源码和无登录实测支持；“绝无其它 HTTP”没有动态测量证明**。获批 curl/pnpm 的工具网络与我们自己的模型 HTTP 分开。[CLI 配置](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/cli/src/exec_server_command.rs#L281)、[遥测默认](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/cli/src/exec_server_telemetry.rs#L6)、[exporter 条件](https://github.com/openai/codex/blob/c1382380de69521303b416720a52f42d51af6248/codex-rs/core/src/otel_init.rs#L68)
 
 ## 工具接线和协议成本

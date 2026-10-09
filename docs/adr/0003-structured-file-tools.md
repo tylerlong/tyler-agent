@@ -1,5 +1,7 @@
 # Structured file tools within Target Folders
 
+The subsequent decision in [ADR 0004](./0004-command-tool-isolation-boundary.md) replaces the fixed seven-tool interface, execution implementation and Target-Folders-only authorization with Codex exec-server and shared file/command permissions. The original decision below records the previous implementation; its specific tool contracts are not compatibility requirements for the replacement.
+
 Replace the example file counter with seven structured tools: `list_files`, `search_files`, `read_file`, `write_file`, `edit_file`, `move_path` and `delete_path`. Each Tool Call performs one operation with an independent result; repeated calls retain their identities and execute serially within the existing Agent loop, avoiding shell access and multi-path batch variants. The discovery/read trio is delivered in #125 and mutations in #126.
 
 Project Target Folders, read anew before each call, are the only application-level filesystem authorization rule. Resolve containment for existing paths and destinations through existing parents; reject traversal, sibling-prefix tricks and out-of-scope content access, and do not recursively follow links outside scope. Hidden paths and `.git` are permitted within scope, with no Git requirement, clean/tracked checks, `.git` guards or Git recovery promise; OS permissions still apply. Mutation prerequisites are checked before changing files, errors and cancellation report actual effects without a rollback claim, and generic Tool Call history/redaction remain unchanged.
