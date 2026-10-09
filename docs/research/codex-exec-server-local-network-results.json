@@ -1,193 +1,193 @@
 {
-  "date": "2026-10-09T22:50:02.436Z",
-  "version": "0.162.0",
-  "platform": "darwin",
-  "arch": "arm64",
-  "node": "v24.21.0",
-  "passed": 10,
-  "failed": 0,
-  "checks": [
-    {
-      "name": "proxy wildcard false rejects existing loopback server",
-      "status": "passed",
-      "expectedExit": 22,
-      "detail": {
-        "processId": "probe-2",
-        "bytes": 49,
-        "head": "curl: (22) The requested URL returned error: 403\n",
-        "tail": "curl: (22) The requested URL returned error: 403\n",
-        "exit": {
-          "processId": "probe-2",
-          "seq": 2,
-          "exitCode": 22,
-          "sandboxDenied": false
-        },
-        "sha256": "e85a8cbf6458f846675a9fd218c04399e808ed1f6629e19c4dd964125cd967c9"
-      }
-    },
-    {
-      "name": "proxy exact IP false permits existing loopback server",
-      "status": "passed",
-      "expectedExit": 0,
-      "detail": {
-        "processId": "probe-3",
-        "bytes": 18,
-        "head": "EXISTING_SERVER_OK",
-        "tail": "EXISTING_SERVER_OK",
-        "exit": {
-          "processId": "probe-3",
-          "seq": 2,
-          "exitCode": 0,
-          "sandboxDenied": false
-        },
-        "sha256": "81744ef52d6c2d3e6c468647f31579d682d1bf052764156424a29672b4587297"
-      }
-    },
-    {
-      "name": "proxy wildcard false rejects internal listener",
-      "status": "passed",
-      "expectedExit": 11,
-      "detail": {
-        "processId": "probe-4",
-        "bytes": 54,
-        "head": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
-        "tail": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
-        "exit": {
-          "processId": "probe-4",
-          "seq": 2,
-          "exitCode": 11,
-          "sandboxDenied": true
-        },
-        "sha256": "38ccdafb99bf0b80a3c70d935799d0535c54630bea9ea209c7e87bf017dffcff"
-      }
-    },
-    {
-      "name": "proxy exact IP false still rejects internal listener",
-      "status": "passed",
-      "expectedExit": 11,
-      "detail": {
-        "processId": "probe-5",
-        "bytes": 54,
-        "head": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
-        "tail": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
-        "exit": {
-          "processId": "probe-5",
-          "seq": 2,
-          "exitCode": 11,
-          "sandboxDenied": true
-        },
-        "sha256": "38ccdafb99bf0b80a3c70d935799d0535c54630bea9ea209c7e87bf017dffcff"
-      }
-    },
-    {
-      "name": "proxy wildcard true runs internal localhost test",
-      "status": "passed",
-      "expectedExit": 0,
-      "detail": {
-        "processId": "probe-6",
-        "bytes": 14,
-        "head": "LOCAL_TEST_OK\n",
-        "tail": "LOCAL_TEST_OK\n",
-        "exit": {
-          "processId": "probe-6",
-          "seq": 2,
-          "exitCode": 0,
-          "sandboxDenied": false
-        },
-        "sha256": "71f4f33159dfa1e02dc8b7ff0fc926d40faffba48911afe41d517664675ed085"
-      }
-    },
-    {
-      "name": "proxy empty domains true runs internal localhost test",
-      "status": "passed",
-      "expectedExit": 0,
-      "detail": {
-        "processId": "probe-7",
-        "bytes": 14,
-        "head": "LOCAL_TEST_OK\n",
-        "tail": "LOCAL_TEST_OK\n",
-        "exit": {
-          "processId": "probe-7",
-          "seq": 2,
-          "exitCode": 0,
-          "sandboxDenied": false
-        },
-        "sha256": "71f4f33159dfa1e02dc8b7ff0fc926d40faffba48911afe41d517664675ed085"
-      }
-    },
-    {
-      "name": "native enabled without proxy runs internal localhost test",
-      "status": "passed",
-      "expectedExit": 0,
-      "detail": {
-        "processId": "probe-8",
-        "bytes": 14,
-        "head": "LOCAL_TEST_OK\n",
-        "tail": "LOCAL_TEST_OK\n",
-        "exit": {
-          "processId": "probe-8",
-          "seq": 2,
-          "exitCode": 0,
-          "sandboxDenied": false
-        },
-        "sha256": "71f4f33159dfa1e02dc8b7ff0fc926d40faffba48911afe41d517664675ed085"
-      }
-    },
-    {
-      "name": "restricted without proxy rejects internal listener",
-      "status": "passed",
-      "expectedExit": 11,
-      "detail": {
-        "processId": "probe-9",
-        "bytes": 54,
-        "head": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
-        "tail": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
-        "exit": {
-          "processId": "probe-9",
-          "seq": 2,
-          "exitCode": 11,
-          "sandboxDenied": true
-        },
-        "sha256": "38ccdafb99bf0b80a3c70d935799d0535c54630bea9ea209c7e87bf017dffcff"
-      }
-    },
-    {
-      "name": "local binding preserves restricted file policy",
-      "status": "passed",
-      "expectedExit": 0,
-      "detail": {
-        "processId": "probe-10",
-        "bytes": 18,
-        "head": "FILE_DENIED EPERM\n",
-        "tail": "FILE_DENIED EPERM\n",
-        "exit": {
-          "processId": "probe-10",
-          "seq": 2,
-          "exitCode": 0,
-          "sandboxDenied": false
-        },
-        "sha256": "586966d6dc5791937335a850f0437a4531297499f732589746f2e117704a3bfe"
-      }
-    },
-    {
-      "name": "native network enabled preserves restricted file policy",
-      "status": "passed",
-      "expectedExit": 0,
-      "detail": {
-        "processId": "probe-11",
-        "bytes": 18,
-        "head": "FILE_DENIED EPERM\n",
-        "tail": "FILE_DENIED EPERM\n",
-        "exit": {
-          "processId": "probe-11",
-          "seq": 2,
-          "exitCode": 0,
-          "sandboxDenied": false
-        },
-        "sha256": "586966d6dc5791937335a850f0437a4531297499f732589746f2e117704a3bfe"
-      }
-    }
-  ],
-  "cleaned": true,
-  "stderr": ""
+	"date": "2026-10-09T22:50:02.436Z",
+	"version": "0.162.0",
+	"platform": "darwin",
+	"arch": "arm64",
+	"node": "v24.21.0",
+	"passed": 10,
+	"failed": 0,
+	"checks": [
+		{
+			"name": "proxy wildcard false rejects existing loopback server",
+			"status": "passed",
+			"expectedExit": 22,
+			"detail": {
+				"processId": "probe-2",
+				"bytes": 49,
+				"head": "curl: (22) The requested URL returned error: 403\n",
+				"tail": "curl: (22) The requested URL returned error: 403\n",
+				"exit": {
+					"processId": "probe-2",
+					"seq": 2,
+					"exitCode": 22,
+					"sandboxDenied": false
+				},
+				"sha256": "e85a8cbf6458f846675a9fd218c04399e808ed1f6629e19c4dd964125cd967c9"
+			}
+		},
+		{
+			"name": "proxy exact IP false permits existing loopback server",
+			"status": "passed",
+			"expectedExit": 0,
+			"detail": {
+				"processId": "probe-3",
+				"bytes": 18,
+				"head": "EXISTING_SERVER_OK",
+				"tail": "EXISTING_SERVER_OK",
+				"exit": {
+					"processId": "probe-3",
+					"seq": 2,
+					"exitCode": 0,
+					"sandboxDenied": false
+				},
+				"sha256": "81744ef52d6c2d3e6c468647f31579d682d1bf052764156424a29672b4587297"
+			}
+		},
+		{
+			"name": "proxy wildcard false rejects internal listener",
+			"status": "passed",
+			"expectedExit": 11,
+			"detail": {
+				"processId": "probe-4",
+				"bytes": 54,
+				"head": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
+				"tail": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
+				"exit": {
+					"processId": "probe-4",
+					"seq": 2,
+					"exitCode": 11,
+					"sandboxDenied": true
+				},
+				"sha256": "38ccdafb99bf0b80a3c70d935799d0535c54630bea9ea209c7e87bf017dffcff"
+			}
+		},
+		{
+			"name": "proxy exact IP false still rejects internal listener",
+			"status": "passed",
+			"expectedExit": 11,
+			"detail": {
+				"processId": "probe-5",
+				"bytes": 54,
+				"head": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
+				"tail": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
+				"exit": {
+					"processId": "probe-5",
+					"seq": 2,
+					"exitCode": 11,
+					"sandboxDenied": true
+				},
+				"sha256": "38ccdafb99bf0b80a3c70d935799d0535c54630bea9ea209c7e87bf017dffcff"
+			}
+		},
+		{
+			"name": "proxy wildcard true runs internal localhost test",
+			"status": "passed",
+			"expectedExit": 0,
+			"detail": {
+				"processId": "probe-6",
+				"bytes": 14,
+				"head": "LOCAL_TEST_OK\n",
+				"tail": "LOCAL_TEST_OK\n",
+				"exit": {
+					"processId": "probe-6",
+					"seq": 2,
+					"exitCode": 0,
+					"sandboxDenied": false
+				},
+				"sha256": "71f4f33159dfa1e02dc8b7ff0fc926d40faffba48911afe41d517664675ed085"
+			}
+		},
+		{
+			"name": "proxy empty domains true runs internal localhost test",
+			"status": "passed",
+			"expectedExit": 0,
+			"detail": {
+				"processId": "probe-7",
+				"bytes": 14,
+				"head": "LOCAL_TEST_OK\n",
+				"tail": "LOCAL_TEST_OK\n",
+				"exit": {
+					"processId": "probe-7",
+					"seq": 2,
+					"exitCode": 0,
+					"sandboxDenied": false
+				},
+				"sha256": "71f4f33159dfa1e02dc8b7ff0fc926d40faffba48911afe41d517664675ed085"
+			}
+		},
+		{
+			"name": "native enabled without proxy runs internal localhost test",
+			"status": "passed",
+			"expectedExit": 0,
+			"detail": {
+				"processId": "probe-8",
+				"bytes": 14,
+				"head": "LOCAL_TEST_OK\n",
+				"tail": "LOCAL_TEST_OK\n",
+				"exit": {
+					"processId": "probe-8",
+					"seq": 2,
+					"exitCode": 0,
+					"sandboxDenied": false
+				},
+				"sha256": "71f4f33159dfa1e02dc8b7ff0fc926d40faffba48911afe41d517664675ed085"
+			}
+		},
+		{
+			"name": "restricted without proxy rejects internal listener",
+			"status": "passed",
+			"expectedExit": 11,
+			"detail": {
+				"processId": "probe-9",
+				"bytes": 54,
+				"head": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
+				"tail": "EPERM listen EPERM: operation not permitted 127.0.0.1\n",
+				"exit": {
+					"processId": "probe-9",
+					"seq": 2,
+					"exitCode": 11,
+					"sandboxDenied": true
+				},
+				"sha256": "38ccdafb99bf0b80a3c70d935799d0535c54630bea9ea209c7e87bf017dffcff"
+			}
+		},
+		{
+			"name": "local binding preserves restricted file policy",
+			"status": "passed",
+			"expectedExit": 0,
+			"detail": {
+				"processId": "probe-10",
+				"bytes": 18,
+				"head": "FILE_DENIED EPERM\n",
+				"tail": "FILE_DENIED EPERM\n",
+				"exit": {
+					"processId": "probe-10",
+					"seq": 2,
+					"exitCode": 0,
+					"sandboxDenied": false
+				},
+				"sha256": "586966d6dc5791937335a850f0437a4531297499f732589746f2e117704a3bfe"
+			}
+		},
+		{
+			"name": "native network enabled preserves restricted file policy",
+			"status": "passed",
+			"expectedExit": 0,
+			"detail": {
+				"processId": "probe-11",
+				"bytes": 18,
+				"head": "FILE_DENIED EPERM\n",
+				"tail": "FILE_DENIED EPERM\n",
+				"exit": {
+					"processId": "probe-11",
+					"seq": 2,
+					"exitCode": 0,
+					"sandboxDenied": false
+				},
+				"sha256": "586966d6dc5791937335a850f0437a4531297499f732589746f2e117704a3bfe"
+			}
+		}
+	],
+	"cleaned": true,
+	"stderr": ""
 }

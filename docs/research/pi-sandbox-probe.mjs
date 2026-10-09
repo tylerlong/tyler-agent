@@ -1,20 +1,21 @@
 // macOS experiment; see pi-sandbox-feasibility.md for isolated setup and expected failure.
 // Usage: PI_PROBE_PNPM_ROOT=<installed-pnpm-root> node pi-sandbox-probe.mjs <runtime-root> <results.json>
 import assert from "node:assert/strict";
-import { spawn, execFileSync } from "node:child_process";
-import { createInterface } from "node:readline";
+import { execFileSync, spawn } from "node:child_process";
 import {
 	mkdir,
 	readFile,
-	writeFile,
 	realpath,
+	rm,
 	stat,
 	symlink,
-	rm,
+	writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
+import { createInterface } from "node:readline";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
 const self = fileURLToPath(import.meta.url);
 const q = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
 const emit = (x) => process.stdout.write(JSON.stringify(x) + "\n");
