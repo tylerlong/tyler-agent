@@ -1,0 +1,907 @@
+{
+	"version": "0.7.8",
+	"source": "7b7b9dc89e9a1c77801918f7833c3381d1754579",
+	"image": "node:24-alpine",
+	"startedAt": "2026-10-09T20:47:06.091Z",
+	"root": "/private/tmp/tmsb-probe-VxueQ1",
+	"checks": [
+		{
+			"name": "Node Linux image boot without account or model",
+			"pass": true,
+			"ms": 267.12637500000005,
+			"details": {
+				"code": 0,
+				"status": {
+					"code": 0,
+					"success": true
+				},
+				"stdout": "{\"platform\":\"linux\",\"arch\":\"arm64\",\"version\":\"v24.21.0\"}\n",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "cached image creates separate B permission scope",
+			"pass": true,
+			"ms": 207.36845800000003,
+			"details": {
+				"ping": {
+					"name": "tmsbprobeVxueQ1-b",
+					"latencyMs": 0.091917
+				},
+				"config": {
+					"name": "tmsbprobeVxueQ1-b",
+					"image": {
+						"Oci": {
+							"reference": "node:24-alpine",
+							"rootDisk": {
+								"kind": "managed",
+								"sizeMib": 1024
+							}
+						}
+					},
+					"resources": {
+						"cpus": 1,
+						"memoryMib": 512,
+						"maxCpus": 1,
+						"maxMemoryMib": 512
+					},
+					"runtime": {
+						"workdir": "/",
+						"shell": "/bin/sh",
+						"scripts": {},
+						"entrypoint": ["docker-entrypoint.sh"],
+						"cmd": ["node"],
+						"hostname": null,
+						"user": null,
+						"logLevel": null,
+						"metricsSampleIntervalMs": 200,
+						"disableMetricsSample": false
+					},
+					"env": [
+						{
+							"key": "PATH",
+							"value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+						},
+						{
+							"key": "NODE_VERSION",
+							"value": "24.21.0"
+						},
+						{
+							"key": "YARN_VERSION",
+							"value": "1.22.22"
+						}
+					],
+					"labels": {},
+					"rlimits": [],
+					"mounts": [
+						{
+							"type": "Bind",
+							"host": "/private/tmp/tmsb-probe-VxueQ1/b",
+							"guest": "/private/tmp/tmsb-probe-VxueQ1/b",
+							"options": {
+								"readonly": false,
+								"noexec": false,
+								"nosuid": false,
+								"nodev": false
+							},
+							"statVirtualization": "strict",
+							"hostPermissions": "private",
+							"followRootSymlinks": false,
+							"quotaMib": 128
+						},
+						{
+							"type": "Bind",
+							"host": "/private/tmp/tmsb-probe-VxueQ1/tmp-b",
+							"guest": "/private/tmp/tmsb-probe-VxueQ1/tmp-b",
+							"options": {
+								"readonly": false,
+								"noexec": false,
+								"nosuid": false,
+								"nodev": false
+							},
+							"statVirtualization": "strict",
+							"hostPermissions": "private",
+							"followRootSymlinks": false,
+							"quotaMib": 128
+						}
+					],
+					"patches": [],
+					"network": {
+						"enabled": true,
+						"interface": {},
+						"ports": [],
+						"policy": {
+							"defaultEgress": "deny",
+							"defaultIngress": "deny",
+							"rules": []
+						},
+						"dns": {
+							"rebindProtection": true,
+							"nameservers": [],
+							"queryTimeoutMs": 5000
+						},
+						"tls": {
+							"enabled": false,
+							"interceptedPorts": [443],
+							"bypass": [],
+							"verifyUpstream": true,
+							"blockQuicOnIntercept": true,
+							"upstreamCaCert": [],
+							"scopedUpstreamCaCert": [],
+							"scopedVerifyUpstream": [],
+							"interceptCa": {
+								"certPath": null,
+								"keyPath": null
+							},
+							"cache": {
+								"capacity": 1000,
+								"validityHours": 24
+							}
+						},
+						"strict": true,
+						"secrets": {
+							"secrets": [],
+							"violationAction": "block-and-log"
+						},
+						"maxConnections": null,
+						"nat64Prefixes": ["64:ff9b::/96"],
+						"trustHostCas": false,
+						"http": {
+							"denyResponse": false
+						}
+					},
+					"init": null,
+					"pullPolicy": "IfMissing",
+					"securityProfile": "restricted",
+					"deploymentProfile": "single_tenant",
+					"lifecycle": {
+						"ephemeral": false,
+						"maxDurationSecs": null,
+						"idleTimeoutSecs": null
+					},
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"externalMountPolicy": "strict"
+				}
+			}
+		},
+		{
+			"name": "concurrent filesystem scopes, target and own tmp",
+			"pass": true,
+			"ms": 4.8331249999999955,
+			"details": [
+				"A",
+				"B",
+				{
+					"name": "SandboxFsOpsError",
+					"message": "sandbox fs error: open: No such file or directory (os error 2)"
+				},
+				{
+					"name": "SandboxFsOpsError",
+					"message": "sandbox fs error: open: No such file or directory (os error 2)"
+				},
+				{
+					"name": "SandboxFsOpsError",
+					"message": "sandbox fs error: open: No such file or directory (os error 2)"
+				}
+			]
+		},
+		{
+			"name": "commands cannot read/write outside or other agent tmp",
+			"pass": true,
+			"ms": 50.077,
+			"details": {
+				"code": 0,
+				"status": {
+					"code": 0,
+					"success": true
+				},
+				"stdout": "ENOENT\nENOENT\nENOENT\nENOENT\n",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "literal glob characters and Unicode Target paths",
+			"pass": true,
+			"ms": 18.277458000000024,
+			"details": {
+				"code": 0,
+				"status": {
+					"code": 0,
+					"success": true
+				},
+				"stdout": "LITERAL\n",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "read-only host mount cannot be modified by guest root",
+			"pass": true,
+			"ms": 39.26166699999999,
+			"details": {
+				"error": {
+					"name": "SandboxFsOpsError",
+					"message": "sandbox fs error: open: Read-only file system (os error 30)"
+				},
+				"result": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "EROFS\n",
+					"stderr": ""
+				}
+			}
+		},
+		{
+			"name": "unapproved symlink target denied through fs and command",
+			"pass": true,
+			"ms": 18.409958999999958,
+			"details": {
+				"errors": [
+					{
+						"name": "SandboxFsOpsError",
+						"message": "sandbox fs error: open: No such file or directory (os error 2)"
+					},
+					{
+						"name": "SandboxFsOpsError",
+						"message": "sandbox fs error: open: No such file or directory (os error 2)"
+					}
+				],
+				"result": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "ENOENT\n",
+					"stderr": ""
+				}
+			}
+		},
+		{
+			"name": "fs rename/delete link modifies link entry only",
+			"pass": true,
+			"ms": 2.857917000000043,
+			"details": {
+				"outsidePreserved": true
+			}
+		},
+		{
+			"name": "existing cross-scope hardlink remains accepted best-efforts limit",
+			"pass": true,
+			"ms": 2.0919580000000906,
+			"details": {
+				"warning": "writes through an existing hardlink affect an outside inode; accepted v1 limitation"
+			}
+		},
+		{
+			"name": "approval once: new VM adds target, next baseline command denied",
+			"pass": true,
+			"ms": 205.75416600000005,
+			"details": {
+				"nextBaselineDenied": {
+					"name": "SandboxFsOpsError",
+					"message": "sandbox fs error: open: No such file or directory (os error 2)"
+				},
+				"newInstanceRequired": true
+			}
+		},
+		{
+			"name": "host copy methods are trusted operations, not guest isolation",
+			"pass": true,
+			"ms": 6.282208999999966,
+			"details": {
+				"warning": "SDK host copy bypasses guest mount scope; must omit or validate host arguments in trusted adapter"
+			}
+		},
+		{
+			"name": "network deny and direct IP bypass denied",
+			"pass": true,
+			"ms": 125.93270900000005,
+			"details": [
+				{
+					"code": 1,
+					"status": {
+						"code": 1,
+						"success": false
+					},
+					"stdout": "",
+					"stderr": "TypeError fetch failed ENOTFOUND\n"
+				},
+				{
+					"code": 1,
+					"status": {
+						"code": 1,
+						"success": false
+					},
+					"stdout": "",
+					"stderr": "TypeError fetch failed ECONNREFUSED\n"
+				}
+			]
+		},
+		{
+			"name": "domain allowed with strict TLS interception; outside domain denied",
+			"pass": true,
+			"ms": 618.9354589999999,
+			"details": {
+				"allowed": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "200\n",
+					"stderr": ""
+				},
+				"denied": {
+					"code": 1,
+					"status": {
+						"code": 1,
+						"success": false
+					},
+					"stdout": "",
+					"stderr": "TypeError fetch failed ENOTFOUND\n"
+				},
+				"config": {
+					"name": "tmsbprobeVxueQ1-domain",
+					"image": {
+						"Oci": {
+							"reference": "node:24-alpine",
+							"rootDisk": {
+								"kind": "managed",
+								"sizeMib": 1024
+							}
+						}
+					},
+					"resources": {
+						"cpus": 1,
+						"memoryMib": 512,
+						"maxCpus": 1,
+						"maxMemoryMib": 512
+					},
+					"runtime": {
+						"workdir": "/",
+						"shell": "/bin/sh",
+						"scripts": {},
+						"entrypoint": ["docker-entrypoint.sh"],
+						"cmd": ["node"],
+						"hostname": null,
+						"user": null,
+						"logLevel": null,
+						"metricsSampleIntervalMs": 200,
+						"disableMetricsSample": false
+					},
+					"env": [
+						{
+							"key": "PATH",
+							"value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+						},
+						{
+							"key": "NODE_VERSION",
+							"value": "24.21.0"
+						},
+						{
+							"key": "YARN_VERSION",
+							"value": "1.22.22"
+						}
+					],
+					"labels": {},
+					"rlimits": [],
+					"mounts": [
+						{
+							"type": "Bind",
+							"host": "/private/tmp/tmsb-probe-VxueQ1/a",
+							"guest": "/private/tmp/tmsb-probe-VxueQ1/a",
+							"options": {
+								"readonly": false,
+								"noexec": false,
+								"nosuid": false,
+								"nodev": false
+							},
+							"statVirtualization": "strict",
+							"hostPermissions": "private",
+							"followRootSymlinks": false,
+							"quotaMib": 128
+						},
+						{
+							"type": "Bind",
+							"host": "/private/tmp/tmsb-probe-VxueQ1/tmp-a",
+							"guest": "/private/tmp/tmsb-probe-VxueQ1/tmp-a",
+							"options": {
+								"readonly": false,
+								"noexec": false,
+								"nosuid": false,
+								"nodev": false
+							},
+							"statVirtualization": "strict",
+							"hostPermissions": "private",
+							"followRootSymlinks": false,
+							"quotaMib": 128
+						}
+					],
+					"patches": [],
+					"network": {
+						"enabled": true,
+						"interface": {},
+						"ports": [],
+						"policy": {
+							"defaultEgress": "deny",
+							"defaultIngress": "deny",
+							"rules": [
+								{
+									"direction": "egress",
+									"destination": {
+										"domain": "registry.npmjs.org"
+									},
+									"protocols": [],
+									"ports": [],
+									"action": "allow"
+								}
+							]
+						},
+						"dns": {
+							"rebindProtection": true,
+							"nameservers": [],
+							"queryTimeoutMs": 5000
+						},
+						"tls": {
+							"enabled": true,
+							"interceptedPorts": [443],
+							"bypass": [],
+							"verifyUpstream": true,
+							"blockQuicOnIntercept": true,
+							"upstreamCaCert": [],
+							"scopedUpstreamCaCert": [],
+							"scopedVerifyUpstream": [],
+							"interceptCa": {
+								"certPath": null,
+								"keyPath": null
+							},
+							"cache": {
+								"capacity": 1000,
+								"validityHours": 24
+							}
+						},
+						"strict": true,
+						"secrets": {
+							"secrets": [],
+							"violationAction": "block-and-log"
+						},
+						"maxConnections": null,
+						"nat64Prefixes": ["64:ff9b::/96"],
+						"trustHostCas": false,
+						"http": {
+							"denyResponse": false
+						}
+					},
+					"init": null,
+					"pullPolicy": "IfMissing",
+					"securityProfile": "restricted",
+					"deploymentProfile": "single_tenant",
+					"lifecycle": {
+						"ephemeral": false,
+						"maxDurationSecs": null,
+						"idleTimeoutSecs": null
+					},
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"externalMountPolicy": "strict"
+				}
+			}
+		},
+		{
+			"name": "independent network policies concurrent, no scope leakage",
+			"pass": true,
+			"ms": 299.5395840000001,
+			"details": [
+				{
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "200\n",
+					"stderr": ""
+				},
+				{
+					"code": 1,
+					"status": {
+						"code": 1,
+						"success": false
+					},
+					"stdout": "",
+					"stderr": "TypeError fetch failed ENOTFOUND\n"
+				}
+			]
+		},
+		{
+			"name": "full network keeps filesystem restricted",
+			"pass": true,
+			"ms": 553.5316250000001,
+			"details": {
+				"results": [
+					{
+						"code": 0,
+						"status": {
+							"code": 0,
+							"success": true
+						},
+						"stdout": "200\n",
+						"stderr": ""
+					},
+					{
+						"code": 0,
+						"status": {
+							"code": 0,
+							"success": true
+						},
+						"stdout": "200\n",
+						"stderr": ""
+					}
+				],
+				"outsideDenied": {
+					"name": "SandboxFsOpsError",
+					"message": "sandbox fs error: open: No such file or directory (os error 2)"
+				}
+			}
+		},
+		{
+			"name": "full host filesystem bind retains network deny",
+			"pass": false,
+			"ms": 10269.276624999999,
+			"error": {
+				"name": "Error",
+				"message": "operation deadline 10000ms",
+				"stack": "Error: operation deadline 10000ms\n    at Timeout.<anonymous> (file:///Users/tyler.liu/src/ai/tyler-agent/docs/research/microsandbox-probe.mjs:91:39)\n    at listOnTimeout (node:internal/timers:685:17)\n    at process.processTimers (node:internal/timers:618:7)"
+			}
+		},
+		{
+			"name": "8 MiB binary stdout stream is complete",
+			"pass": true,
+			"ms": 89.58458299999984,
+			"details": {
+				"bytes": 8388608,
+				"digest": "ad97f87076920684e2ca66fc44e5d322797dc9d64706b174e51b5d0828937043",
+				"exited": 0
+			}
+		},
+		{
+			"name": "interactive input pipe",
+			"pass": true,
+			"ms": 33.892125000000306,
+			"details": {
+				"code": 0,
+				"status": {
+					"code": 0,
+					"success": true
+				},
+				"stdout": "REPLY:hello\n",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "interactive input PTY",
+			"pass": true,
+			"ms": 1.686415999998644,
+			"details": {
+				"code": 0,
+				"status": {
+					"code": 0,
+					"success": true
+				},
+				"stdout": "hello\r\nREPLY:hello\r\n",
+				"stderr": ""
+			}
+		},
+		{
+			"name": "command timeout kills ordinary process",
+			"pass": true,
+			"ms": 405.89679100000103,
+			"details": {
+				"error": {
+					"name": "ExecTimeoutError",
+					"message": "exec timed out after 350ms"
+				},
+				"alive": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "ESRCH\n",
+					"stderr": ""
+				},
+				"ms": 405.8283339999998
+			}
+		},
+		{
+			"name": "kill ordinary descendants while sibling command survives",
+			"pass": true,
+			"ms": 566.6061250000002,
+			"details": {
+				"result": {
+					"code": -1,
+					"status": {
+						"code": -1,
+						"success": false
+					},
+					"stdout": "",
+					"stderr": ""
+				},
+				"alive": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "ESRCH\n",
+					"stderr": ""
+				},
+				"survivor": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "SIBLING\n",
+					"stderr": ""
+				}
+			}
+		},
+		{
+			"name": "command kill intentionally detached descendant",
+			"pass": false,
+			"ms": 103.72354099999939,
+			"error": {
+				"name": "AssertionError",
+				"message": "detached descendant survived command kill\n\n2 !== 0\n",
+				"stack": "AssertionError [ERR_ASSERTION]: detached descendant survived command kill\n\n2 !== 0\n\n    at file:///Users/tyler.liu/src/ai/tyler-agent/docs/research/microsandbox-probe.mjs:251:12\n    at async check (file:///Users/tyler.liu/src/ai/tyler-agent/docs/research/microsandbox-probe.mjs:43:21)\n    at async file:///Users/tyler.liu/src/ai/tyler-agent/docs/research/microsandbox-probe.mjs:243:3"
+			}
+		},
+		{
+			"name": "VM kill stops detached heartbeat and leaves B functional",
+			"pass": true,
+			"ms": 760.393,
+			"details": {
+				"before": "1791578840273",
+				"running": "1791578840405",
+				"stopped": "1791578840405",
+				"killMs": 61.33783399999993,
+				"wasRunning": true
+			}
+		},
+		{
+			"name": "real Linux git and pnpm online install with artifact",
+			"pass": true,
+			"ms": 2549.3914170000007,
+			"details": {
+				"preparation": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "( 1/13) Installing brotli-libs (1.2.0-r1)\n( 2/13) Installing c-ares (1.34.8-r0)\n( 3/13) Installing libunistring (1.4.2-r0)\n( 4/13) Installing libidn2 (2.3.8-r0)\n( 5/13) Installing nghttp2-libs (1.70.0-r0)\n( 6/13) Installing libpsl (0.21.5-r3)\n( 7/13) Installing zstd-libs (1.5.7-r2)\n( 8/13) Installing libcurl (8.22.0-r0)\n( 9/13) Installing curl (8.22.0-r0)\n(10/13) Installing libexpat (2.8.5-r0)\n(11/13) Installing pcre2 (10.49-r0)\n(12/13) Installing git (2.54.0-r0)\n(13/13) Installing git-init-template (2.54.0-r0)\nExecuting busybox-1.37.0-r31.trigger\nOK: 24.4 MiB in 31 packages\n\nadded 1 package in 926ms\n\n1 package is looking for funding\n  run `npm fund` for details\n",
+					"stderr": "npm notice\nnpm notice New major version of npm available! 11.19.0 -> 12.2.0\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0\nnpm notice To update run: npm install -g npm@12.2.0\nnpm notice\n"
+				},
+				"install": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "Progress: resolved 1, reused 0, downloaded 0, added 0\nPackages: +1\n+\n\n   ╭──────────────────────────────────────────╮\n   │                                          │\n   │   Update available! 11.22.0 → 12.10.1.   │\n   │   Changelog: https://pnpm.io/v/12.10.1   │\n   │     To update, run: pnpm add -g pnpm     │\n   │                                          │\n   ╰──────────────────────────────────────────╯\n\nPackages are copied from the content-addressable store to the virtual store.\n  Content-addressable store is at: /private/tmp/tmsb-probe-VxueQ1/tmp-a/pnpm-store/v11\n  Virtual store is at:             node_modules/.pnpm\nProgress: resolved 1, reused 0, downloaded 1, added 1, done\n\ndependencies:\n+ is-number 7.0.0\n\nDone in 602ms using pnpm v11.22.0\n",
+					"stderr": ""
+				},
+				"artifact": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "VERIFIED\n",
+					"stderr": ""
+				},
+				"git": {
+					"code": 0,
+					"status": {
+						"code": 0,
+						"success": true
+					},
+					"stdout": "Initialized empty Git repository in /private/tmp/tmsb-probe-VxueQ1/a/project/.git/\n[master (root-commit) 9e6f739] initial\n 1 file changed, 1 insertion(+)\n create mode 100644 package.json\n package.json | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n",
+					"stderr": "hint: Using 'master' as the name for the initial branch. This default branch name\nhint: will change to \"main\" in Git 3.0. To configure the initial branch name\nhint: to use in all of your new repositories, which will suppress this warning,\nhint: call:\nhint:\nhint: \tgit config --global init.defaultBranch <name>\nhint:\nhint: Names commonly chosen instead of 'master' are 'main', 'trunk' and\nhint: 'development'. The just-created branch can be renamed via this command:\nhint:\nhint: \tgit branch -m <name>\nhint:\nhint: Disable this message with \"git config set advice.defaultBranchName false\"\n"
+				}
+			}
+		},
+		{
+			"name": "literal comma Target rejected with explicit error",
+			"pass": true,
+			"ms": 0.4565419999998994,
+			"details": {
+				"error": {
+					"name": "InvalidConfigError",
+					"message": "invalid config: guest mount path must not contain ':', ';', or ',': /private/tmp/tmsb-probe-VxueQ1/target,comma"
+				},
+				"requiresPreflightRejection": true
+			}
+		}
+	],
+	"creations": [
+		{
+			"label": "a",
+			"name": "tmsbprobeVxueQ1-a",
+			"ms": 213.235708,
+			"events": [
+				{
+					"kind": "resolving",
+					"reference": "node:24-alpine"
+				},
+				{
+					"kind": "resolved",
+					"reference": "node:24-alpine",
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"layerCount": 4,
+					"totalDownloadBytes": 62053735
+				},
+				{
+					"kind": "complete",
+					"reference": "node:24-alpine",
+					"layerCount": 4
+				}
+			]
+		},
+		{
+			"label": "b",
+			"name": "tmsbprobeVxueQ1-b",
+			"ms": 205.67458300000004,
+			"events": [
+				{
+					"kind": "resolving",
+					"reference": "node:24-alpine"
+				},
+				{
+					"kind": "resolved",
+					"reference": "node:24-alpine",
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"layerCount": 4,
+					"totalDownloadBytes": 62053735
+				},
+				{
+					"kind": "complete",
+					"reference": "node:24-alpine",
+					"layerCount": 4
+				}
+			]
+		},
+		{
+			"label": "extra",
+			"name": "tmsbprobeVxueQ1-extra",
+			"ms": 199.246042,
+			"events": [
+				{
+					"kind": "resolving",
+					"reference": "node:24-alpine"
+				},
+				{
+					"kind": "resolved",
+					"reference": "node:24-alpine",
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"layerCount": 4,
+					"totalDownloadBytes": 62053735
+				},
+				{
+					"kind": "complete",
+					"reference": "node:24-alpine",
+					"layerCount": 4
+				}
+			]
+		},
+		{
+			"label": "domain",
+			"name": "tmsbprobeVxueQ1-domain",
+			"ms": 276.213125,
+			"events": [
+				{
+					"kind": "resolving",
+					"reference": "node:24-alpine"
+				},
+				{
+					"kind": "resolved",
+					"reference": "node:24-alpine",
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"layerCount": 4,
+					"totalDownloadBytes": 62053735
+				},
+				{
+					"kind": "complete",
+					"reference": "node:24-alpine",
+					"layerCount": 4
+				}
+			]
+		},
+		{
+			"label": "fullnetwork",
+			"name": "tmsbprobeVxueQ1-fullnetwork",
+			"ms": 210.49562500000002,
+			"events": [
+				{
+					"kind": "resolving",
+					"reference": "node:24-alpine"
+				},
+				{
+					"kind": "resolved",
+					"reference": "node:24-alpine",
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"layerCount": 4,
+					"totalDownloadBytes": 62053735
+				},
+				{
+					"kind": "complete",
+					"reference": "node:24-alpine",
+					"layerCount": 4
+				}
+			]
+		},
+		{
+			"label": "fullfiles",
+			"name": "tmsbprobeVxueQ1-fullfiles",
+			"ms": 206.36379099999976,
+			"events": [
+				{
+					"kind": "resolving",
+					"reference": "node:24-alpine"
+				},
+				{
+					"kind": "resolved",
+					"reference": "node:24-alpine",
+					"manifestDigest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f",
+					"layerCount": 4,
+					"totalDownloadBytes": 62053735
+				},
+				{
+					"kind": "complete",
+					"reference": "node:24-alpine",
+					"layerCount": 4
+				}
+			]
+		}
+	],
+	"cleanup": [
+		{
+			"name": "tmsbprobeVxueQ1-a",
+			"pass": true
+		},
+		{
+			"name": "tmsbprobeVxueQ1-b",
+			"pass": true
+		},
+		{
+			"name": "tmsbprobeVxueQ1-domain",
+			"pass": true
+		},
+		{
+			"name": "tmsbprobeVxueQ1-fullnetwork",
+			"pass": true
+		}
+	],
+	"metrics": {
+		"cpuPercent": 0.18020184338092804,
+		"vcpuTimeNs": 447215958,
+		"memoryBytes": 60264448,
+		"memoryAvailableBytes": 476606464,
+		"memoryHostResidentBytes": 142131200,
+		"memoryLimitBytes": 536870912,
+		"diskReadBytes": 58680320,
+		"diskWriteBytes": 237568,
+		"netRxBytes": 252,
+		"netTxBytes": 928,
+		"upperUsedBytes": 86016,
+		"upperFreeBytes": 967643136,
+		"upperHostAllocatedBytes": 4603904,
+		"uptimeMs": 16942,
+		"timestamp": "2026-10-09T20:47:23.103Z"
+	},
+	"finishedAt": "2026-10-09T20:47:23.567Z",
+	"passed": 23,
+	"failed": 2
+}

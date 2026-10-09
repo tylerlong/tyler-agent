@@ -1,0 +1,115 @@
+{
+	"version": "0.7.8",
+	"directDependenciesAdded": 1,
+	"actualInstalledPackageDirectories": 3,
+	"lockPackageEntries": 7,
+	"packages": [
+		{
+			"name": "node_modules/@microsandbox/types",
+			"version": "0.7.8",
+			"integrity": "sha512-GCLuiSbTXU/5s8/VhyQzRc8AtDyz4uaIk3fP0GbWAPvj2xJfR7rpUr51UYZIFd9ONwAqa7XEfpyr8jnlFInkhA=="
+		},
+		{
+			"name": "node_modules/@superradcompany/microsandbox-darwin-arm64",
+			"version": "0.7.8",
+			"integrity": "sha512-WoTlB2b06o32AXW3D3Xp6GLiSoAXGNqNikbakA/RP2Uqj2Z8mfoDZ7mYKONLG7PXUAWu/vTTqJkOtVt8JFEWvA==",
+			"optional": true
+		},
+		{
+			"name": "node_modules/@superradcompany/microsandbox-linux-arm64-gnu",
+			"version": "0.7.8",
+			"integrity": "sha512-NRm8GVXlgoPsLYX8BovMTwg4oNWiT0EZp34+6zM7s7slhCbv3TItebbg6urKj8yqKoLP1T+OHH/7Y/RnD9omZw==",
+			"optional": true
+		},
+		{
+			"name": "node_modules/@superradcompany/microsandbox-linux-x64-gnu",
+			"version": "0.7.8",
+			"integrity": "sha512-4AnLhlDSvgzQPTrKcd6kCpCpgPWq275sGWTy7tg1deo42lU0PXKtwnaUlBx7uBdQO4YFIGfIx0T8lgsGO9h5EA==",
+			"optional": true
+		},
+		{
+			"name": "node_modules/@superradcompany/microsandbox-win32-arm64-msvc",
+			"version": "0.7.8",
+			"integrity": "sha512-wwXD/B9JwmyDAhrkX2V4L4VHVumDK1JbMnUFTOuNCoozyeNV4fogL+BziINp3HeInBTbKOJrAI7+A8kTawKfPA==",
+			"optional": true
+		},
+		{
+			"name": "node_modules/@superradcompany/microsandbox-win32-x64-msvc",
+			"version": "0.7.8",
+			"integrity": "sha512-m11kPzyaid/DMXK5kJRvDZEGkdlvndmOzfjNjfhqpL+LFQssnJgQ2WSyYfBQMrHj17pRfDkDxqwZPr9iXZoSMw==",
+			"optional": true
+		},
+		{
+			"name": "node_modules/microsandbox",
+			"version": "0.7.8",
+			"integrity": "sha512-bUll2JNeVhAdvtlemsD5rNkVpLU0KQSXVpuSjXFmkG6Z52Z2ZL9sP8hAdFT8pIGoEPLj+OB9ohgFEPsJgBVkFg=="
+		}
+	],
+	"sdkLogicalBytes": 93529052,
+	"sdkAllocatedBytes": 94208000,
+	"binaries": [
+		{
+			"name": "msb",
+			"bytes": 37831264,
+			"sha256": "0995a03d0eaf46c7fadb28ea419be800def10f9152a12f0c03216bf4c8a0f06f"
+		},
+		{
+			"name": "addon",
+			"bytes": 30100336,
+			"sha256": "323a28e9819452e414391c3f02dddc7a4f03262f34a9426226df83173aad0fe3"
+		},
+		{
+			"name": "firmware",
+			"bytes": 24801440,
+			"sha256": "723f7cd73be9bab21c0abf6a9b07b45a07d4cd178f1690250e392d55dfb236b4"
+		}
+	],
+	"npmScriptsExecuted": false,
+	"platform": "darwin-arm64",
+	"nodeVersion": "v24.21.0",
+	"projectLockChanges": {
+		"packages": {
+			"added": [
+				"@microsandbox/types@0.7.8",
+				"@superradcompany/microsandbox-darwin-arm64@0.7.8",
+				"@superradcompany/microsandbox-linux-arm64-gnu@0.7.8",
+				"@superradcompany/microsandbox-linux-x64-gnu@0.7.8",
+				"@superradcompany/microsandbox-win32-arm64-msvc@0.7.8",
+				"@superradcompany/microsandbox-win32-x64-msvc@0.7.8",
+				"microsandbox@0.7.8"
+			],
+			"removed": []
+		},
+		"snapshots": {
+			"added": [
+				"@microsandbox/types@0.7.8",
+				"@superradcompany/microsandbox-darwin-arm64@0.7.8",
+				"@superradcompany/microsandbox-linux-arm64-gnu@0.7.8",
+				"@superradcompany/microsandbox-linux-x64-gnu@0.7.8",
+				"@superradcompany/microsandbox-win32-arm64-msvc@0.7.8",
+				"@superradcompany/microsandbox-win32-x64-msvc@0.7.8",
+				"microsandbox@0.7.8"
+			],
+			"removed": []
+		}
+	},
+	"temporaryWorkspacePolicyFileCreated": true,
+	"imageCache": {
+		"logicalBytes": 183195245,
+		"allocatedBytes": 183205888,
+		"images": [
+			{
+				"name": "alpine:3.22",
+				"downloadBytes": 4123084,
+				"digest": "sha256:2e1a7aa4cbc4e9e5222bb4c24a839aa1a6170ea5492d644777ce7b178824e44f"
+			},
+			{
+				"name": "node:24-alpine",
+				"downloadBytes": 62053735,
+				"digest": "sha256:38a36422dc7de80f3ced964270f23b3b17f73af816728d21a5fbbf84bf8be46f"
+			}
+		],
+		"note": "Shared cache for both tested images, excludes SDK, npm download cache and temporary per-VM upper disks. Sparse logical capacity is not physical usage."
+	},
+	"sdkAndTestImagesAllocatedBytes": 277413888
+}

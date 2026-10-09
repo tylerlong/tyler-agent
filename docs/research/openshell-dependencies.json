@@ -1,0 +1,127 @@
+{
+	"binaries": {
+		"allocated": 143511552,
+		"logical": 143508432,
+		"files": 3
+	},
+	"e2fsprogs": {
+		"allocated": 9928704,
+		"logical": 9655438,
+		"files": 148
+	},
+	"extractedRuntime": {
+		"allocated": 23048192,
+		"logical": 23038774,
+		"files": 3
+	},
+	"vmCacheBeforeFinal": {
+		"allocated": 417038336,
+		"logical": 2716961279,
+		"files": 9
+	},
+	"sdkLibraries": {
+		"allocated": 4808704,
+		"logical": 3081852,
+		"files": 700
+	},
+	"downloads": [
+		{
+			"name": "openshell-aarch64-apple-darwin.tar.gz",
+			"compressedBytes": 9450808,
+			"sha256": "2eda3676aa85ff60551b403847090942e119c89f37c84d1635ac166c6b879826",
+			"downloadMs": 2875
+		},
+		{
+			"name": "openshell-driver-vm-aarch64-apple-darwin.tar.gz",
+			"compressedBytes": 30216186,
+			"sha256": "56e321f990741ca5585f5229e37c178f541b0c38029351fe59b72a36c1c750d4",
+			"downloadMs": 2530
+		},
+		{
+			"name": "openshell-gateway-aarch64-apple-darwin.tar.gz",
+			"compressedBytes": 33431517,
+			"sha256": "a0cff0699f4a608a644805dbbf898c42caa59856274ff3cc2cdd6b3af4bacabe",
+			"downloadMs": 2521
+		},
+		{
+			"name": "source.tar.gz",
+			"compressedBytes": 7433061,
+			"sha256": "4419f740baea1b14544de1c71eb3591495f46ea2f5893b4e9031dbfa279c175b",
+			"downloadMs": 2372
+		}
+	],
+	"sdkLibraryClosure": {
+		"": {
+			"name": "tos-dependency-probe",
+			"dependencies": {
+				"@bufbuild/protobuf": "^2.2.3",
+				"@connectrpc/connect": "^2.0.0",
+				"@connectrpc/connect-node": "^2.0.0"
+			}
+		},
+		"node_modules/@bufbuild/protobuf": {
+			"version": "2.16.0",
+			"resolved": "https://registry.npmjs.org/@bufbuild/protobuf/-/protobuf-2.16.0.tgz",
+			"integrity": "sha512-FWa0sPlqYGJgpTs6OxBRcL/AW4JT0OIO+W1ajerluoTVh8CV0B7XM1qsNCRgnkSCkRCgOICKHRQlY17jrsm0+Q==",
+			"license": "(Apache-2.0 AND BSD-3-Clause)"
+		},
+		"node_modules/@connectrpc/connect": {
+			"version": "2.2.0",
+			"resolved": "https://registry.npmjs.org/@connectrpc/connect/-/connect-2.2.0.tgz",
+			"integrity": "sha512-M63OQ1ZFcPUm85CuewJ9G9CMV8LjzGR9935xOnXNQGSazAbwMb3x2W7vXBYM1zqrP7XFD8uxp/dUAhirclgwnQ==",
+			"license": "Apache-2.0",
+			"peerDependencies": {
+				"@bufbuild/protobuf": "^2.7.0"
+			}
+		},
+		"node_modules/@connectrpc/connect-node": {
+			"version": "2.2.0",
+			"resolved": "https://registry.npmjs.org/@connectrpc/connect-node/-/connect-node-2.2.0.tgz",
+			"integrity": "sha512-E6uUO6e11WdynAuBjuN+0WpHjqxEM9BNDdfDIJHcn49Esg/WxSIbn2y1KFt9XL96IJi01qdBbvubcdpBz1X3Zw==",
+			"license": "Apache-2.0",
+			"engines": {
+				"node": ">=22"
+			},
+			"peerDependencies": {
+				"@bufbuild/protobuf": "^2.7.0",
+				"@connectrpc/connect": "2.2.0"
+			}
+		}
+	},
+	"publicSDKRegistryStatus": 404,
+	"existingGettext": {
+		"path": "/opt/homebrew/opt/gettext",
+		"version": "gettext 1.0"
+	},
+	"vmCacheAfterDeletingSandboxes": {
+		"allocated": 365658112,
+		"logical": 1643214304,
+		"files": 4,
+		"largeFiles": [
+			{
+				"path": "host-runtime/openshell-supervisor",
+				"logical": 30504416,
+				"allocated": 30507008
+			},
+			{
+				"path": "images/sandbox-bootstrap-rootfs-ext4-v5-openshell-0.1.3-guest-06340a4aa6a71fe08e5ebca66844ef638096005c357a63389e5942abe005f3d2-sha256-d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20/rootfs.ext4",
+				"logical": 538968064,
+				"allocated": 283787264
+			},
+			{
+				"path": "images/overlay-templates/sandbox-overlay-ext4-v1/1073741824.ext4",
+				"logical": 1073741824,
+				"allocated": 51363840
+			}
+		]
+	},
+	"testedNativeTotalAllocatedExcludingExistingGettextAndSDK": 542146560,
+	"runtimeLibrariesOnlyNote": "SDK production dependency manifest installed in isolated npm project; SDK itself was not fetched or built. Three packages is library closure, not full app installation.",
+	"image": "node:24-bookworm-slim",
+	"host": {
+		"arch": "arm64",
+		"macOS": "26.7.1",
+		"node": "24.21.0",
+		"hypervisorSupport": 1
+	}
+}

@@ -1,0 +1,571 @@
+{
+  "version": "0.162.0",
+  "platform": "darwin",
+  "node": "v24.21.0",
+  "root": "/private/tmp/tce-probe-2MSO6D",
+  "checks": [
+    {
+      "name": "initialize without account or model",
+      "status": "passed",
+      "elapsedMs": 128,
+      "detail": {
+        "sessionId": "4fe1ddd3-be05-4d38-acd9-0f1fa21ae357",
+        "environmentInfo": {
+          "shell": {
+            "name": "zsh",
+            "path": "/bin/zsh"
+          },
+          "executorVersion": "0.0.0",
+          "providerId": "sha256:2f409752d7e4a02b3a6e4cd3d76399f479a3570222da15e6068d081b914c38d1",
+          "cwd": "file:///private/tmp/tce-probe-2MSO6D/server",
+          "userHomeDir": "file:///private/tmp/tce-probe-2MSO6D/server",
+          "platformOs": "macos",
+          "temporaryDirectories": [
+            "file:///private/tmp/tce-probe-2MSO6D/server/tmp"
+          ],
+          "tempDir": "file:///private/tmp/tce-probe-2MSO6D/server/tmp",
+          "capabilities": {
+            "networkProxyLaunch": true,
+            "capabilityDiscoverySandbox": true,
+            "capabilityDiscoveryV2": true,
+            "environmentConfigRead": true,
+            "httpHeaderEnvVars": true,
+            "sandboxedFileStreaming": true,
+            "fileWriteStreaming": true,
+            "shellSnapshotV2": true,
+            "windowsMxc": false
+          }
+        }
+      }
+    },
+    {
+      "name": "same server concurrent A/B filesystem scopes",
+      "status": "passed",
+      "elapsedMs": 188,
+      "detail": [
+        {
+          "id": 2,
+          "result": {
+            "dataBase64": "QQ=="
+          }
+        },
+        {
+          "error": {
+            "code": -32600,
+            "message": "Operation not permitted (os error 1)"
+          },
+          "id": 3
+        },
+        {
+          "id": 4,
+          "result": {}
+        },
+        {
+          "error": {
+            "code": -32600,
+            "message": "Operation not permitted (os error 1)"
+          },
+          "id": 5
+        }
+      ]
+    },
+    {
+      "name": "literal special-character target for fs and command",
+      "status": "passed",
+      "elapsedMs": 149,
+      "detail": {
+        "processId": "probe-7",
+        "bytes": 7,
+        "head": "SPECIAL",
+        "tail": "SPECIAL",
+        "exit": {
+          "processId": "probe-7",
+          "seq": 2,
+          "exitCode": 0,
+          "sandboxDenied": false
+        },
+        "sha256": "e5c08216588a2b08c48fcd78b646616e84ecfd485cd7343d869ae4cf624520b7"
+      }
+    },
+    {
+      "name": "symlink outside target denied; own tmp allowed; other tmp denied",
+      "status": "passed",
+      "elapsedMs": 124,
+      "detail": [
+        {
+          "error": {
+            "code": -32600,
+            "message": "Operation not permitted (os error 1)"
+          },
+          "id": 8
+        },
+        {
+          "id": 9,
+          "result": {}
+        },
+        {
+          "error": {
+            "code": -32600,
+            "message": "Operation not permitted (os error 1)"
+          },
+          "id": 10
+        }
+      ]
+    },
+    {
+      "name": "extra target once then next request revoked",
+      "status": "passed",
+      "elapsedMs": 106,
+      "detail": {
+        "allowed": {
+          "id": 11,
+          "result": {}
+        },
+        "revoked": {
+          "error": {
+            "code": -32600,
+            "message": "Operation not permitted (os error 1)"
+          },
+          "id": 12
+        }
+      }
+    },
+    {
+      "name": "unknown domain denied with policy fact and no approval callback",
+      "status": "passed",
+      "elapsedMs": 135,
+      "detail": {
+        "result": {
+          "processId": "probe-13",
+          "bytes": 47,
+          "head": "curl: (56) CONNECT tunnel failed, response 403\n",
+          "tail": "curl: (56) CONNECT tunnel failed, response 403\n",
+          "exit": {
+            "processId": "probe-13",
+            "seq": 3,
+            "exitCode": 56,
+            "sandboxDenied": false
+          },
+          "sha256": "115ac061d5c11b9f88bc706341277e549679986ec53ba237026722b790803312"
+        },
+        "decisions": [
+          {
+            "method": "network/policyDecision",
+            "params": {
+              "processId": "probe-13",
+              "timestamp": "2026-10-09T19:58:34.135Z",
+              "scope": "domain",
+              "decision": "deny",
+              "source": "baseline_policy",
+              "reason": "not_allowed",
+              "protocol": "https_connect",
+              "host": "example.com",
+              "port": 443,
+              "method": "CONNECT",
+              "client": "127.0.0.1:65472",
+              "policyOverride": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "allowed HTTPS domain succeeds",
+      "status": "passed",
+      "elapsedMs": 294,
+      "detail": {
+        "processId": "probe-14",
+        "bytes": 3199,
+        "head": "{\"bugs\":{\"url\":\"https://github.com/jonschlinkert/is-number/issues\"},\"dist\":{\"shasum\":\"7535345b896734d5f80c4d06c50955527a14f12b\",\"tarball\":\"https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz\",\"fileCount\":4,\"integrity\":\"sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==\",\"signatures\":[{\"sig\":\"MEUCIGex85Xx5rKhEgNSkg7z5bBu7vbcFbJnWJZbV3f9Td8GAiEA5wzgLXU41sE6ezCKGrmzsyMtm6M+2OhefJJhkzPEAoc=\",\"keyid\":\"SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA\"}],\"unpackedSize\":9615,\"npm-signature\":\"-----BEGIN PGP SIGNATURE-----\\r\\nVersion: OpenPGP.js v3.0.4\\r\\nComment: https://openpgpjs.org\\r\\n\\r\\nwsFcBAEBCAAQBQJbPOMKCRA9TVsSAnZWagAABmIP/iUfV7gQnAsn2vRNKWIu\\nlxkfXFutnV1Bo5P8mlv37Zg+PN5/Ri/RATtKGEosAvHL/HK2HkFH+rLYkupg\\nCYaAVXNOJiFN9vK61YYp0TB0PBtGDQ2UwcElxDQ8OP6Djni4fl2fLjVZ+JeN\\nPF1bKPE6oMevNg3GtNMrb1QKZNGjplOKFmlmm9fe653LHwIH1zPYy6QQ+cgG\\nQ8Czmhdf+NuX8WXqR1h5mHTKCCVAqzcpJ21uX9292aoWlzlijzg9cc8KEPEY\\ncbUjJf4NMLs89/8G6tcpDP5qoVjQnWIgfM0mDXt4P7ESdqjusdyNa+3eS/Yi\\nsQuevXmth+41kvQaVy7rLbeAssWNbc7IJ+X1qpgnUqTz4rtiAaRnZ6rzAE2s\\nrr723lN2H7ALlnDVm5qzXLTTjHwbdYMYuaYHTOMovytYWeRnwhfNCpKeQcEe\\nUYR3sm2tEdxsMI5ciu5ULGj/PEKnSOsQcq2y4QjNFz4F5ReXiv+CtphQubAr\\nVkKwrjIovN97YXmyrkfJB1zCInCMUz11YgRY0wNaCJPJ4E0V4KdfWgCEyt+F\\nqKcdylewrOAma06WozqUXzRH3uNNbMTfsE1nGqbcofJPNBre/VriCwF7zS/H\\nLhGfCe6LJuY2Q+2Eel1vtwnY+vAoaWrr7QisjcvywYHvqWlRob2IxC1Ygp3A\\nvUY+\\r\\n=M7jx\\r\\n-----END PGP SIGNATURE-----\\r\\n\"},\"main\":\"index.js\",\"name\":\"is-number\",\"verb\":{\"toc\":false,\"lint\":{\"reflinks\":true},\"tasks\":[\"readme\"],\"layout\":\"default\",\"plugins\":[\"gulp-format-md\"],\"related\":{\"list\":[\"is-plain-object\",\"is-primitive\",\"isobject\",\"kind-of\"]}},\"files\":[\"index.js\"],\"author\":{\"url\":\"https://github.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},\"engines\":{\"node\":\">=0.12.0\"},\"gitHead\":\"98e8ff1da1a89f93d1397a24d7413ed15421c139\",\"license\":\"MIT\",\"scripts\":{\"test\":\"mocha\"},\"_npmUser\":{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},\"homepage\":\"https://github.com/jonschlinkert/is-number\",\"keywords\":[\"cast\",\"check\",\"coerce\",\"coercion\",\"finite\",\"integer\",\"is\",\"isnan\",\"is-nan\",\"is-num\",\"is-number\",\"isnumber\",\"isfinite\",\"istype\",\"kind\",\"math\",\"nan\",\"num\",\"number\",\"numeric\",\"parseFloat\",\"parseInt\",\"test\",\"type\",\"typeof\",\"value\"],\"repository\":{\"url\":\"git+https://github.com/jonschlinkert/is-number.git\",\"type\":\"git\"},\"_npmVersion\":\"6.1.0\",\"description\":\"Returns true if a number or string value is a finite number. Useful for regex matches, parsing, user input, etc.\",\"directories\":{},\"maintainers\":[{\"name\":\"doowb\",\"email\":\"brian.woodward@gmail.com\"},{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},{\"name\":\"realityking\",\"email\":\"me@rouvenwessling.de\"}],\"_nodeVersion\":\"10.0.0\",\"contributors\":[{\"url\":\"http://twitter.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},{\"url\":\"https://i.am.charlike.online\",\"name\":\"Olsten Larck\"},{\"url\":\"www.rouvenwessling.de\",\"name\":\"Rouven Weßling\"}],\"_hasShrinkwrap\":false,\"devDependencies\":{\"ansi\":\"^0.3.1\",\"mocha\":\"^3.5.3\",\"benchmark\":\"^2.1.4\",\"gulp-format-md\":\"^1.0.0\"},\"_npmOperationalInternal\":{\"tmp\":\"tmp/is-number_7.0.0_1530716938183_0.28831183290614004\",\"host\":\"s3://npm-registry-packages\"},\"_id\":\"is-number@7.0.0\",\"version\":\"7.0.0\"}",
+        "tail": "{\"bugs\":{\"url\":\"https://github.com/jonschlinkert/is-number/issues\"},\"dist\":{\"shasum\":\"7535345b896734d5f80c4d06c50955527a14f12b\",\"tarball\":\"https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz\",\"fileCount\":4,\"integrity\":\"sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==\",\"signatures\":[{\"sig\":\"MEUCIGex85Xx5rKhEgNSkg7z5bBu7vbcFbJnWJZbV3f9Td8GAiEA5wzgLXU41sE6ezCKGrmzsyMtm6M+2OhefJJhkzPEAoc=\",\"keyid\":\"SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA\"}],\"unpackedSize\":9615,\"npm-signature\":\"-----BEGIN PGP SIGNATURE-----\\r\\nVersion: OpenPGP.js v3.0.4\\r\\nComment: https://openpgpjs.org\\r\\n\\r\\nwsFcBAEBCAAQBQJbPOMKCRA9TVsSAnZWagAABmIP/iUfV7gQnAsn2vRNKWIu\\nlxkfXFutnV1Bo5P8mlv37Zg+PN5/Ri/RATtKGEosAvHL/HK2HkFH+rLYkupg\\nCYaAVXNOJiFN9vK61YYp0TB0PBtGDQ2UwcElxDQ8OP6Djni4fl2fLjVZ+JeN\\nPF1bKPE6oMevNg3GtNMrb1QKZNGjplOKFmlmm9fe653LHwIH1zPYy6QQ+cgG\\nQ8Czmhdf+NuX8WXqR1h5mHTKCCVAqzcpJ21uX9292aoWlzlijzg9cc8KEPEY\\ncbUjJf4NMLs89/8G6tcpDP5qoVjQnWIgfM0mDXt4P7ESdqjusdyNa+3eS/Yi\\nsQuevXmth+41kvQaVy7rLbeAssWNbc7IJ+X1qpgnUqTz4rtiAaRnZ6rzAE2s\\nrr723lN2H7ALlnDVm5qzXLTTjHwbdYMYuaYHTOMovytYWeRnwhfNCpKeQcEe\\nUYR3sm2tEdxsMI5ciu5ULGj/PEKnSOsQcq2y4QjNFz4F5ReXiv+CtphQubAr\\nVkKwrjIovN97YXmyrkfJB1zCInCMUz11YgRY0wNaCJPJ4E0V4KdfWgCEyt+F\\nqKcdylewrOAma06WozqUXzRH3uNNbMTfsE1nGqbcofJPNBre/VriCwF7zS/H\\nLhGfCe6LJuY2Q+2Eel1vtwnY+vAoaWrr7QisjcvywYHvqWlRob2IxC1Ygp3A\\nvUY+\\r\\n=M7jx\\r\\n-----END PGP SIGNATURE-----\\r\\n\"},\"main\":\"index.js\",\"name\":\"is-number\",\"verb\":{\"toc\":false,\"lint\":{\"reflinks\":true},\"tasks\":[\"readme\"],\"layout\":\"default\",\"plugins\":[\"gulp-format-md\"],\"related\":{\"list\":[\"is-plain-object\",\"is-primitive\",\"isobject\",\"kind-of\"]}},\"files\":[\"index.js\"],\"author\":{\"url\":\"https://github.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},\"engines\":{\"node\":\">=0.12.0\"},\"gitHead\":\"98e8ff1da1a89f93d1397a24d7413ed15421c139\",\"license\":\"MIT\",\"scripts\":{\"test\":\"mocha\"},\"_npmUser\":{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},\"homepage\":\"https://github.com/jonschlinkert/is-number\",\"keywords\":[\"cast\",\"check\",\"coerce\",\"coercion\",\"finite\",\"integer\",\"is\",\"isnan\",\"is-nan\",\"is-num\",\"is-number\",\"isnumber\",\"isfinite\",\"istype\",\"kind\",\"math\",\"nan\",\"num\",\"number\",\"numeric\",\"parseFloat\",\"parseInt\",\"test\",\"type\",\"typeof\",\"value\"],\"repository\":{\"url\":\"git+https://github.com/jonschlinkert/is-number.git\",\"type\":\"git\"},\"_npmVersion\":\"6.1.0\",\"description\":\"Returns true if a number or string value is a finite number. Useful for regex matches, parsing, user input, etc.\",\"directories\":{},\"maintainers\":[{\"name\":\"doowb\",\"email\":\"brian.woodward@gmail.com\"},{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},{\"name\":\"realityking\",\"email\":\"me@rouvenwessling.de\"}],\"_nodeVersion\":\"10.0.0\",\"contributors\":[{\"url\":\"http://twitter.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},{\"url\":\"https://i.am.charlike.online\",\"name\":\"Olsten Larck\"},{\"url\":\"www.rouvenwessling.de\",\"name\":\"Rouven Weßling\"}],\"_hasShrinkwrap\":false,\"devDependencies\":{\"ansi\":\"^0.3.1\",\"mocha\":\"^3.5.3\",\"benchmark\":\"^2.1.4\",\"gulp-format-md\":\"^1.0.0\"},\"_npmOperationalInternal\":{\"tmp\":\"tmp/is-number_7.0.0_1530716938183_0.28831183290614004\",\"host\":\"s3://npm-registry-packages\"},\"_id\":\"is-number@7.0.0\",\"version\":\"7.0.0\"}",
+        "exit": {
+          "processId": "probe-14",
+          "seq": 2,
+          "exitCode": 0,
+          "sandboxDenied": false
+        },
+        "sha256": "42288c4971286c252ea16450b0777e67a710a698446faa99e2d8d2344a087c25"
+      }
+    },
+    {
+      "name": "concurrent processes have different domain permissions",
+      "status": "passed",
+      "elapsedMs": 234,
+      "detail": [
+        {
+          "processId": "probe-15",
+          "bytes": 577,
+          "head": "<!doctype html><html lang=en><head><meta charset=utf-8><link rel=icon href=data:,><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Example Domain</title><style>html{color-scheme:light dark;background:light-dark(#eee,#222)}body{font:16px/1.6 system-ui,sans-serif;max-width:26em;margin:auto;padding:25vh 2em 2em;text-align:center}</style></head><body><p>This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.</p><script src=/s.js></script></body></html>\n",
+          "tail": "<!doctype html><html lang=en><head><meta charset=utf-8><link rel=icon href=data:,><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Example Domain</title><style>html{color-scheme:light dark;background:light-dark(#eee,#222)}body{font:16px/1.6 system-ui,sans-serif;max-width:26em;margin:auto;padding:25vh 2em 2em;text-align:center}</style></head><body><p>This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.</p><script src=/s.js></script></body></html>\n",
+          "exit": {
+            "processId": "probe-15",
+            "seq": 2,
+            "exitCode": 0,
+            "sandboxDenied": false
+          },
+          "sha256": "25ddf2c883e0d1958ea971d279a7e4f0fd446724ee3db7db19dadabd4a62e484"
+        },
+        {
+          "processId": "probe-16",
+          "bytes": 47,
+          "head": "curl: (56) CONNECT tunnel failed, response 403\n",
+          "tail": "curl: (56) CONNECT tunnel failed, response 403\n",
+          "exit": {
+            "processId": "probe-16",
+            "seq": 3,
+            "exitCode": 56,
+            "sandboxDenied": false
+          },
+          "sha256": "115ac061d5c11b9f88bc706341277e549679986ec53ba237026722b790803312"
+        }
+      ]
+    },
+    {
+      "name": "deleting proxy env cannot bypass OS network boundary",
+      "status": "passed",
+      "elapsedMs": 149,
+      "detail": {
+        "processId": "probe-17",
+        "bytes": 46,
+        "head": "curl: (6) Could not resolve host: example.com\n",
+        "tail": "curl: (6) Could not resolve host: example.com\n",
+        "exit": {
+          "processId": "probe-17",
+          "seq": 2,
+          "exitCode": 6,
+          "sandboxDenied": false
+        },
+        "sha256": "d24547ca5c87c346d5dbb7562bbd58c402ca0a04f511227ff648d5858adb162f"
+      }
+    },
+    {
+      "name": "subdomain wildcard allows registry",
+      "status": "passed",
+      "elapsedMs": 275,
+      "detail": {
+        "processId": "probe-18",
+        "bytes": 3199,
+        "head": "{\"bugs\":{\"url\":\"https://github.com/jonschlinkert/is-number/issues\"},\"dist\":{\"shasum\":\"7535345b896734d5f80c4d06c50955527a14f12b\",\"tarball\":\"https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz\",\"fileCount\":4,\"integrity\":\"sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==\",\"signatures\":[{\"sig\":\"MEUCIGex85Xx5rKhEgNSkg7z5bBu7vbcFbJnWJZbV3f9Td8GAiEA5wzgLXU41sE6ezCKGrmzsyMtm6M+2OhefJJhkzPEAoc=\",\"keyid\":\"SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA\"}],\"unpackedSize\":9615,\"npm-signature\":\"-----BEGIN PGP SIGNATURE-----\\r\\nVersion: OpenPGP.js v3.0.4\\r\\nComment: https://openpgpjs.org\\r\\n\\r\\nwsFcBAEBCAAQBQJbPOMKCRA9TVsSAnZWagAABmIP/iUfV7gQnAsn2vRNKWIu\\nlxkfXFutnV1Bo5P8mlv37Zg+PN5/Ri/RATtKGEosAvHL/HK2HkFH+rLYkupg\\nCYaAVXNOJiFN9vK61YYp0TB0PBtGDQ2UwcElxDQ8OP6Djni4fl2fLjVZ+JeN\\nPF1bKPE6oMevNg3GtNMrb1QKZNGjplOKFmlmm9fe653LHwIH1zPYy6QQ+cgG\\nQ8Czmhdf+NuX8WXqR1h5mHTKCCVAqzcpJ21uX9292aoWlzlijzg9cc8KEPEY\\ncbUjJf4NMLs89/8G6tcpDP5qoVjQnWIgfM0mDXt4P7ESdqjusdyNa+3eS/Yi\\nsQuevXmth+41kvQaVy7rLbeAssWNbc7IJ+X1qpgnUqTz4rtiAaRnZ6rzAE2s\\nrr723lN2H7ALlnDVm5qzXLTTjHwbdYMYuaYHTOMovytYWeRnwhfNCpKeQcEe\\nUYR3sm2tEdxsMI5ciu5ULGj/PEKnSOsQcq2y4QjNFz4F5ReXiv+CtphQubAr\\nVkKwrjIovN97YXmyrkfJB1zCInCMUz11YgRY0wNaCJPJ4E0V4KdfWgCEyt+F\\nqKcdylewrOAma06WozqUXzRH3uNNbMTfsE1nGqbcofJPNBre/VriCwF7zS/H\\nLhGfCe6LJuY2Q+2Eel1vtwnY+vAoaWrr7QisjcvywYHvqWlRob2IxC1Ygp3A\\nvUY+\\r\\n=M7jx\\r\\n-----END PGP SIGNATURE-----\\r\\n\"},\"main\":\"index.js\",\"name\":\"is-number\",\"verb\":{\"toc\":false,\"lint\":{\"reflinks\":true},\"tasks\":[\"readme\"],\"layout\":\"default\",\"plugins\":[\"gulp-format-md\"],\"related\":{\"list\":[\"is-plain-object\",\"is-primitive\",\"isobject\",\"kind-of\"]}},\"files\":[\"index.js\"],\"author\":{\"url\":\"https://github.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},\"engines\":{\"node\":\">=0.12.0\"},\"gitHead\":\"98e8ff1da1a89f93d1397a24d7413ed15421c139\",\"license\":\"MIT\",\"scripts\":{\"test\":\"mocha\"},\"_npmUser\":{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},\"homepage\":\"https://github.com/jonschlinkert/is-number\",\"keywords\":[\"cast\",\"check\",\"coerce\",\"coercion\",\"finite\",\"integer\",\"is\",\"isnan\",\"is-nan\",\"is-num\",\"is-number\",\"isnumber\",\"isfinite\",\"istype\",\"kind\",\"math\",\"nan\",\"num\",\"number\",\"numeric\",\"parseFloat\",\"parseInt\",\"test\",\"type\",\"typeof\",\"value\"],\"repository\":{\"url\":\"git+https://github.com/jonschlinkert/is-number.git\",\"type\":\"git\"},\"_npmVersion\":\"6.1.0\",\"description\":\"Returns true if a number or string value is a finite number. Useful for regex matches, parsing, user input, etc.\",\"directories\":{},\"maintainers\":[{\"name\":\"doowb\",\"email\":\"brian.woodward@gmail.com\"},{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},{\"name\":\"realityking\",\"email\":\"me@rouvenwessling.de\"}],\"_nodeVersion\":\"10.0.0\",\"contributors\":[{\"url\":\"http://twitter.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},{\"url\":\"https://i.am.charlike.online\",\"name\":\"Olsten Larck\"},{\"url\":\"www.rouvenwessling.de\",\"name\":\"Rouven Weßling\"}],\"_hasShrinkwrap\":false,\"devDependencies\":{\"ansi\":\"^0.3.1\",\"mocha\":\"^3.5.3\",\"benchmark\":\"^2.1.4\",\"gulp-format-md\":\"^1.0.0\"},\"_npmOperationalInternal\":{\"tmp\":\"tmp/is-number_7.0.0_1530716938183_0.28831183290614004\",\"host\":\"s3://npm-registry-packages\"},\"_id\":\"is-number@7.0.0\",\"version\":\"7.0.0\"}",
+        "tail": "{\"bugs\":{\"url\":\"https://github.com/jonschlinkert/is-number/issues\"},\"dist\":{\"shasum\":\"7535345b896734d5f80c4d06c50955527a14f12b\",\"tarball\":\"https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz\",\"fileCount\":4,\"integrity\":\"sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==\",\"signatures\":[{\"sig\":\"MEUCIGex85Xx5rKhEgNSkg7z5bBu7vbcFbJnWJZbV3f9Td8GAiEA5wzgLXU41sE6ezCKGrmzsyMtm6M+2OhefJJhkzPEAoc=\",\"keyid\":\"SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA\"}],\"unpackedSize\":9615,\"npm-signature\":\"-----BEGIN PGP SIGNATURE-----\\r\\nVersion: OpenPGP.js v3.0.4\\r\\nComment: https://openpgpjs.org\\r\\n\\r\\nwsFcBAEBCAAQBQJbPOMKCRA9TVsSAnZWagAABmIP/iUfV7gQnAsn2vRNKWIu\\nlxkfXFutnV1Bo5P8mlv37Zg+PN5/Ri/RATtKGEosAvHL/HK2HkFH+rLYkupg\\nCYaAVXNOJiFN9vK61YYp0TB0PBtGDQ2UwcElxDQ8OP6Djni4fl2fLjVZ+JeN\\nPF1bKPE6oMevNg3GtNMrb1QKZNGjplOKFmlmm9fe653LHwIH1zPYy6QQ+cgG\\nQ8Czmhdf+NuX8WXqR1h5mHTKCCVAqzcpJ21uX9292aoWlzlijzg9cc8KEPEY\\ncbUjJf4NMLs89/8G6tcpDP5qoVjQnWIgfM0mDXt4P7ESdqjusdyNa+3eS/Yi\\nsQuevXmth+41kvQaVy7rLbeAssWNbc7IJ+X1qpgnUqTz4rtiAaRnZ6rzAE2s\\nrr723lN2H7ALlnDVm5qzXLTTjHwbdYMYuaYHTOMovytYWeRnwhfNCpKeQcEe\\nUYR3sm2tEdxsMI5ciu5ULGj/PEKnSOsQcq2y4QjNFz4F5ReXiv+CtphQubAr\\nVkKwrjIovN97YXmyrkfJB1zCInCMUz11YgRY0wNaCJPJ4E0V4KdfWgCEyt+F\\nqKcdylewrOAma06WozqUXzRH3uNNbMTfsE1nGqbcofJPNBre/VriCwF7zS/H\\nLhGfCe6LJuY2Q+2Eel1vtwnY+vAoaWrr7QisjcvywYHvqWlRob2IxC1Ygp3A\\nvUY+\\r\\n=M7jx\\r\\n-----END PGP SIGNATURE-----\\r\\n\"},\"main\":\"index.js\",\"name\":\"is-number\",\"verb\":{\"toc\":false,\"lint\":{\"reflinks\":true},\"tasks\":[\"readme\"],\"layout\":\"default\",\"plugins\":[\"gulp-format-md\"],\"related\":{\"list\":[\"is-plain-object\",\"is-primitive\",\"isobject\",\"kind-of\"]}},\"files\":[\"index.js\"],\"author\":{\"url\":\"https://github.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},\"engines\":{\"node\":\">=0.12.0\"},\"gitHead\":\"98e8ff1da1a89f93d1397a24d7413ed15421c139\",\"license\":\"MIT\",\"scripts\":{\"test\":\"mocha\"},\"_npmUser\":{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},\"homepage\":\"https://github.com/jonschlinkert/is-number\",\"keywords\":[\"cast\",\"check\",\"coerce\",\"coercion\",\"finite\",\"integer\",\"is\",\"isnan\",\"is-nan\",\"is-num\",\"is-number\",\"isnumber\",\"isfinite\",\"istype\",\"kind\",\"math\",\"nan\",\"num\",\"number\",\"numeric\",\"parseFloat\",\"parseInt\",\"test\",\"type\",\"typeof\",\"value\"],\"repository\":{\"url\":\"git+https://github.com/jonschlinkert/is-number.git\",\"type\":\"git\"},\"_npmVersion\":\"6.1.0\",\"description\":\"Returns true if a number or string value is a finite number. Useful for regex matches, parsing, user input, etc.\",\"directories\":{},\"maintainers\":[{\"name\":\"doowb\",\"email\":\"brian.woodward@gmail.com\"},{\"name\":\"jonschlinkert\",\"email\":\"github@sellside.com\"},{\"name\":\"realityking\",\"email\":\"me@rouvenwessling.de\"}],\"_nodeVersion\":\"10.0.0\",\"contributors\":[{\"url\":\"http://twitter.com/jonschlinkert\",\"name\":\"Jon Schlinkert\"},{\"url\":\"https://i.am.charlike.online\",\"name\":\"Olsten Larck\"},{\"url\":\"www.rouvenwessling.de\",\"name\":\"Rouven Weßling\"}],\"_hasShrinkwrap\":false,\"devDependencies\":{\"ansi\":\"^0.3.1\",\"mocha\":\"^3.5.3\",\"benchmark\":\"^2.1.4\",\"gulp-format-md\":\"^1.0.0\"},\"_npmOperationalInternal\":{\"tmp\":\"tmp/is-number_7.0.0_1530716938183_0.28831183290614004\",\"host\":\"s3://npm-registry-packages\"},\"_id\":\"is-number@7.0.0\",\"version\":\"7.0.0\"}",
+        "exit": {
+          "processId": "probe-18",
+          "seq": 2,
+          "exitCode": 0,
+          "sandboxDenied": false
+        },
+        "sha256": "42288c4971286c252ea16450b0777e67a710a698446faa99e2d8d2344a087c25"
+      }
+    },
+    {
+      "name": "all-domain wildcard works while outside files remain denied",
+      "status": "failed",
+      "elapsedMs": 280,
+      "error": "Expected \"actual\" to be strictly unequal to: 0"
+    },
+    {
+      "name": "full file access keeps network restricted",
+      "status": "passed",
+      "elapsedMs": 126,
+      "detail": [
+        {
+          "processId": "probe-22",
+          "bytes": 0,
+          "head": "",
+          "tail": "",
+          "exit": {
+            "processId": "probe-22",
+            "seq": 1,
+            "exitCode": 0,
+            "sandboxDenied": false
+          },
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "processId": "probe-23",
+          "bytes": 47,
+          "head": "curl: (56) CONNECT tunnel failed, response 403\n",
+          "tail": "curl: (56) CONNECT tunnel failed, response 403\n",
+          "exit": {
+            "processId": "probe-23",
+            "seq": 3,
+            "exitCode": 56,
+            "sandboxDenied": false
+          },
+          "sha256": "115ac061d5c11b9f88bc706341277e549679986ec53ba237026722b790803312"
+        }
+      ]
+    },
+    {
+      "name": "finite 8 MiB output streamed completely; replay is bounded",
+      "status": "failed",
+      "elapsedMs": 25011,
+      "error": "event wait timed out"
+    },
+    {
+      "name": "interactive input works: pipe stdin",
+      "status": "passed",
+      "elapsedMs": 184,
+      "detail": {
+        "processId": "probe-25",
+        "bytes": 16,
+        "head": "READY\nGOT:hello\n",
+        "tail": "READY\nGOT:hello\n",
+        "exit": {
+          "processId": "probe-25",
+          "seq": 3,
+          "exitCode": 0,
+          "sandboxDenied": false
+        },
+        "sha256": "d671a0b31819221fb6b81d32c5f0c7789481afca01ef7fe39b2709ed72f88bb5"
+      }
+    },
+    {
+      "name": "interactive input works: PTY",
+      "status": "passed",
+      "elapsedMs": 192,
+      "detail": {
+        "processId": "probe-27",
+        "bytes": 25,
+        "head": "READY\r\nhello\r\nGOT:hello\r\n",
+        "tail": "READY\r\nhello\r\nGOT:hello\r\n",
+        "exit": {
+          "processId": "probe-27",
+          "seq": 4,
+          "exitCode": 0,
+          "sandboxDenied": false
+        },
+        "sha256": "635b143b39a74f15c380314a7e332dc5da530887e26bbf37b2515fda4a8bd9c2"
+      }
+    },
+    {
+      "name": "terminate ordinary descendant without stopping sibling process",
+      "status": "passed",
+      "elapsedMs": 1231,
+      "detail": {
+        "terminated": {
+          "id": 31,
+          "result": {
+            "running": true
+          }
+        },
+        "descendantPid": 98957,
+        "sibling": {
+          "processId": "probe-30",
+          "bytes": 8,
+          "head": "SIBLING\n",
+          "tail": "SIBLING\n",
+          "exit": {
+            "processId": "probe-30",
+            "seq": 2,
+            "exitCode": 0,
+            "sandboxDenied": false
+          },
+          "sha256": "921b25faf5b05b821b523abfbcf25a1ef5e371a6eca4d7f2159b0317d8845161"
+        }
+      }
+    },
+    {
+      "name": "client timeout uses terminate for long command",
+      "status": "passed",
+      "elapsedMs": 204,
+      "detail": {
+        "processId": "probe-32",
+        "bytes": 0,
+        "head": "",
+        "tail": "",
+        "exit": {
+          "processId": "probe-32",
+          "seq": 1,
+          "exitCode": 137,
+          "sandboxDenied": false
+        },
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "name": "stronger criterion: terminate intentionally detached descendant",
+      "status": "failed",
+      "elapsedMs": 25014,
+      "error": "event wait timed out"
+    },
+    {
+      "name": "real pnpm online install and Node verification artifact",
+      "status": "failed",
+      "elapsedMs": 140,
+      "error": "{\"processId\":\"probe-35\",\"bytes\":275,\"head\":\"/Users/tyler.liu/.nvm/versions/node/v24.21.0/bin/node: OpenSSL configuration error:\\nC06162F101000000:error:80000001:system library:BIO_new_file:Operation not permitted:../deps/openssl/openssl/crypto/bio/bss_file.c:67:calling fopen(/System/Library/OpenSSL//openssl.cnf, rb)\\n\\n\\n\",\"tail\":\"/Users/tyler.liu/.nvm/versions/node/v24.21.0/bin/node: OpenSSL configuration error:\\nC06162F101000000:error:80000001:system library:BIO_new_file:Operation not permitted:../deps/openssl/openssl/crypto/bio/bss_file.c:67:calling fopen(/System/Library/OpenSSL//openssl.cnf, rb)\\n\\n\\n\",\"exit\":{\"processId\":\"probe-35\",\"seq\":2,\"exitCode\":1,\"sandboxDenied\":true},\"sha256\":\"51bb5476004d97a2b42b5be6d7cbb6542ab7ce78dcc583ee08102ef4fd7d1823\"}\n\n1 !== 0\n"
+    },
+    {
+      "name": "git init add commit and diff",
+      "status": "failed",
+      "elapsedMs": 133,
+      "error": "{\"processId\":\"probe-36\",\"bytes\":562,\"head\":\"xcode-select: error: No developer tools were found and no install could be requested (possibly because there is no active GUI session).\\nIf developer tools are located at a non-default location on disk, use `sudo xcode-select --switch path/to/Xcode.app` to specify the Xcode that you wish to use for command line developer tools.\\nUse `xcode-select --install` to install the standalone command line developer tools, or visit http://adc.apple.com to download Xcode or the standalone command line tools installation package.\\nSee `man xcode-select` for more details.\\n\",\"tail\":\"xcode-select: error: No developer tools were found and no install could be requested (possibly because there is no active GUI session).\\nIf developer tools are located at a non-default location on disk, use `sudo xcode-select --switch path/to/Xcode.app` to specify the Xcode that you wish to use for command line developer tools.\\nUse `xcode-select --install` to install the standalone command line developer tools, or visit http://adc.apple.com to download Xcode or the standalone command line tools installation package.\\nSee `man xcode-select` for more details.\\n\",\"exit\":{\"processId\":\"probe-36\",\"seq\":2,\"exitCode\":1,\"sandboxDenied\":false},\"sha256\":\"f3deae9eb6b95a5ede008896d3d33c95687add7d88ff0b540c2f4fcc4312ec59\"}\n\n1 !== 0\n"
+    },
+    {
+      "name": "existing rg can search target under same process sandbox",
+      "status": "passed",
+      "elapsedMs": 136,
+      "detail": {
+        "processId": "probe-37",
+        "bytes": 2,
+        "head": "A\n",
+        "tail": "A\n",
+        "exit": {
+          "processId": "probe-37",
+          "seq": 2,
+          "exitCode": 0,
+          "sandboxDenied": false
+        },
+        "sha256": "06f961b802bc46ee168555f066d28f4f0e9afdf3f88174c1ee6f9de004fc30a0"
+      }
+    },
+    {
+      "name": "closing stdio terminates managed ordinary process",
+      "status": "passed",
+      "elapsedMs": 138,
+      "detail": {
+        "serverExit": 0,
+        "descendantPid": 99035
+      }
+    }
+  ],
+  "networkEvents": [
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-13",
+        "timestamp": "2026-10-09T19:58:34.135Z",
+        "scope": "domain",
+        "decision": "deny",
+        "source": "baseline_policy",
+        "reason": "not_allowed",
+        "protocol": "https_connect",
+        "host": "example.com",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65472",
+        "policyOverride": false
+      }
+    },
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-14",
+        "timestamp": "2026-10-09T19:58:34.232Z",
+        "scope": "domain",
+        "decision": "allow",
+        "source": "baseline_policy",
+        "reason": "allow",
+        "protocol": "https_connect",
+        "host": "registry.npmjs.org",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65474",
+        "policyOverride": false
+      }
+    },
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-15",
+        "timestamp": "2026-10-09T19:58:34.553Z",
+        "scope": "domain",
+        "decision": "allow",
+        "source": "baseline_policy",
+        "reason": "allow",
+        "protocol": "https_connect",
+        "host": "example.com",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65480",
+        "policyOverride": false
+      }
+    },
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-16",
+        "timestamp": "2026-10-09T19:58:34.573Z",
+        "scope": "domain",
+        "decision": "deny",
+        "source": "baseline_policy",
+        "reason": "not_allowed",
+        "protocol": "https_connect",
+        "host": "example.com",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65483",
+        "policyOverride": false
+      }
+    },
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-18",
+        "timestamp": "2026-10-09T19:58:34.945Z",
+        "scope": "domain",
+        "decision": "allow",
+        "source": "baseline_policy",
+        "reason": "allow",
+        "protocol": "https_connect",
+        "host": "registry.npmjs.org",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65488",
+        "policyOverride": false
+      }
+    },
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-20",
+        "timestamp": "2026-10-09T19:58:35.230Z",
+        "scope": "domain",
+        "decision": "allow",
+        "source": "baseline_policy",
+        "reason": "allow",
+        "protocol": "https_connect",
+        "host": "registry.npmjs.org",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65496",
+        "policyOverride": false
+      }
+    },
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-19",
+        "timestamp": "2026-10-09T19:58:35.284Z",
+        "scope": "domain",
+        "decision": "allow",
+        "source": "baseline_policy",
+        "reason": "allow",
+        "protocol": "https_connect",
+        "host": "example.com",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65501",
+        "policyOverride": false
+      }
+    },
+    {
+      "method": "network/policyDecision",
+      "params": {
+        "processId": "probe-23",
+        "timestamp": "2026-10-09T19:58:35.492Z",
+        "scope": "domain",
+        "decision": "deny",
+        "source": "baseline_policy",
+        "reason": "not_allowed",
+        "protocol": "https_connect",
+        "host": "example.com",
+        "port": 443,
+        "method": "CONNECT",
+        "client": "127.0.0.1:65505",
+        "policyOverride": false
+      }
+    }
+  ],
+  "stderr": "",
+  "serverExit": 0
+}

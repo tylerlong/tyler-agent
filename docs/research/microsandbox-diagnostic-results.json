@@ -1,0 +1,42 @@
+{
+	"version": "0.7.8",
+	"root": "/private/tmp/tmsb-diag-tl0JbW",
+	"checks": [
+		{
+			"name": "colon host target works with a legal guest alias",
+			"pass": false,
+			"ms": 0.767707999999999,
+			"error": {
+				"name": "InvalidConfigError",
+				"message": "invalid config: bind host path must not contain ',', ':', or ';': /private/tmp/tmsb-diag-tl0JbW/target:colon"
+			}
+		},
+		{
+			"name": "full root bind reads fixture promptly but first write exceeds 10s",
+			"pass": true,
+			"ms": 10302.336374999999,
+			"details": {
+				"readMs": 2.591624999999965,
+				"writeMs": 10002.787457999999,
+				"error": "operation deadline 10000ms",
+				"beforeKill": "BEFORE",
+				"quotaExplicitlyOmitted": true,
+				"warning": "full root first write still blocked; probe expectation confirms the documented performance defect, not a product acceptance pass"
+			}
+		},
+		{
+			"name": "10,000-file target first-write quota cost",
+			"pass": true,
+			"ms": 884.9425840000004,
+			"details": {
+				"files": 10000,
+				"logicalFixtureBytes": 5120000,
+				"firstWriteMs": 28.2934580000001,
+				"secondWriteMs": 1.9544999999998254
+			}
+		}
+	],
+	"cleanup": [],
+	"passed": 2,
+	"failed": 1
+}

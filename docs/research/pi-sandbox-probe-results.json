@@ -1,0 +1,175 @@
+{
+  "versions": {
+    "pi": "1.1.0",
+    "srt": "0.0.78",
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "checks": [
+    {
+      "name": "restricted unknown HTTPS denied with destination fact",
+      "passed": true,
+      "ms": 989,
+      "detail": {
+        "text": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22",
+        "violations": [
+          {
+            "line": "deny network-outbound registry.npmjs.org:443 (host is not on the allow list)",
+            "encodedCommand": "Y2FzZS0x",
+            "command": "case-1",
+            "timestamp": "2026-10-09T19:40:38.975Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "approved HTTPS domain succeeds",
+      "passed": true,
+      "ms": 848,
+      "detail": {
+        "text": "STATUS:200",
+        "callbackCalls": 0
+      }
+    },
+    {
+      "name": "allowed domain does not permit other domain",
+      "passed": true,
+      "ms": 822,
+      "detail": {
+        "text": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22",
+        "violations": [
+          {
+            "line": "deny network-outbound example.com:443 (host is not on the allow list)",
+            "encodedCommand": "Y2FzZS0z",
+            "command": "case-3",
+            "timestamp": "2026-10-09T19:40:40.649Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "concurrent domain policies do not mix",
+      "passed": true,
+      "ms": 1001,
+      "detail": {
+        "allowed": "STATUS:200",
+        "denied": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22"
+      }
+    },
+    {
+      "name": "unsetting proxy cannot bypass OS network fence",
+      "passed": true,
+      "ms": 819,
+      "detail": {
+        "text": "curl: (6) Could not resolve host: registry.npmjs.org\nSTATUS:000\n\nCommand exited with code 6"
+      }
+    },
+    {
+      "name": "subdomain wildcard works",
+      "passed": true,
+      "ms": 883,
+      "detail": {
+        "text": "STATUS:200"
+      }
+    },
+    {
+      "name": "full network via official constant-allow callback",
+      "passed": true,
+      "ms": 1138,
+      "detail": {
+        "text": "STATUS:200STATUS:200",
+        "callbackCalls": 2
+      }
+    },
+    {
+      "name": "full network preserves restricted files",
+      "passed": true,
+      "ms": 727,
+      "detail": {
+        "error": "EPERM: operation not permitted, access '/private/tmp/ta-pi3-FVkh7U/fixture/outside/sentinel'"
+      }
+    },
+    {
+      "name": "full files preserves restricted network",
+      "passed": true,
+      "ms": 813,
+      "detail": {
+        "text": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22"
+      }
+    },
+    {
+      "name": "extra folder once and revoked next launch",
+      "passed": true,
+      "ms": 1408,
+      "detail": {
+        "rejected": "EPERM: operation not permitted, realpath '/private/tmp/ta-pi3-FVkh7U/fixture/b/extra-once'"
+      }
+    },
+    {
+      "name": "Pi native timeout stops ordinary descendants",
+      "passed": true,
+      "ms": 1001,
+      "detail": {
+        "error": "Command timed out after 0.15 seconds",
+        "descendantPid": 96815
+      }
+    },
+    {
+      "name": "host IPC abort stops ordinary descendants",
+      "passed": true,
+      "ms": 967,
+      "detail": {
+        "error": "READY\n\nCommand aborted",
+        "descendantPid": 96824
+      }
+    },
+    {
+      "name": "finite 8MiB output is bounded and saved in own tmp",
+      "passed": true,
+      "ms": 840,
+      "detail": {
+        "textBytes": 51337,
+        "structuredBytes": 1048611,
+        "fullPath": "/private/tmp/ta-pi3-FVkh7U/fixture/t/case-15/pi-bash-10da1c6f5400b480.log",
+        "fullSize": 8388608,
+        "updates": 3,
+        "rssDelta": 35651584
+      }
+    },
+    {
+      "name": "all seven tools and failure path produce zero worker HTTP attempts",
+      "passed": true,
+      "ms": 868,
+      "detail": {
+        "attempts": [],
+        "importMs": 309.07491600000003,
+        "tools": 8
+      }
+    },
+    {
+      "name": "real pnpm install and Node test inside approved targets",
+      "passed": true,
+      "ms": 1920,
+      "detail": {
+        "text": "11.22.0\nProgress: resolved 1, reused 0, downloaded 0, added 0\nPackages: +1\n+\nPackages are cloned from the content-addressable store to the virtual store.\n  Content-addressable store is at: /private/tmp/ta-pi3-FVkh7U/fixture/a/project/.store/v11\n  Virtual store is at:             node_modules/.pnpm\nProgress: resolved 1, reused 0, downloaded 1, added 1, done\n\ndependencies:\n+ is-number 7.0.0\n\nDone in 369ms using pnpm v11.22.0\n$ node --test test.cjs\n✔ dependency and artifact (1.410542ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 64.628208\n"
+      }
+    },
+    {
+      "name": "real git init/add/commit/diff",
+      "passed": true,
+      "ms": 983,
+      "detail": {
+        "text": "(no output)"
+      }
+    },
+    {
+      "name": "cancel must also stop intentionally detached descendant",
+      "passed": false,
+      "ms": 979,
+      "error": "Missing expected exception: detached descendant survived Pi abort"
+    }
+  ],
+  "passed": 16,
+  "failed": 1
+}

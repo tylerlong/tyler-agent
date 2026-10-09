@@ -1,0 +1,120 @@
+{
+  "lockLocations": [
+    "node_modules/@openai/codex",
+    "node_modules/@openai/codex-darwin-arm64",
+    "node_modules/@openai/codex-darwin-x64",
+    "node_modules/@openai/codex-linux-arm64",
+    "node_modules/@openai/codex-linux-x64",
+    "node_modules/@openai/codex-win32-arm64",
+    "node_modules/@openai/codex-win32-x64"
+  ],
+  "installed": [
+    {
+      "dir": "npm-fixture/node_modules/@openai/codex",
+      "name": "@openai/codex",
+      "version": "0.162.0",
+      "dependencies": null,
+      "optionalDependencies": {
+        "@openai/codex-linux-x64": "npm:@openai/codex@0.162.0-linux-x64",
+        "@openai/codex-linux-arm64": "npm:@openai/codex@0.162.0-linux-arm64",
+        "@openai/codex-darwin-x64": "npm:@openai/codex@0.162.0-darwin-x64",
+        "@openai/codex-darwin-arm64": "npm:@openai/codex@0.162.0-darwin-arm64",
+        "@openai/codex-win32-x64": "npm:@openai/codex@0.162.0-win32-x64",
+        "@openai/codex-win32-arm64": "npm:@openai/codex@0.162.0-win32-arm64"
+      },
+      "scripts": null,
+      "files": [
+        "bin/codex.js"
+      ]
+    },
+    {
+      "dir": "npm-fixture/node_modules/@openai/codex-darwin-arm64",
+      "name": "@openai/codex",
+      "version": "0.162.0-darwin-arm64",
+      "dependencies": null,
+      "optionalDependencies": null,
+      "scripts": null,
+      "files": [
+        "vendor"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "npm-fixture/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-path/rg",
+      "bytes": 4030432,
+      "MiB": 3.843719482421875,
+      "sha256": "4259cec27866c48bf1c0fc1ae7281e25328ecc94eaf7f139b0584bb80a8e3511"
+    },
+    {
+      "path": "npm-fixture/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex",
+      "bytes": 246508160,
+      "MiB": 235.0885009765625,
+      "sha256": "8238273076041e55beded03ba1d51e034f997b7d100b0642d36daf036620fe57"
+    },
+    {
+      "path": "npm-fixture/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex-code-mode-host",
+      "bytes": 65408016,
+      "MiB": 62.37794494628906,
+      "sha256": "0b74f513cd960f32e60836f39c574761e6fd1500e608135f3f34347acc3e0e6a"
+    },
+    {
+      "path": "npm-fixture/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-resources/voice/bin/codex-voice-host",
+      "bytes": 9994368,
+      "MiB": 9.5313720703125,
+      "sha256": "e3652f4ec9d5e5ec24ede4b1ec75d5e6b2247c6f8d59a01d1ea764525b362fe5"
+    },
+    {
+      "path": "npm-fixture/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-resources/voice/lib/libgstreamer-1.0.0.dylib",
+      "bytes": 1304704,
+      "MiB": 1.2442626953125,
+      "sha256": "221cc45aabe0f452d4aecc61598916cc919478eb0de5e75010b46b7772f373a5"
+    },
+    {
+      "path": "npm-fixture/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-resources/voice/lib/libglib-2.0.0.dylib",
+      "bytes": 1310992,
+      "MiB": 1.2502593994140625,
+      "sha256": "d5a0b84348ed97b8724e2ad28db9c5c3319e2a1f98bda8e33b7b53b4e9c94af8"
+    },
+    {
+      "path": "npm-fixture/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex-resources/voice/lib/libgio-2.0.0.dylib",
+      "bytes": 1866272,
+      "MiB": 1.779815673828125,
+      "sha256": "7a5684c96e5720f96687eef12744055e707ac07a8f8b6b978d759b036ec341e1"
+    }
+  ],
+  "logicalMiB": 322.3938236236572,
+  "allocatedMiB": 331.171875,
+  "projectLockDelta": {
+    "packagesBaseline": 206,
+    "packagesNew": 213,
+    "added": [
+      "'@openai/codex@0.162.0'",
+      "'@openai/codex@0.162.0-darwin-arm64'",
+      "'@openai/codex@0.162.0-darwin-x64'",
+      "'@openai/codex@0.162.0-linux-arm64'",
+      "'@openai/codex@0.162.0-linux-x64'",
+      "'@openai/codex@0.162.0-win32-arm64'",
+      "'@openai/codex@0.162.0-win32-x64'"
+    ],
+    "removed": [],
+    "snapshotsAdded": [
+      "'@openai/codex@0.162.0'",
+      "'@openai/codex@0.162.0-darwin-arm64'",
+      "'@openai/codex@0.162.0-darwin-x64'",
+      "'@openai/codex@0.162.0-linux-arm64'",
+      "'@openai/codex@0.162.0-linux-x64'",
+      "'@openai/codex@0.162.0-win32-arm64'",
+      "'@openai/codex@0.162.0-win32-x64'"
+    ],
+    "snapshotsRemoved": []
+  },
+  "standalone": {
+    "bytes": 246508160,
+    "MiB": 235.0885009765625,
+    "sha256": "8238273076041e55beded03ba1d51e034f997b7d100b0642d36daf036620fe57",
+    "tarBytes": 98089521,
+    "tarSHA256": "98e9413a1bd167ae573723939ff178e6d44f1bb21d5cda960dbeb2fa65f49104",
+    "dynamicLibraryOrigin": "Only /System/Library and /usr/lib (otool -L)"
+  }
+}

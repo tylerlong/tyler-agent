@@ -1,0 +1,160 @@
+{
+  "versions": {
+    "pi": "1.1.0",
+    "srt": "0.0.78",
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "checks": [
+    {
+      "name": "restricted unknown HTTPS denied with destination fact",
+      "passed": true,
+      "ms": 973,
+      "detail": {
+        "text": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22",
+        "violations": [
+          {
+            "line": "deny network-outbound registry.npmjs.org:443 (host is not on the allow list)",
+            "encodedCommand": "Y2FzZS0x",
+            "command": "case-1",
+            "timestamp": "2026-10-09T19:33:22.462Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "approved HTTPS domain succeeds",
+      "passed": true,
+      "ms": 873,
+      "detail": {
+        "text": "STATUS:200",
+        "callbackCalls": 0
+      }
+    },
+    {
+      "name": "allowed domain does not permit other domain",
+      "passed": true,
+      "ms": 837,
+      "detail": {
+        "text": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22",
+        "violations": [
+          {
+            "line": "deny network-outbound example.com:443 (host is not on the allow list)",
+            "encodedCommand": "Y2FzZS0z",
+            "command": "case-3",
+            "timestamp": "2026-10-09T19:33:24.173Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "concurrent domain policies do not mix",
+      "passed": true,
+      "ms": 955,
+      "detail": {
+        "allowed": "STATUS:200",
+        "denied": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22"
+      }
+    },
+    {
+      "name": "unsetting proxy cannot bypass OS network fence",
+      "passed": true,
+      "ms": 817,
+      "detail": {
+        "text": "curl: (6) Could not resolve host: registry.npmjs.org\nSTATUS:000\n\nCommand exited with code 6"
+      }
+    },
+    {
+      "name": "subdomain wildcard works",
+      "passed": true,
+      "ms": 871,
+      "detail": {
+        "text": "STATUS:200"
+      }
+    },
+    {
+      "name": "full network via official constant-allow callback",
+      "passed": true,
+      "ms": 1144,
+      "detail": {
+        "text": "STATUS:200STATUS:200",
+        "callbackCalls": 2
+      }
+    },
+    {
+      "name": "full network preserves restricted files",
+      "passed": true,
+      "ms": 724,
+      "detail": {
+        "error": "EPERM: operation not permitted, access '/private/tmp/ta-pi3-FVkh7U/fixture/outside/sentinel'"
+      }
+    },
+    {
+      "name": "full files preserves restricted network",
+      "passed": true,
+      "ms": 798,
+      "detail": {
+        "text": "curl: (22) The requested URL returned error: 403\nSTATUS:000\n\nCommand exited with code 22"
+      }
+    },
+    {
+      "name": "extra folder once and revoked next launch",
+      "passed": true,
+      "ms": 1427,
+      "detail": {
+        "rejected": "EPERM: operation not permitted, realpath '/private/tmp/ta-pi3-FVkh7U/fixture/b/extra-once'"
+      }
+    },
+    {
+      "name": "Pi native timeout stops ordinary descendants",
+      "passed": true,
+      "ms": 982,
+      "detail": {
+        "error": "Command timed out after 0.15 seconds",
+        "descendantPid": 96163
+      }
+    },
+    {
+      "name": "host IPC abort stops ordinary descendants",
+      "passed": true,
+      "ms": 987,
+      "detail": {
+        "error": "READY\n\nCommand aborted",
+        "descendantPid": 96172
+      }
+    },
+    {
+      "name": "finite 8MiB output is bounded and saved in own tmp",
+      "passed": false,
+      "ms": 815,
+      "error": "{\"code\":1,\"stderr\":\"node:events:505\\n    throw er; // Unhandled 'error' event\\n    ^\\n\\nError: EPERM: operation not permitted, open '/tmp/claude/pi-bash-02079c6998ea4004.log'\\nEmitted 'error' event on WriteStream instance at:\\n    at emitErrorNT (node:internal/streams/destroy:170:8)\\n    at emitErrorCloseNT (node:internal/streams/destroy:129:3)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {\\n  errno: -1,\\n  code: 'EPERM',\\n  syscall: 'open',\\n  path: '/tmp/claude/pi-bash-02079c6998ea4004.log'\\n}\\n\\nNode.js v24.21.0\\n\",\"violations\":[],\"callbackCalls\":0,\"abortSent\":false}\n\n1 !== 0\n"
+    },
+    {
+      "name": "all seven tools and failure path produce zero worker HTTP attempts",
+      "passed": true,
+      "ms": 1242,
+      "detail": {
+        "attempts": [],
+        "importMs": 319.14649999999995,
+        "tools": 8
+      }
+    },
+    {
+      "name": "real pnpm install and Node test inside approved targets",
+      "passed": false,
+      "ms": 843,
+      "error": "node:internal/fs/promises:1345\n  return new FileHandle(await PromisePrototypeThen(\n                        ^\n\nError: EPERM: operation not permitted, open '/private/tmp/ta-pi3-FVkh7U/package.json'\n    at async open (node:internal/fs/promises:1345:25)\n    at async Object.readFile (node:internal/fs/promises:1996:14)\n    at async loadSpec (/opt/homebrew/Cellar/node@24/24.20.0/lib/node_modules/corepack/dist/lib/corepack.cjs:13533:17)\n    at async Engine.findProjectSpec (/opt/homebrew/Cellar/node@24/24.20.0/lib/node_modules/corepack/dist/lib/corepack.cjs:13785:22)\n    at async Engine.executePackageManagerRequest (/opt/homebrew/Cellar/node@24/24.20.0/lib/node_modules/corepack/dist/lib/corepack.cjs:13849:24)\n    at async Object.runMain (/opt/homebrew/Cellar/node@24/24.20.0/lib/node_modules/corepack/dist/lib/corepack.cjs:14566:7) {\n  errno: -1,\n  code: 'EPERM',\n  syscall: 'open',\n  path: '/private/tmp/ta-pi3-FVkh7U/package.json'\n}\n\nNode.js v24.21.0\n\n\nCommand exited with code 1\n\n1 !== 0\n"
+    },
+    {
+      "name": "real git init/add/commit/diff",
+      "passed": true,
+      "ms": 1014,
+      "detail": {
+        "text": "(no output)"
+      }
+    }
+  ],
+  "passed": 14,
+  "failed": 2
+}

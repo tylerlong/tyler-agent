@@ -2,7 +2,7 @@
 
 日期：2026-10-08。范围：Tyler 是唯一用户，在本机运行通用 Agent；研究命令工具启动的进程及其后代的权限和交互审批，不涉及用户独立启动的 watcher、安装升级、上下文管理或新的 Git 恢复功能。本文是研究与方案建议，不是已接受的实现规格。
 
-**已确认的设计范围**：用户接受首版采用 best efforts，不要求先解决全部隔离边界问题。命令自身进程树的责任边界记录于 [ADR 0004](../adr/0004-command-tool-isolation-boundary.md)；临时／缓存目录、特殊路径和链接的具体取舍仍待讨论，下面的研究建议不自动视为已接受决定。
+**已确认的设计范围**：用户接受首版采用 best efforts，不要求先解决全部隔离边界问题。命令自身进程树的责任边界、命令及结构化文件工具可访问的 Agent 独立临时工作目录及交由系统清理的选择、特殊目录名的拒绝策略、链接处理、读取权限规则、命令工具内置审批、模型主导权限申请及拒绝后的后续处理、Project Edit 中管理的持久项目授权及其修改生效时机、网络受限模式的默认拒绝与域名授权、文件／网络独立访问模式及仅初始化新 Chat 的全局默认记录于 [ADR 0004](../adr/0004-command-tool-isolation-boundary.md)；`AGENTS.md` 加载留待以后支持。缓存兼容性、系统／工具链只读例外、命令访问模式与执行前审批的具体接入仍待验证，下面的研究建议不自动视为已接受决定。
 
 ## 结论
 
@@ -100,6 +100,10 @@ await SandboxManager.wrapWithSandbox(command, "/bin/sh", {
 
 **判断**：普通绝对目录可以在同一 Runtime 中按每次命令动态指定，基本文件范围和子进程继承满足预期。但发布版不能无条件保证“任意 Target Folders 之外的数据绝不改变”。采用前至少需要防止目录名被解释为 glob，并明确已有跨范围硬链接的处理。拒绝创建新的跨范围硬链接已验证，不能据此声称已有硬链接问题也已解决。
 
+**已确认的特殊目录名策略**：首版遇到无法安全按字面路径授权的 Target Folder 时，拒绝该次命令执行并向模型明确说明原因；现有文件工具保持原有行为。该策略尚未实现，不改变以上发布版实验的原始失败结果。
+
+**已确认的链接策略**：符号链接保留正常使用，写入由沙箱按实际目标权限判断；已有跨范围硬链接的修改效果被接受为首版 best efforts 的已知限制，暂不额外处理。接受这一限制不改变原始实验中的失败记录。
+
 pnpm 初始尝试经过机器上的 Corepack shim，需要联网获取版本；另一次缺少依赖初始化会触发自动安装。这些是工具链预置问题。最终使用临时目录预装的准确版本入口，在沙箱内执行零依赖 `install --offline --ignore-scripts` 后运行 `test`，没有扩大网络或目标目录写权限。这个小型 fixture 不等同于已验证真实仓库的全部构建与测试。
 
 复现步骤（在独立临时目录安装依赖，不安装到应用）：
@@ -123,13 +127,53 @@ node docs/research/sandbox-runtime-probe.mjs \
 
 这是一份待验证的项目策略。正常开发命令往往需要目录外的工具链；“项目数据只能在目标文件夹内”和“任何目录外读取都禁止”应明确区分。OS sandbox 仍依赖内核、wrapper 配置和可信服务，不能声称绝对不会被漏洞突破。
 
+### 临时工作目录与模型环境说明
+
+**已确认决定**：采用 `/tmp/tyler-agent/` 作为父目录，由运行时为每个 Agent 分配独立子目录，例如 `/tmp/tyler-agent/<agent-id>/`。命令只获得自己子目录的临时目录许可，供实验和暂存可丢弃内容使用；运行时发送实际绝对路径给模型，并设置相应的临时目录和缓存环境变量。首版不由应用自行清理，交由当前 macOS 的 `/tmp` 系统清理机制处理。
+
+**代码事实**：当前模型请求的 `instructions` 由 [openrouter.ts](../../src/openrouter.ts) 直接生成，包含 Target Folders 和子模型清单，没有自动加载项目 `AGENTS.md`。现有文件工具只接受 Target Folders 范围内的路径；目录说明不会为范围外临时路径授予权限。
+
+**已确认的文件工具访问范围**：结构化文件工具也可读写所属 Agent 的临时工作目录，将该目录与当前项目的 Target Folders 合并为该次调用的授权范围；沿用真实路径、父目录和链接校验，不自动授权其他 Agent 的临时目录。内容访问要求实际目标位于合并范围内，移动／删除末级符号链接仍操作链接条目本身。这扩展 ADR 0003 的仅 Target Folders 授权规则，其余文件工具契约继续有效；当前应用代码尚未实现此扩展。
+
+**系统清理的本机依据（2026-10-09）**：本机 macOS 26.7.1 的 `/usr/share/man/man8/tmp_cleaner.8` 明确说明每天检查 `/tmp` 并删除近期未修改的旧内容；`/System/Library/LaunchDaemons/com.apple.tmp_cleaner.plist` 启动 `/usr/libexec/tmp_cleaner`，日历配置为 `Hour = 0`。只读 `launchctl print system/com.apple.tmp_cleaner` 确认服务已加载、已运行 9 次、最近退出码为 0。Apple 官方开源手册和配置支持上述机制，但具体清理规则不是稳定 API，不能沿用旧 `periodic` 的三天说明作为本机保证。应用不承诺临时内容的保留或回收期限；需要长期保存的成果应移入 Target Folders，需要临时目录时确保它存在。本轮没有触发清理、重启、写清理测试文件或查看用户临时内容，也没有核实当前二进制的确切年龄阈值。[Apple 官方手册](https://github.com/apple-oss-distributions/diskdev_cmds/blob/main/tmp_cleaner/tmp_cleaner.8)、[Apple 官方配置](https://github.com/apple-oss-distributions/diskdev_cmds/blob/main/tmp_cleaner/com.apple.tmp_cleaner.plist)、[Apple DTS 对规则稳定性的说明](https://developer.apple.com/forums/thread/71382)
+
+**交付范围与待验证事项**：用户明确将 `AGENTS.md` 加载留到以后支持，本次由运行时直接提供临时目录信息。改变环境变量不会撤销 sandbox-runtime 的默认目录许可，执行策略需要另行处理这些默认许可并验证缓存兼容性。
+
 ### 审批应如何接入
 
-**建议**：使用可信 Runtime 发起、由浏览器用户响应的 pending approval。请求应绑定 Agent/Tool Call、准确命令、`cwd`、所需路径的读写性质或网络域名；模型提供理由，但不能提交批准决定。最小先做“允许这次”与“拒绝”，不先做宽泛永久授权。
+**审批归属**：使用可信 Runtime 发起、由浏览器用户响应的 pending approval。请求应绑定 Agent/Tool Call、准确命令、`cwd`、所需路径的读写性质或网络域名；模型提供理由，用户决定是否批准及授权期限，具体选择按下述已确认的工具接口处理。
 
 **事实与参考模式**：Harpe 的 approval 同样由 trusted tool/capability 发起，并在执行真实效果前等待用户；拒绝、超时、取消返回实际 Tool Result。无人可决定时按取消处理，模型无法批准自己的动作。[Harpe Human Approval](https://harpe.jo-lang.org/concepts/approvals/)
 
-**建议**：网络代理可在连接发生前等待 UI 决定并继续当前连接。普通文件访问被 OS sandbox 拒绝时，通常需要新的权限配置和新进程；先把失败与已发生效果交给模型，再申请重新执行。不能自动重跑整个命令，因为失败前可能已经产生副作用。批准也不应默认解除整个 sandbox。[sandbox-runtime](https://github.com/anthropics/sandbox-runtime)
+**已排除的网络审批候选**：库的网络代理回调可以在连接发生前等待 UI 决定并继续连接，但用户要求尽量避免本地编排权限申请与后续处理，因此首版不采用执行中自动审批。普通文件访问被 OS sandbox 拒绝时通常也需要新的权限配置和新进程；先把失败与已发生效果交给模型，再由模型申请新调用。不能自动重跑整个命令，因为失败前可能已经产生副作用；批准也不默认解除整个 sandbox。[sandbox-runtime](https://github.com/anthropics/sandbox-runtime)
+
+**0.0.78 源码核查**：`SandboxAskCallback` 是接收 `{ host, port }`、返回 `Promise<boolean>` 的网络回调；未命中网络允许／拒绝规则且未启用 `strictAllowlist` 时才调用，`false` 或抛错均拒绝，不会自动保存域名授权。文件访问没有对应的等待审批回调；`wrapWithSandbox` 在启动前生成文件规则，`updateConfig` 明确不实时更新运行中进程的文件权限。发布包通过本机 npm 镜像取得并校验其完整性，README 与官方 `v0.0.78` tag 一致；官方 registry 直连因证书链错误未完成。本轮核查源码，未增加动态审批实验，临时解包目录已清理。[回调类型](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-schemas.ts#L111-L118)、[网络回调调用](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L332-L413)、[文件权限更新契约](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L2016-L2034)
+
+**已确认的工具接口与授权选择**：首版把额外路径权限和申请理由放在命令工具的参数中，由本地运行时在启动该次命令前校验并等待浏览器用户决定。提供拒绝、允许这次和始终允许当前 Project：一次批准绑定准确命令、工作目录和额外访问范围；项目授权持久保存获准的额外访问范围与权限类型，供该项目现有及未来的所有 Chat、主 Agent 和子 Agent 复用，其他 Project 各自授权。已知需要权限时可以直接申请；执行中发现未知文件访问被拒绝时，返回实际结果，由模型决定是否发起新的命令调用。不为命令执行单独增加 `prompt_for_approval` 工具。
+
+**已确认的模型／本地职责边界**：文件和网络访问在执行中被拒绝时，本地只执行既有权限边界并记录可获得的拒绝信息、路径／域名、输出和退出码，不根据错误自行申请权限、扩大范围、重跑命令或等待批准后恢复连接。远程模型决定是否通过新命令调用明确申请额外权限、重试、换命令或结束任务；用户仍是批准方，本地保留参数校验、审批展示及强制权限检查。网络受限模式可使用 `strictAllowlist` 阻止落入动态审批回调，允许所有域名模式的自动放行则只是执行用户已选择的权限规则；具体 SDK 接入尚未实测。
+
+**已确认的管理入口**：在 Project Edit 中查看、添加、修改和删除项目允许的额外权限。该入口与审批中的“始终允许当前 Project”管理同一份数据，首版只保留 Project 这一个持久授权层级。
+
+**已确认的生效时机**：Project Edit 中保存的权限修改／撤销影响后续启动的命令；已运行的命令保留启动时获准的权限，用户需要立即停止时可取消其执行。命令启动时读取所属项目的最新授权。文件权限无法在运行中直接追加或撤回，网络代理则存在实时决策能力，统一生效时机尚需在集成实验中验证。
+
+**已确认的网络默认规则**：网络受限模式下，未获授权域名默认禁止访问，需要时按具体域名申请，支持允许这次及始终允许当前 Project；持久域名授权在 Project Edit 中管理。域名授权允许发送和接收数据，不区分上传与下载。
+
+**已确认的访问模式与全局默认**：文件和网络分开设置，文件为受限／完全访问，网络为受限／允许所有域名。全局默认两项均受限，只用于新 Chat 创建时初始化其实际选项；每个 Chat 独立保存自己的两项设置，不提供“继承全局”，修改全局不会追溯修改已有 Chat，与模型／思考强度的对话配置用法一致。受限模式继续使用目标文件夹、Agent 临时目录、项目授权和该次工具调用的许可；文件完全访问取消文件范围限制与额外文件审批，仍受运行服务的 OS 账号权限约束。用户接受首版网络完全访问通过允许所有域名实现，不要求关闭全部网络隔离或支持全部协议。项目继续管理具体权限，不额外引入项目级模式覆盖；首版不增加自动安全审批。具体执行接入尚未验证。
+
+**Full access 的版本能力核查**：官方固定 `v0.0.78` 源码支持 `filesystem.disabled`，可关闭普通文件规则及内置强制写保护而保留网络隔离；配置了 credential 文件 mask 时，额外的文件拒绝仍会传入 wrapper，因此这里的完整文件访问结论针对没有该配置的常规用法。网络 schema 没有对称的 `network.disabled` 开关，且 `allowedDomains: ['*']` 被正式校验拒绝；绕过校验也仍受 TCP 代理、直接 UDP/DNS、监听和 Unix socket 等规则限制，不能据此承诺支持全部网络协议。用户已接受首版只要求放行所有域名，所以不需要为了该选项关闭整个网络隔离层。若将来两维都真正取消 OS sandbox 限制，可直接启动原命令并复用 Tool 的输出、超时、取消与持久化流程，这是集成推论；完全访问仍受宿主账号和 OS 自身权限约束。本轮仅核查源码，没有执行 full-access 命令。[文件开关](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-config.ts)、[网络判断](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L1648-L1663)、[域名校验](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-config.ts#L25-L63)、[macOS 规则](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/macos-sandbox-utils.ts)
+
+**允许所有域名的候选接入**：使用正式回调接口，在没有额外 deny 规则且 `strictAllowlist: false` 的配置下，让 `SandboxAskCallback` 自动返回 `true`，可以放行所有格式合法的代理目标而不展示逐域名审批；仍保留地址检查、代理和 OS 协议限制。这比绕过 schema 强塞裸 `*` 更适合目前已确认的首版语义，但还没有动态验证。[代理授权流程](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L319-L391)
+
+**并行 Chat 的网络策略限制**：该版本的配置、代理和初始化状态是模块级共享状态；代理读取全局网络规则并使用初始化时的回调。`wrapWithSandbox` 的单次 network override 不能提供独立的代理域名策略，`updateConfig` 又会影响该代理下所有运行中命令，因此不能让不同 Chat 通过反复修改共享 Manager 来切换授权。建议每次命令通过独立执行器进程初始化自己的 Manager，使用所属 Chat 和 Project 的授权快照，保证并行 Chat 的模式、一次批准及项目授权互不扩大；这属于待实验的接入建议，不是已经实现的隔离。[共享状态](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L126-L151)、[回调接线](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L514-L554)、[单次包装](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L1648-L1663)、[实时规则更新](https://github.com/anthropics/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/src/sandbox/sandbox-manager.ts#L1915-L1957)
+
+**Codex 参考的范围**：用户提供的界面和说明用于提出全局默认与 Chat 覆盖的产品行为；官方文档确认 Full access 会解除文件与网络的沙箱边界，Approve for me 则依赖额外的自动审批能力。参考这些行为不意味着首版需要实现自动审批，也不代表上述独立网络开关已经验证。[Codex sandboxing](https://learn.chatgpt.com/docs/sandboxing)
+
+**错误层次**：OS 对未获准文件访问返回错误，命令内的程序可能抛异常、打印错误退出，也可能捕获错误后继续。父执行器需要收集退出码、stdout、stderr 和可获得的沙箱拒绝记录，不会自动收到子程序语言层的异常；不能仅凭 `EPERM`／`EACCES` 字样断言沙箱是唯一原因。权限识别用于提供事实和建议，批准决定仍由本地用户提交。
+
+**现有循环的接入位置**：[requestModel](../../src/openrouter.ts) 已经逐次等待异步工具执行，再把对应 Tool Result 放入下一次模型请求。等待本地审批可以放在这次工具执行之内；当前代码尚未实现审批状态、UI 或执行授权。
+
+**业内参考**：Claude Code 将执行前的工具权限判断与执行期间的 OS sandbox 分开，并在命令结果中报告网络拒绝，供模型决定后续调用。这支持“模型提出请求，本地落实决定”的结构，不代表应照搬其解除沙箱重试选项。[Claude Code：权限与隔离](https://code.claude.com/docs/en/sandboxing#how-sandboxing-relates-to-permissions-and-permission-modes)
 
 ## Jo：价值与适用边界
 
@@ -149,7 +193,7 @@ node docs/research/sandbox-runtime-probe.mjs \
 
 ## 当前项目的设计影响
 
-现有 [ADR 0003](../adr/0003-structured-file-tools.md) 明确选择避免 shell，并把 Target Folders 设为文件访问的应用授权规则。[ADR 0004](../adr/0004-command-tool-isolation-boundary.md) 已记录新增命令工具的首版责任边界；现有文件工具契约继续有效。工具链只读例外、额外权限批准及命令 sandbox 的具体策略仍需后续确认。
+现有 [ADR 0003](../adr/0003-structured-file-tools.md) 明确选择避免 shell，并把 Target Folders 设为文件访问的应用授权规则。[ADR 0004](../adr/0004-command-tool-isolation-boundary.md) 已记录新增命令工具的首版责任边界，并明确扩展结构化文件工具的授权范围，允许所属 Agent 的临时工作目录；其余文件工具契约继续有效。工具链只读例外和命令 sandbox 的具体执行接入仍需验证。
 
 ### 命令工具的执行边界
 

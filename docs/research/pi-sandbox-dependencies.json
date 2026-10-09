@@ -1,0 +1,324 @@
+{
+  "audit_time_utc": "2026-10-09T19:31:49.405Z",
+  "platform": {
+    "node": "v24.21.0",
+    "os": "darwin",
+    "arch": "arm64",
+    "npm": "11.19.0",
+    "pnpm": "11.22.0"
+  },
+  "scripts_executed": false,
+  "direct_additions": [
+    {
+      "name": "@earendil-works/pi-coding-agent",
+      "version": "1.1.0",
+      "license": "MIT",
+      "direct_dependencies": 23,
+      "exports": {
+        ".": {
+          "types": "./dist/index.d.ts",
+          "import": "./dist/index.js"
+        },
+        "./rpc-entry": {
+          "import": "./dist/bundle/rpc-entry.js"
+        },
+        "./client": {
+          "source": "./src/client/index.ts"
+        },
+        "./experimental/plugin": {
+          "source": "./src/experimental/plugin.ts"
+        }
+      }
+    },
+    {
+      "name": "@anthropic-ai/sandbox-runtime",
+      "version": "0.0.78",
+      "license": "Apache-2.0",
+      "direct_dependencies": 4,
+      "exports": null
+    }
+  ],
+  "combined_npm": {
+    "lock_all": {
+      "package_names": 147,
+      "name_version_pairs": 151,
+      "package_locations": 151
+    },
+    "physical_installed": {
+      "package_names": 122,
+      "name_version_pairs": 126,
+      "package_locations": 126
+    },
+    "lock_optional": {
+      "package_names": 26,
+      "name_version_pairs": 26,
+      "package_locations": 26
+    },
+    "lock_omitted_on_this_machine": {
+      "package_names": 25,
+      "name_version_pairs": 25,
+      "package_locations": 25
+    },
+    "disk": {
+      "node_modules": {
+        "du_kibibytes": 179020
+      },
+      "npm_cache": {
+        "du_kibibytes": 103816
+      },
+      "logical_installed_package_bytes": 136844607
+    },
+    "counts_excluding_two_root_packages": {
+      "lock_package_names": 145,
+      "lock_name_version_pairs": 149,
+      "physical_package_names": 120,
+      "physical_name_version_pairs": 124
+    }
+  },
+  "per_root_closure": {
+    "@earendil-works/pi-coding-agent": {
+      "root_included": true,
+      "lock_all": {
+        "package_names": 142,
+        "name_version_pairs": 146,
+        "package_locations": 146
+      },
+      "physical_installed": {
+        "package_names": 117,
+        "name_version_pairs": 121,
+        "package_locations": 121
+      }
+    },
+    "@anthropic-ai/sandbox-runtime": {
+      "root_included": true,
+      "lock_all": {
+        "package_names": 5,
+        "name_version_pairs": 5,
+        "package_locations": 5
+      },
+      "physical_installed": {
+        "package_names": 5,
+        "name_version_pairs": 5,
+        "package_locations": 5
+      }
+    }
+  },
+  "application_lock_comparison": {
+    "before": {
+      "package_names": 193,
+      "name_version_pairs": 206,
+      "package_locations": 206
+    },
+    "after": {
+      "package_names": 332,
+      "name_version_pairs": 349,
+      "package_locations": 349
+    },
+    "added_name_version_pairs": 143,
+    "new_names": 139,
+    "reused_name_new_version_pairs": [],
+    "removed_pairs": [],
+    "before_snapshot_count": 206,
+    "after_snapshot_count": 349
+  },
+  "application_files_unchanged": {
+    "package.json": true,
+    "pnpm-lock.yaml": true
+  },
+  "lifecycle_installed": [
+    {
+      "name": "@anthropic-ai/sandbox-runtime",
+      "version": "0.0.78",
+      "lifecycle_scripts": {
+        "prepare": "husky"
+      }
+    },
+    {
+      "name": "@google/genai",
+      "version": "2.21.0",
+      "lifecycle_scripts": {
+        "preinstall": "echo 'preinstall: no-op'",
+        "prepare": "node scripts/prepare.js"
+      }
+    },
+    {
+      "name": "balanced-match",
+      "version": "4.0.4",
+      "lifecycle_scripts": {
+        "prepare": "tshy"
+      }
+    },
+    {
+      "name": "brace-expansion",
+      "version": "5.0.12",
+      "lifecycle_scripts": {
+        "prepare": "tshy"
+      }
+    },
+    {
+      "name": "esbuild",
+      "version": "0.28.2",
+      "lifecycle_scripts": {
+        "postinstall": "node install.js"
+      }
+    },
+    {
+      "name": "gaxios",
+      "version": "7.3.1",
+      "lifecycle_scripts": {
+        "prepare": "npm run compile"
+      }
+    },
+    {
+      "name": "gcp-metadata",
+      "version": "8.1.2",
+      "lifecycle_scripts": {
+        "prepare": "npm run compile"
+      }
+    },
+    {
+      "name": "google-auth-library",
+      "version": "10.9.1",
+      "lifecycle_scripts": {
+        "prepare": "npm run compile"
+      }
+    },
+    {
+      "name": "google-logging-utils",
+      "version": "1.1.3",
+      "lifecycle_scripts": {
+        "prepare": "npm run compile"
+      }
+    },
+    {
+      "name": "lru-cache",
+      "version": "11.5.3",
+      "lifecycle_scripts": {
+        "prepare": "tshy && bash scripts/build.sh"
+      }
+    },
+    {
+      "name": "minimatch",
+      "version": "10.2.6",
+      "lifecycle_scripts": {
+        "prepare": "tshy"
+      }
+    },
+    {
+      "name": "protobufjs",
+      "version": "7.6.6",
+      "lifecycle_scripts": {
+        "postinstall": "node scripts/postinstall"
+      }
+    },
+    {
+      "name": "standardwebhooks",
+      "version": "1.1.1",
+      "lifecycle_scripts": {
+        "prepare": "npm run build"
+      }
+    },
+    {
+      "name": "undici",
+      "version": "8.10.2",
+      "lifecycle_scripts": {
+        "prepare": "husky && node ./scripts/platform-shell.js"
+      }
+    },
+    {
+      "name": "web-streams-polyfill",
+      "version": "3.3.3",
+      "lifecycle_scripts": {
+        "prepare": "npm run build"
+      }
+    }
+  ],
+  "known_native_and_wasm_files": [
+    {
+      "package_relative_path": "quickjs-wasi/quickjs.wasm",
+      "bytes": 637405
+    },
+    {
+      "package_relative_path": "@earendil-works/pi-tui/native/win32/prebuilds/win32-arm64/win32-platform.node",
+      "bytes": 9216
+    },
+    {
+      "package_relative_path": "@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-platform.node",
+      "bytes": 8704
+    },
+    {
+      "package_relative_path": "@earendil-works/pi-tui/native/darwin/prebuilds/darwin-x64/darwin-platform.node",
+      "bytes": 22784
+    },
+    {
+      "package_relative_path": "@earendil-works/pi-tui/native/darwin/prebuilds/darwin-arm64/darwin-platform.node",
+      "bytes": 52024
+    },
+    {
+      "package_relative_path": "@earendil-works/pi-tui/native/linux/prebuilds/linux-arm64/linux-platform-x11.node",
+      "bytes": 67240
+    },
+    {
+      "package_relative_path": "@earendil-works/pi-tui/native/linux/prebuilds/linux-x64/linux-platform-x11.node",
+      "bytes": 18008
+    },
+    {
+      "package_relative_path": "@earendil-works/pi-coding-agent/examples/extensions/doom-overlay/doom/build/doom.wasm",
+      "bytes": 380169
+    },
+    {
+      "package_relative_path": "@silvia-odwyer/photon-node/photon_rs_bg.wasm",
+      "bytes": 1881634
+    }
+  ],
+  "tools_internal_static_import_closure": {
+    "method": "Static regex of runtime relative import/export/import() string literals in published dist, not semantic bundler dependency analysis",
+    "relative_js_files": 45,
+    "external_runtime_specs": {
+      "@earendil-works/pi-tui": [
+        "@earendil-works/pi-tui"
+      ],
+      "@silvia-odwyer/photon-node": [
+        "@silvia-odwyer/photon-node"
+      ],
+      "chalk": [
+        "chalk"
+      ],
+      "cross-spawn": [
+        "cross-spawn"
+      ],
+      "diff": [
+        "diff"
+      ],
+      "highlight.js": [
+        "highlight.js/lib/core.js",
+        "highlight.js/lib/index.js",
+        "highlight.js/lib/languages/bash.js",
+        "highlight.js/lib/languages/c.js",
+        "highlight.js/lib/languages/cpp.js",
+        "highlight.js/lib/languages/csharp.js",
+        "highlight.js/lib/languages/dart.js",
+        "highlight.js/lib/languages/go.js",
+        "highlight.js/lib/languages/groovy.js",
+        "highlight.js/lib/languages/java.js",
+        "highlight.js/lib/languages/javascript.js",
+        "highlight.js/lib/languages/json.js",
+        "highlight.js/lib/languages/kotlin.js",
+        "highlight.js/lib/languages/lua.js",
+        "highlight.js/lib/languages/nix.js",
+        "highlight.js/lib/languages/perl.js",
+        "highlight.js/lib/languages/php.js",
+        "highlight.js/lib/languages/python.js",
+        "highlight.js/lib/languages/ruby.js",
+        "highlight.js/lib/languages/rust.js",
+        "highlight.js/lib/languages/scala.js",
+        "highlight.js/lib/languages/swift.js",
+        "highlight.js/lib/languages/typescript.js"
+      ],
+      "typebox": [
+        "typebox"
+      ]
+    },
+    "external_package_names": 7
+  }
+}
