@@ -581,7 +581,13 @@ export function createServer(
 		cwd: string;
 		reason: string;
 		permissions: ExecutionPermissions;
-		status: "pending" | "denied" | "once" | "covered" | "interrupted";
+		status:
+			| "pending"
+			| "denied"
+			| "once"
+			| "always"
+			| "covered"
+			| "interrupted";
 	};
 	const approvals = new Map<
 		number,
@@ -592,18 +598,35 @@ export function createServer(
 			settle: (decision: Approval["status"]) => void;
 		}
 	>();
+	const projectGrants = (chatId: number): ExecutionPermissions =>
+		JSON.parse(
+			String(
+				database
+					.prepare(
+						"SELECT projects.grants FROM projects JOIN chats ON chats.project_id=projects.id WHERE chats.id=?",
+					)
+					.get(chatId)?.grants,
+			),
+		);
 	const currentPermissions = async (
 		chatId: number,
 		agentId: number,
-	): Promise<ExecutionPermissions> => ({
-		paths: (
-			await Promise.all(currentFolders(chatId).map((path) => realpath(path)))
-		)
-			.concat(agentScratch(String(agentId)))
-			.map((path) => ({ path, access: "write" })),
-		domains: [],
-		localNetwork: false,
-	});
+	): Promise<ExecutionPermissions> => {
+		const grants = projectGrants(chatId);
+		return {
+			...grants,
+			paths: [
+				...(
+					await Promise.all(
+						currentFolders(chatId).map((path) => realpath(path)),
+					)
+				)
+					.concat(agentScratch(String(agentId)))
+					.map((path) => ({ path, access: "write" as const })),
+				...grants.paths,
+			],
+		};
+	};
 	const saveApproval = (view: Approval) => {
 		database
 			.prepare("UPDATE tool_calls SET approval=? WHERE id=?")
@@ -728,7 +751,12 @@ export function createServer(
 			.prepare("UPDATE tool_calls SET status='running',reason=NULL WHERE id=?")
 			.run(toolCallId);
 		notifyAgent(chatId, agentId);
-		return extra;
+		const grants = projectGrants(chatId);
+		return {
+			paths: [...grants.paths, ...extra.paths],
+			domains: [...new Set([...grants.domains, ...extra.domains])],
+			localNetwork: grants.localNetwork || extra.localNetwork,
+		};
 	};
 
 	const modelSettings = createModelSettings(
@@ -1446,7 +1474,7 @@ export function createServer(
 						(key) => !["requestId", "decision"].includes(key),
 					) ||
 					typeof input.requestId !== "string" ||
-					!["deny", "once"].includes(String(input.decision))
+					!["deny", "once", "always"].includes(String(input.decision))
 				)
 					throw new InputError("invalidInput");
 				await recheckApprovals();
@@ -1464,7 +1492,25 @@ export function createServer(
 					});
 					return;
 				}
-				pending.settle(input.decision === "deny" ? "denied" : "once");
+				if (input.decision === "always") {
+					const grants = projectGrants(pending.view.chatId);
+					const approved = pending.view.permissions;
+					database.prepare("UPDATE projects SET grants=? WHERE id=?").run(
+						JSON.stringify({
+							paths: [...grants.paths, ...approved.paths],
+							domains: [...new Set([...grants.domains, ...approved.domains])],
+							localNetwork: grants.localNetwork || approved.localNetwork,
+						}),
+						pending.view.projectId,
+					);
+				}
+				pending.settle(
+					input.decision === "deny"
+						? "denied"
+						: input.decision === "always"
+							? "always"
+							: "once",
+				);
 				await recheckApprovals();
 				json(response, 200, { decision: input.decision });
 			} catch (error) {
@@ -1869,6 +1915,47 @@ export function createServer(
 					response,
 					error instanceof InputError ? 400 : 500,
 					caughtError(error, "archiveWriteFailed"),
+				);
+			}
+			return;
+		}
+		const grantsRoute = path.match(/^\/api\/projects\/(\d+)\/grants$/);
+		if (grantsRoute && request.method === "PUT") {
+			const id = Number(grantsRoute[1]);
+			const project = listProjects(database).find((item) => item.id === id);
+			if (!project || project.archived) {
+				json(
+					response,
+					project ? 409 : 404,
+					errorBody(project ? "projectArchived" : "projectNotFound"),
+				);
+				return;
+			}
+			try {
+				const input = await readJson(request);
+				let grants: ExecutionPermissions;
+				try {
+					// Empty grants explicitly revoke every persistent extra permission.
+					grants = await requestedPermissions(input, "Project Edit");
+				} catch (error) {
+					if (
+						error instanceof Error &&
+						error.message === "Extra permission request must not be empty"
+					)
+						grants = emptyPermissions();
+					else throw new InputError("invalidInput");
+				}
+				database
+					.prepare("UPDATE projects SET grants=? WHERE id=?")
+					.run(JSON.stringify(grants), id);
+				await recheckApprovals();
+				notifyChange();
+				json(response, 200, { grants });
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "projectWriteFailed"),
 				);
 			}
 			return;

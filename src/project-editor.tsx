@@ -7,7 +7,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { type ApiError, api, appError } from "./api.ts";
+import type { ExecutionPermissions } from "./execution-permissions.ts";
 import i18n from "./i18n.ts";
+import { ProjectGrants } from "./project-grants.tsx";
 
 type Chat = {
 	id: number;
@@ -22,6 +24,7 @@ export type Project = {
 	name: string;
 	archived: boolean;
 	folders: string[];
+	grants: ExecutionPermissions;
 	chats: Chat[];
 };
 export type EditorTarget =
@@ -220,7 +223,7 @@ export function ProjectEditor({
 				closedby="any"
 				ref={dialog}
 				aria-labelledby="create-title"
-				className="m-auto w-full max-w-lg rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
+				className="m-auto max-h-[90dvh] overflow-auto w-full max-w-lg rounded-lg border border-neutral-300 p-6 backdrop:bg-black/40"
 			>
 				<h2 id="create-title" className="text-lg font-semibold">
 					{t(
@@ -293,6 +296,14 @@ export function ProjectEditor({
 								{t("addFolder")}
 							</button>
 						</section>
+					)}
+					{editing?.kind === "project" && modalProject && (
+						<ProjectGrants
+							key={modalProject.id}
+							projectId={modalProject.id}
+							grants={modalProject.grants}
+							readOnly={saving || modalReadOnly}
+						/>
 					)}
 					{modalReadOnly && <p role="status">{t("archivedEditReadOnly")}</p>}
 					{modalError && (

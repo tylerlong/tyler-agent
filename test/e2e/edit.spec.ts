@@ -255,3 +255,76 @@ test("successful edits reopen authoritative values even when list rereads fail",
 			.projects[0].id,
 	).toBe(p.id);
 });
+
+test("Project permissions edit paths, domains and native network independently and synchronize pages", async ({
+	page,
+	context,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Grants", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Chat" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	const other = await context.newPage();
+	await other.goto(`${app.url}/?chat=${chat.id}`);
+	async function edit(target: typeof page) {
+		const region = target.getByRole("region", {
+			name: "Project Grants",
+			exact: true,
+		});
+		await region
+			.getByRole("button", { name: "Project actions", exact: true })
+			.click();
+		await region
+			.getByRole("button", { name: "Edit project", exact: true })
+			.click();
+		return target.getByRole("dialog", { name: "Edit project", exact: true });
+	}
+	const editor = await edit(page);
+	const second = await edit(other);
+	await editor.getByRole("button", { name: "Add permission path" }).focus();
+	await page.keyboard.press("Enter");
+	await editor.getByLabel("Permission path", { exact: true }).fill(app.folder);
+	await editor.getByLabel("Access", { exact: true }).selectOption("read");
+	await editor
+		.getByLabel("Allowed domains (one per line)")
+		.fill("EXAMPLE.COM\nlocalhost");
+	await editor.getByRole("checkbox", { name: /Local network:/ }).check();
+	await editor.getByRole("button", { name: "Save permissions" }).click();
+	await expect(
+		second.getByLabel("Permission path", { exact: true }),
+	).toHaveValue(app.folder);
+	await expect(second.getByLabel("Allowed domains (one per line)")).toHaveValue(
+		"example.com\nlocalhost",
+	);
+	await expect(
+		second.getByRole("checkbox", { name: /Local network:/ }),
+	).toBeChecked();
+	await second.getByLabel("Access", { exact: true }).selectOption("write");
+	await second.getByRole("button", { name: "Save permissions" }).click();
+	await expect(editor.getByLabel("Access", { exact: true })).toHaveValue(
+		"write",
+	);
+	await editor
+		.getByRole("button", { name: `Remove permission ${app.folder}` })
+		.click();
+	await editor.getByLabel("Allowed domains (one per line)").fill("");
+	await editor.getByRole("checkbox", { name: /Local network:/ }).uncheck();
+	await editor.getByRole("button", { name: "Save permissions" }).click();
+	await expect(
+		second.getByLabel("Permission path", { exact: true }),
+	).toHaveCount(0);
+	const saved = (
+		await (await page.request.get(`${app.url}/api/projects`)).json()
+	).projects[0];
+	expect(saved.grants).toEqual({ paths: [], domains: [], localNetwork: false });
+	expect(saved.name).toBe("Grants");
+	expect(saved.folders).toEqual([]);
+});

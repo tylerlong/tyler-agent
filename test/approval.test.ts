@@ -47,7 +47,8 @@ async function fixture(
 		async (_url, init) => {
 			const body = JSON.parse(String(init?.body));
 			if (++requests === 1 || (again && requests === 2)) {
-				if (requests > 1) results.push(JSON.parse(body.input.at(-1).output));
+				if (requests > 1 && body.input.at(-1).output !== undefined)
+					results.push(JSON.parse(body.input.at(-1).output));
 				const { name, args } = operation();
 				return new Response(
 					completedBody({
@@ -98,6 +99,8 @@ async function fixture(
 		directory,
 		root,
 		base,
+		project,
+		chat,
 		server,
 		results,
 		request,
@@ -192,7 +195,7 @@ test(
 					decision: "once",
 					permissions: { paths: [{ path, access: "write" }] },
 				},
-				{ requestId: pending.requestId, decision: "always" },
+				{ requestId: pending.requestId, decision: "global" },
 			]) {
 				assert(
 					!(await f.response(`/api/approvals/${pending.toolCallId}`, body)).ok,
@@ -937,6 +940,157 @@ test(
 			} finally {
 				await f.close();
 			}
+		}
+	},
+);
+
+test(
+	"Project always persists read scope, reuses it on another call and rejects racing decisions",
+	native,
+	async () => {
+		let path = "";
+		const f = await fixture(
+			() => ({
+				name: "read_file",
+				args: {
+					path,
+					reason: "Project input",
+					extra_permissions: { paths: [{ path, access: "read" }] },
+				},
+			}),
+			true,
+		);
+		try {
+			path = join(f.directory, "shared.txt");
+			await writeFile(path, "persistent input");
+			const agent = await f.ask();
+			const pending = await f.pending();
+			const decisions = await Promise.all(
+				["always", "always"].map((decision) =>
+					f.response(`/api/approvals/${pending.toolCallId}`, {
+						requestId: pending.requestId,
+						decision,
+					}),
+				),
+			);
+			assert.deepEqual(decisions.map((res) => res.status).sort(), [200, 409]);
+			await waitForAgent(f.base, agent);
+			const tools = (await f.request(`/api/agents/${agent}/tools`)).toolCalls;
+			assert.equal(tools.length, 2);
+			assert.equal(tools[0].approval.status, "always");
+			assert.equal(tools[1].approval, null);
+			assert(
+				tools.every((tool: { status: string }) => tool.status === "succeeded"),
+			);
+			const project = (await f.request("/api/projects")).projects[0];
+			assert.deepEqual(project.grants, {
+				paths: [{ path, access: "read" }],
+				domains: [],
+				localNetwork: false,
+			});
+			const forged = await fetch(
+				`${f.base}/api/projects/${project.id}/grants`,
+				{
+					method: "PUT",
+					headers: { Origin: f.base },
+					body: JSON.stringify({ paths: [], domains: [], localNetwork: true }),
+				},
+			);
+			assert.equal(forged.status, 403);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+test(
+	"Project grant edits partially cover another Chat queue then start each original call once",
+	native,
+	async () => {
+		let path = "";
+		let calls = 0;
+		const f = await fixture(
+			() => ({
+				name: "read_file",
+				args: {
+					path,
+					reason: "Shared access",
+					extra_permissions: {
+						paths: [{ path, access: "read" }],
+						domains: ++calls === 2 ? ["example.com"] : [],
+					},
+				},
+			}),
+			true,
+		);
+		try {
+			path = join(f.directory, "queue.txt");
+			await writeFile(path, "queue input");
+			const firstAgent = await f.ask();
+			const first = await f.pending();
+			const secondChat = await f.request(
+				`/api/projects/${f.project.id}/chats`,
+				{ name: "Second" },
+			);
+			const secondAgent = (
+				await f.request(`/api/chats/${secondChat.id}`, { prompt: "read" })
+			).agentId;
+			let queue = [];
+			for (let i = 0; i < 1000; i++) {
+				queue = (await f.request("/api/approvals")).approvals;
+				if (queue.length === 2) break;
+				await setTimeout(10);
+			}
+			assert.equal(queue.length, 2);
+			const second = queue.find(
+				(item: { agentId: number }) => item.agentId === secondAgent,
+			);
+			await f.request(`/api/approvals/${first.toolCallId}`, {
+				requestId: first.requestId,
+				decision: "always",
+			});
+			await waitForAgent(f.base, firstAgent);
+			const partial = await f.pending();
+			assert.equal(partial.agentId, secondAgent);
+			assert.deepEqual(partial.permissions, {
+				paths: [],
+				domains: ["example.com"],
+				localNetwork: false,
+			});
+			assert.notEqual(partial.requestId, second.requestId);
+			assert.equal(
+				(
+					await f.response(`/api/approvals/${partial.toolCallId}`, {
+						requestId: second.requestId,
+						decision: "always",
+					})
+				).status,
+				409,
+			);
+			const update = await localFetch(
+				`${f.base}/api/projects/${f.project.id}/grants`,
+				{
+					method: "PUT",
+					body: JSON.stringify({
+						paths: [{ path, access: "read" }],
+						domains: ["example.com"],
+						localNetwork: false,
+					}),
+				},
+			);
+			assert.equal(update.status, 200);
+			await waitForAgent(f.base, secondAgent);
+			assert.deepEqual((await f.request("/api/approvals")).approvals, []);
+			assert.equal(
+				(await f.request(`/api/agents/${secondAgent}/tools`)).toolCalls[0]
+					.approval.status,
+				"covered",
+			);
+			const project = (await f.request("/api/projects")).projects[0];
+			assert.equal(project.name, "Approval fixture");
+			assert.deepEqual(project.folders, [f.root]);
+		} finally {
+			await f.close();
 		}
 	},
 );

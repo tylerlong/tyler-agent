@@ -5,7 +5,7 @@ import { api, appError } from "./api.ts";
 export type Approval = {
 	toolCallId: number;
 	requestId: string;
-	status: "pending" | "denied" | "once" | "covered" | "interrupted";
+	status: "pending" | "denied" | "once" | "always" | "covered" | "interrupted";
 	projectId: number;
 	projectName: string;
 	chatId: number;
@@ -32,7 +32,7 @@ export function ApprovalActions({ approval }: { approval: Approval }) {
 		approval.status === "pending"
 			? "approvalWaiting"
 			: `approvalStatus_${approval.status}`;
-	async function decide(decision: "deny" | "once") {
+	async function decide(decision: "deny" | "once" | "always") {
 		if (deciding.current || settled) return;
 		deciding.current = true;
 		setBusy(true);
@@ -118,6 +118,14 @@ export function ApprovalActions({ approval }: { approval: Approval }) {
 						onClick={() => void decide("once")}
 					>
 						{t("approvalOnce")}
+					</button>
+					<button
+						type="button"
+						disabled={busy}
+						className="rounded border px-3 py-2 disabled:opacity-50"
+						onClick={() => void decide("always")}
+					>
+						{t("approvalAlways")}
 					</button>
 				</div>
 			)}

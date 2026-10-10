@@ -30,7 +30,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			db.exec("BEGIN");
 			try {
 				db.exec(`
-                CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)));
+                CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)), grants TEXT NOT NULL DEFAULT '{"paths":[],"domains":[],"localNetwork":false}' CHECK(json_valid(grants)));
                 CREATE TABLE folders (project_id INTEGER NOT NULL REFERENCES projects(id), path TEXT NOT NULL, PRIMARY KEY(project_id,path));
                 CREATE TABLE chats (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id), name TEXT NOT NULL CHECK(length(trim(name)) > 0), created_at INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)), model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, reasoning_effort TEXT);
                 CREATE TABLE agents (id INTEGER PRIMARY KEY, chat_id INTEGER REFERENCES chats(id), prompt TEXT, created_by_tool_call_id INTEGER UNIQUE REFERENCES tool_calls(id), status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed','cancelled')), created_at INTEGER NOT NULL, error_code TEXT, CHECK((chat_id IS NOT NULL AND prompt IS NOT NULL AND created_by_tool_call_id IS NULL) OR (chat_id IS NULL AND prompt IS NULL AND created_by_tool_call_id IS NOT NULL)));
@@ -40,7 +40,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
                 CREATE TABLE tool_output (tool_call_id INTEGER NOT NULL REFERENCES tool_calls(id), ordinal INTEGER NOT NULL, stream TEXT NOT NULL CHECK(stream IN ('stdout','stderr')), text TEXT NOT NULL, data TEXT NOT NULL DEFAULT '', byte_count INTEGER NOT NULL DEFAULT 0 CHECK(byte_count >= 0), PRIMARY KEY(tool_call_id,ordinal));
                 CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')), api_key TEXT, default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline')), model_call_limit INTEGER NOT NULL DEFAULT 16 CHECK(typeof(model_call_limit)='integer' AND model_call_limit>0), sub_agent_limit INTEGER NOT NULL DEFAULT 32 CHECK(typeof(sub_agent_limit)='integer' AND sub_agent_limit>0));
                 INSERT INTO settings(id) VALUES(1);
-                PRAGMA user_version=17;
+                PRAGMA user_version=18;
                 COMMIT;
             `);
 			} catch (error) {
@@ -48,7 +48,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			version !== 17 ||
+			version !== 18 ||
 			tables.join(",") !==
 				"agents,chats,folders,managed_models,model_calls,projects,settings,tool_calls,tool_output"
 		) {
@@ -61,7 +61,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				.map((row) => row.name)
 				.join(",");
 		for (const [table, expected] of Object.entries({
-			projects: "id,name,created_at,archived",
+			projects: "id,name,created_at,archived,grants",
 			folders: "project_id,path",
 			chats: "id,project_id,name,created_at,archived,model_id,reasoning_effort",
 			agents:
@@ -124,7 +124,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 export function listProjects(db: DatabaseSync) {
 	return db
 		.prepare(
-			"SELECT id, name, archived, created_at AS createdAt FROM projects ORDER BY COALESCE((SELECT MAX(COALESCE((SELECT MAX(created_at) FROM agents WHERE chat_id=chats.id), created_at)) FROM chats WHERE project_id = projects.id), created_at) DESC, id DESC",
+			"SELECT id, name, archived, grants, created_at AS createdAt FROM projects ORDER BY COALESCE((SELECT MAX(COALESCE((SELECT MAX(created_at) FROM agents WHERE chat_id=chats.id), created_at)) FROM chats WHERE project_id = projects.id), created_at) DESC, id DESC",
 		)
 		.all()
 		.map((project) => ({
@@ -132,6 +132,7 @@ export function listProjects(db: DatabaseSync) {
 			name: String(project.name),
 			archived: Boolean(project.archived),
 			createdAt: Number(project.createdAt),
+			grants: JSON.parse(String(project.grants)),
 			folders: db
 				.prepare("SELECT path FROM folders WHERE project_id = ? ORDER BY rowid")
 				.all(project.id)

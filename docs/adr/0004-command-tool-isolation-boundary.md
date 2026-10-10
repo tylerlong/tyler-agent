@@ -87,3 +87,8 @@ exec-server 的原始 RPC 不作为模型工具直接暴露。可信适配层根
 Native output-close remains the command completion boundary. Cancellation waits for managed command/read cleanup before terminal Agent state, preserves received streams and exit facts, and records cancelled Tool Calls as interrupted. A subtree stop leaves siblings running. Executor loss settles unfinished calls without reconnecting or replaying; ordinary shutdown closes the executor with a five-second forced-close fallback when EOF cannot be acknowledged. This fallback closes only the managed exec-server and does not reclaim every detached daemon or undo file effects.
 
 Restart recovery preserves durable output and approval facts, marks unfinished execution/waits interrupted, and never rebuilds the in-memory pending queue. Permission rechecks cannot revive interrupted calls. Browser closure while the service lives retains waiting approvals. Tests use isolated fresh databases and native HTTP fixtures, including stopped-backend shutdown, subtree/sibling cancellation and exact different-model communication records. The current supported schema is documented in README; old schemas are rejected without migration or deleting the development database.
+## #149 交付范围
+
+Project always 只保存当时展示的未满足权限；Project Edit 用同一 projects.grants 存储管理路径 read/write、字面域名与原生本机网络能力。权限单独保存，不覆盖项目名称或目标文件夹，支持跨页面同步、重启保留与项目内现有／未来 Chat 和主／子 Agent 共享，不增加 Chat／全局持久授权。每次保存或批准后重检待审批队列，完整覆盖执行原请求一次，部分覆盖展示剩余需求并更新 requestId，旧决定无效；终态调用不重放。执行开始解析最新授权，运行中保留快照，取消仍为立即停止机制。schema v18，拒绝旧库且不自动迁移／重建。
+
+精确 localhost 域名授权支持对应主机访问，不授予监听；原生 localNetwork 能力还包含监听、loopback 直连及代理私网检查放宽，无按端口隔离。所有授权写入需启动时服务内存管理凭据。真实 macOS HTTP 工具测试覆盖项目持久复用、读写隔离、其他项目拒绝、队列重检及运行快照；浏览器测试覆盖键盘操作和跨页授权编辑同步。
