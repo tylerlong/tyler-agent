@@ -195,6 +195,9 @@ export function createServer(
 		databasePath === undefined,
 	);
 	const commands = new CommandExecutor();
+	// Agent IDs are database-local; separate services must not share retained scratch.
+	const scratchNamespace = randomUUID();
+	const scratchId = (agentId: number) => `${scratchNamespace}-${agentId}`;
 	const managementToken = randomBytes(32).toString("hex");
 	const savedOutput = (toolId: number) =>
 		database
@@ -631,7 +634,7 @@ export function createServer(
 			fullNetwork: chatOptions(chatId).networkAccess === "full",
 			paths: [
 				...folders
-					.concat(agentScratch(String(agentId)))
+					.concat(agentScratch(scratchId(agentId)))
 					.map((path) => ({ path, access: "write" as const })),
 				...grants.paths,
 			],
@@ -882,7 +885,7 @@ export function createServer(
 				text,
 			);
 		try {
-			const scratch = agentScratch(String(agentId));
+			const scratch = agentScratch(scratchId(agentId));
 			await requestModel(
 				agentSource(agentId).parentAgentId === null
 					? successfulMessages(id, agentId)
@@ -1126,7 +1129,7 @@ export function createServer(
 									offset,
 									limit,
 									targetFolders: currentFolders(id),
-									agentId: String(agentId),
+									agentId: scratchId(agentId),
 									signal: state.controller.signal,
 								});
 								return { status: "succeeded", result: JSON.stringify(result) };
@@ -1181,7 +1184,7 @@ export function createServer(
 								...(name === "apply_patch" ? { patch: value.patch } : {}),
 								cwd: value.cwd,
 								targetFolders: currentFolders(id),
-								agentId: String(agentId),
+								agentId: scratchId(agentId),
 								timeoutMs: value.timeout_ms,
 								signal: state.controller.signal,
 								onOutput: (stream, text, data = "") => {

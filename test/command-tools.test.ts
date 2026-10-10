@@ -50,20 +50,21 @@ const stdout = (chunks: { stream: string; text: string }[]) =>
 	text(chunks.filter((chunk) => chunk.stream === "stdout"));
 const text = (chunks: { text: string }[]) =>
 	chunks.map((chunk) => chunk.text).join("");
-async function fixture(model: typeof globalThis.fetch) {
+async function fixture(model: typeof globalThis.fetch, apiKey = "test") {
 	const directory = await realpath(
 		await mkdtemp(join(tmpdir(), "command-http-")),
 	);
 	const root = join(directory, "project");
 	await mkdir(root);
-	const server = createTestServer(model, join(directory, "db.sqlite")).listen(
-		0,
-		"127.0.0.1",
-	);
+	let server = createTestServer(
+		model,
+		join(directory, "db.sqlite"),
+		apiKey,
+	).listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => server.once("listening", resolve));
 	const address = server.address();
 	assert(address && typeof address !== "string");
-	const base = `http://127.0.0.1:${address.port}`;
+	let base = `http://127.0.0.1:${address.port}`;
 	const request = async (route: string, body?: unknown, method = "POST") => {
 		const response = await fetch(
 			base + route,
@@ -90,6 +91,19 @@ async function fixture(model: typeof globalThis.fetch) {
 		request,
 		ask,
 		wait: (id: number) => waitForAgent(base, id),
+		restart: async () => {
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			server = createTestServer(
+				model,
+				join(directory, "db.sqlite"),
+				apiKey,
+			).listen(0, "127.0.0.1");
+			await new Promise<void>((resolve) => server.once("listening", resolve));
+			const address = server.address();
+			assert(address && typeof address !== "string");
+			base = `http://127.0.0.1:${address.port}`;
+		},
 		close: async () => {
 			server.closeAllConnections();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -99,54 +113,180 @@ async function fixture(model: typeof globalThis.fetch) {
 }
 
 commandTest(
-	"real command Tool Call builds, tests and writes Git metadata through HTTP",
+	"coding round trip reads, patches, installs an approved dependency, builds/tests/Git and continues logs",
 	async () => {
 		let root = "",
-			requests = 0;
+			archive = "",
+			requests = 0,
+			commandId = 0;
+		const recordings: { request: string; response: unknown }[] = [];
 		const f = await fixture(async (_url, init) => {
-			const body = JSON.parse(String(init?.body));
-			if (++requests === 1) {
-				assert(
-					body.tools.some(
-						(tool: { name: string }) => tool.name === "exec_command",
-					),
-				);
-				return done([
-					call("exec_command", {
-						command:
-							"node build.cjs && node --test check.cjs && git init && git add . && git -c user.name=Fixture -c user.email=fixture@example.invalid commit -m fixture && git status --porcelain",
-						cwd: root,
-						timeout_ms: 10000,
-					}),
-				]);
+			const request = String(init?.body);
+			const body = JSON.parse(request);
+			const results = body.input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			let output: unknown[];
+			switch (++requests) {
+				case 1:
+					output = [
+						call("read_file", { path: join(root, "build.cjs") }, "read"),
+					];
+					break;
+				case 2:
+					assert.match(JSON.parse(results.at(-1).output).text, /before/);
+					output = [
+						call(
+							"apply_patch",
+							{
+								cwd: root,
+								patch:
+									"*** Begin Patch\n*** Update File: build.cjs\n@@\n-require('node:fs').writeFileSync('built.txt', 'before');\n+require('node:fs').writeFileSync('built.txt', require('fixture-dependency'));\n*** End Patch",
+							},
+							"patch",
+						),
+					];
+					break;
+				case 3:
+					assert.equal(JSON.parse(results.at(-1).output).exitCode, 0);
+					output = [
+						call(
+							"exec_command",
+							{
+								command: `npm install --offline --ignore-scripts --no-audit --no-fund ${quote(archive)} && node build.cjs && node --test check.cjs && git init -b main && git add . && git -c user.name=Fixture -c user.email=fixture@example.invalid commit -m fixture && git status --porcelain && node -e "process.stdout.write('x'.repeat(20000));process.stderr.write('log-tail')"`,
+								cwd: root,
+								timeout_ms: 20000,
+								extra_permissions: {
+									paths: [{ path: archive, access: "read" }],
+								},
+								reason: "Install the fixture package outside Target Folders",
+							},
+							"coding",
+						),
+					];
+					break;
+				case 4: {
+					const result = JSON.parse(results.at(-1).output);
+					assert.equal(result.exitCode, 0, JSON.stringify(result));
+					assert.match(text(result.output.chunks), /pass 1/);
+					assert.equal(text(result.output.chunks).length, 16000);
+					assert(result.output.total_chars > 20000);
+					commandId = result.tool_call_id;
+					output = [
+						call(
+							"read_tool_output",
+							{ tool_call_id: commandId, offset: result.output.next_offset },
+							"continuation",
+						),
+					];
+					break;
+				}
+				default:
+					assert.match(
+						text(JSON.parse(results.at(-1).output).chunks),
+						/log-tail/,
+					);
+					output = [answer];
 			}
-			const result = JSON.parse(body.input.at(-1).output);
-			assert.equal(result.exitCode, 0, JSON.stringify(result));
-			assert.equal(result.error, undefined);
-			assert.match(text(result.output.chunks), /pass 1/);
-			return done([answer]);
-		});
+			const response = {
+				id: `coding-${requests}`,
+				status: "completed",
+				output,
+				usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18 },
+			};
+			recordings.push({ request, response });
+			return new Response(completedBody(response));
+		}, "coding-private-key");
 		root = f.root;
+		archive = join(f.directory, "dependency.tgz");
 		try {
+			const dependency = join(f.directory, "package");
+			await mkdir(dependency);
+			await writeFile(
+				join(dependency, "package.json"),
+				JSON.stringify({
+					name: "fixture-dependency",
+					version: "1.0.0",
+					main: "index.cjs",
+				}),
+			);
+			await writeFile(
+				join(dependency, "index.cjs"),
+				"module.exports = 'built';",
+			);
+			await promisify(execFile)("tar", [
+				"-czf",
+				archive,
+				"-C",
+				f.directory,
+				"package",
+			]);
+			await writeFile(
+				join(root, "package.json"),
+				'{"name":"coding-fixture","version":"1.0.0","private":true}',
+			);
 			await writeFile(
 				join(root, "build.cjs"),
-				"require('node:fs').writeFileSync('built.txt', 'built');console.log('built')",
+				"require('node:fs').writeFileSync('built.txt', 'before');\n",
 			);
 			await writeFile(
 				join(root, "check.cjs"),
 				"require('node:assert/strict').equal(require('node:fs').readFileSync('built.txt','utf8'),'built')",
 			);
 			const id = await f.ask();
-			const agent = await f.wait(id);
-			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
+			let pending: { toolCallId: number; requestId: string } | undefined;
+			for (let attempt = 0; attempt < 1000; attempt++) {
+				pending = (await f.request("/api/approvals")).approvals[0];
+				if (pending) break;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			assert(pending, "Dependency installation waits for permission");
+			assert.equal(requests, 3);
+			await assert.rejects(readFile(join(root, "built.txt")), {
+				code: "ENOENT",
+			});
+			await f.request(`/api/approvals/${pending.toolCallId}`, {
+				requestId: pending.requestId,
+				decision: "once",
+			});
+			assert.equal((await f.wait(id)).status, "succeeded");
 			assert.equal(await readFile(join(root, "built.txt"), "utf8"), "built");
-			const tools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
-			assert.equal(tools[0].status, "succeeded");
-			const detail = await f.request(
-				`/api/agents/${id}/tools?toolId=${tools[0].id}`,
+			assert.match(
+				await readFile(join(root, "package-lock.json"), "utf8"),
+				/fixture-dependency/,
 			);
-			assert.match(text(detail.toolCalls[0].output), /built/);
-			assert.equal(requests, 2);
+			assert.equal(
+				(
+					await promisify(execFile)("git", ["status", "--porcelain"], {
+						cwd: root,
+					})
+				).stdout,
+				"",
+			);
+			const saved = (
+				await f.request(`/api/agents/${id}/tools?toolId=${commandId}`)
+			).toolCalls[0];
+			assert.match(stdout(saved.output), /x{20000}$/);
+			assert.match(
+				text(
+					saved.output.filter(
+						(chunk: { stream: string }) => chunk.stream === "stderr",
+					),
+				),
+				/log-tail$/,
+			);
+			const calls = (await f.request(`/api/agents/${id}/calls`)).calls;
+			assert.equal(calls.length, 5);
+			for (let index = 0; index < calls.length; index++) {
+				assert.equal(calls[index].requestBody, recordings[index].request);
+				assert.deepEqual(
+					JSON.parse(calls[index].responseBody),
+					recordings[index].response,
+				);
+			}
+			await f.request("/api/approvals");
+			await f.request(`/api/agents/${id}/tools?toolId=${commandId}`);
+			assert.equal(requests, 5, "Management/log reads add no model calls");
 		} finally {
 			await f.close();
 		}
@@ -1304,6 +1444,119 @@ commandTest(
 		} finally {
 			if (firstScratch) await rm(join(firstScratch, marker), { force: true });
 			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"different database services cannot reuse another Agent's retained scratch",
+	async () => {
+		let firstScratch = "",
+			firstRequests = 0;
+		const first = await fixture(async (_url, init) => {
+			firstRequests++;
+			const body = JSON.parse(String(init?.body));
+			firstScratch = JSON.parse(
+				body.instructions.match(
+					/private command scratch directory: ("[^"]+")/,
+				)[1],
+			);
+			if (
+				body.input.some(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+			)
+				return done([answer]);
+			return done([
+				call("apply_patch", {
+					cwd: firstScratch,
+					patch:
+						"*** Begin Patch\n*** Add File: secret\n+private-scratch\n*** End Patch",
+				}),
+			]);
+		});
+		let secondScratch = "";
+		const second = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			secondScratch = JSON.parse(
+				body.instructions.match(
+					/private command scratch directory: ("[^"]+")/,
+				)[1],
+			);
+			const results = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.map((item: { output: string }) => JSON.parse(item.output));
+			if (results.length) {
+				assert.equal(typeof results[0].error, "string");
+				assert.notEqual(results[1].exitCode, 0);
+				assert.notEqual(results[2].exitCode, 0);
+				assert(!JSON.stringify(results).includes('"text":"private-scratch'));
+				return done([answer]);
+			}
+			return done([
+				call("read_file", { path: join(firstScratch, "secret") }, "read"),
+				call(
+					"apply_patch",
+					{
+						cwd: secondScratch,
+						patch: `*** Begin Patch\n*** Update File: ${join(firstScratch, "secret")}\n@@\n-private-scratch\n+leaked\n*** End Patch`,
+					},
+					"patch",
+				),
+				call(
+					"exec_command",
+					{
+						cwd: secondScratch,
+						command: `cat ${quote(join(firstScratch, "secret"))}`,
+						timeout_ms: 10000,
+					},
+					"command",
+				),
+			]);
+		});
+		try {
+			const firstId = await first.ask();
+			assert.equal((await first.wait(firstId)).status, "succeeded");
+			const secondId = await second.ask();
+			assert.equal(
+				firstId,
+				secondId,
+				"Isolated databases reuse numeric Agent IDs",
+			);
+			assert.equal((await second.wait(secondId)).status, "succeeded");
+			assert.notEqual(firstScratch, secondScratch);
+			assert.equal(
+				await readFile(join(firstScratch, "secret"), "utf8"),
+				"private-scratch\n",
+			);
+			const retainedScratch = firstScratch;
+			const count = firstRequests;
+			await first.restart();
+			assert.equal(
+				firstRequests,
+				count,
+				"Restart does not replay model requests",
+			);
+			assert.equal(
+				(await first.wait(await first.ask("after restart"))).status,
+				"succeeded",
+			);
+			assert.notEqual(
+				firstScratch.replace(/-\d+$/, ""),
+				retainedScratch.replace(/-\d+$/, ""),
+				"Restart creates a fresh namespace",
+			);
+			assert.equal(
+				await readFile(join(firstScratch, "secret"), "utf8"),
+				"private-scratch\n",
+			);
+			await rm(join(retainedScratch, "secret"), { force: true });
+		} finally {
+			if (firstScratch) await rm(join(firstScratch, "secret"), { force: true });
+			await first.close();
+			await second.close();
 		}
 	},
 );

@@ -27,3 +27,26 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+  native:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: sw_vers && uname -m && node --version
+      - run: pnpm install --frozen-lockfile
+      - name: Real pinned macOS backend acceptance (no platform skips)
+        run: |
+          set -o pipefail
+          pnpm test 2>&1 | tee backend-tests.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-backend-results
+          path: backend-tests.log
+          retention-days: 7

@@ -89,7 +89,7 @@ Native output-close remains the command completion boundary. Cancellation waits 
 Restart recovery preserves durable output and approval facts, marks unfinished execution/waits interrupted, and never rebuilds the in-memory pending queue. Permission rechecks cannot revive interrupted calls. Browser closure while the service lives retains waiting approvals. Tests use isolated fresh databases and native HTTP fixtures, including stopped-backend shutdown, subtree/sibling cancellation and exact different-model communication records. The current supported schema is documented in README; old schemas are rejected without migration or deleting the development database.
 ## #149 交付范围
 
-Project always 只保存当时展示的未满足权限；Project Edit 用同一 projects.grants 存储管理路径 read/write、字面域名与原生本机网络能力。权限单独保存，不覆盖项目名称或目标文件夹，支持跨页面同步、重启保留与项目内现有／未来 Chat 和主／子 Agent 共享，不增加 Chat／全局持久授权。每次保存或批准后重检待审批队列，完整覆盖执行原请求一次，部分覆盖展示剩余需求并更新 requestId，旧决定无效；终态调用不重放。执行开始解析最新授权，运行中保留快照，取消仍为立即停止机制。schema v18，拒绝旧库且不自动迁移／重建。
+Project always 只保存当时展示的未满足权限；Project Edit 用同一 projects.grants 存储管理路径 read/write、字面域名与原生本机网络能力。权限单独保存，不覆盖项目名称或目标文件夹，支持跨页面同步、重启保留与项目内现有／未来 Chat 和主／子 Agent 共享，不增加 Chat／全局持久授权。每次保存或批准后重检待审批队列，完整覆盖执行原请求一次，部分覆盖展示剩余需求并更新 requestId，旧决定无效；终态调用不重放。执行开始解析最新授权，运行中保留快照，取消仍为立即停止机制。该 slice 最初使用 schema v18；最终集成使用 v19，拒绝旧库且不自动迁移／重建。
 
 精确 localhost 域名授权支持对应主机访问，不授予监听；原生 localNetwork 能力还包含监听、loopback 直连及代理私网检查放宽，无按端口隔离。所有授权写入需启动时服务内存管理凭据。真实 macOS HTTP 工具测试覆盖项目持久复用、读写隔离、其他项目拒绝、队列重检及运行快照；浏览器测试覆盖键盘操作和跨页授权编辑同步。
 
@@ -97,3 +97,6 @@ Project always 只保存当时展示的未满足权限；Project Edit 用同一 
 ## #150 交付范围
 
 Chat 独立保存文件／网络受限或完全访问选择，Settings → Execution 默认值只初始化新 Chat（两项默认均受限）。用户管理写入须具备服务内存凭据；模式忙碌时可编辑，实际执行前读取所属 Chat 当前权限，已有子 Agent 沿用所属 Chat 当前模式；已开始操作保持快照，待审批原调用按变化后的权限重核且仅执行一次。完全文件使用原生 unrestricted，不提升 OS 权限；完全网络使用原生 Enabled，不附带 managed proxy，也不扩展受限文件范围。原生 localhost 验收涵盖四种组合、忙碌编辑与待审批部分／完整覆盖。受限 managed proxy 的已批准精确 `localhost` 域名可访问该主机的 loopback 服务；它不授予监听、任意 IP 或通用 LAN 权限。local-network capability 有意扩展原生本地绑定／loopback 行为，不隔离端口。
+
+
+Scratch directory names include a random service namespace and the database-local Agent ID. Separate services/new databases do not reuse another Agent’s retained scratch. Restarted services allocate fresh scratch; no scratch retention or recovery guarantee is added.
