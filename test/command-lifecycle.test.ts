@@ -95,7 +95,7 @@ test("native subtree cancellation preserves sibling work and exact different-mod
 							timeout_ms: 20000,
 							command:
 								prompt === "leaf"
-									? "printf 'leaf-start:%s\\n' $$; sleep 15; printf leaf-unexpected-finish"
+									? "printf 'leaf-start:%s\\n' $$; sleep 15 && printf leaf-unexpected-finish"
 									: `printf sibling-start; while test ! -f ${quote(join(root, "release"))}; do sleep 0.05; done; printf sibling-finished; printf trailing-stderr >&2`,
 						},
 						`${prompt}-command`,
@@ -198,7 +198,24 @@ test("native subtree cancellation preserves sibling work and exact different-mod
 		assert.throws(() => process.kill(leafPid, 0), { code: "ESRCH" });
 		const leaf = await output(leafId);
 		assert.equal(leaf.status, "interrupted");
-		assert.deepEqual(leaf.output, beforeLeaf.output);
+		assert.deepEqual(
+			leaf.output.slice(0, beforeLeaf.output.length),
+			beforeLeaf.output,
+		);
+		for (const [index, chunk] of leaf.output.entries()) {
+			const bytes = Buffer.from(chunk.data, "base64");
+			assert.equal(chunk.ordinal, index + 1);
+			assert(["stdout", "stderr"].includes(chunk.stream));
+			assert.equal(chunk.byteCount, bytes.length);
+			assert.equal(chunk.text, bytes.toString("utf8"));
+		}
+		assert.doesNotMatch(
+			leaf.output
+				.filter((chunk: { stream: string }) => chunk.stream === "stdout")
+				.map((chunk: { text: string }) => chunk.text)
+				.join(""),
+			/leaf-unexpected-finish/,
+		);
 		assert.equal(
 			(await request(`/api/agents/${siblingId}`)).agents[0].status,
 			"pending",
@@ -207,6 +224,7 @@ test("native subtree cancellation preserves sibling work and exact different-mod
 		assert.equal((await request(`/api/chats/${chat.id}`)).busy, true);
 		await writeFile(join(root, "release"), "go");
 		assert.equal((await waitForAgent(base, rootId)).status, "succeeded");
+		assert.deepEqual((await output(leafId)).output, leaf.output);
 		assert.equal(
 			(await request(`/api/agents/${siblingId}`)).agents[0].status,
 			"succeeded",
