@@ -2536,6 +2536,15 @@ if (import.meta.main) {
 		throw new Error("--port must be an integer between 1 and 65535");
 	await releasePort(port);
 	const server = createServer(fetch, values.db);
+	let stopping = false;
+	const stop = () => {
+		if (stopping) return;
+		stopping = true;
+		server.closeAllConnections();
+		server.close();
+	};
+	process.on("SIGINT", stop);
+	process.on("SIGTERM", stop);
 	server.listen(port, "127.0.0.1", () =>
 		console.log(
 			`Open http://127.0.0.1:${port}/#management=${server.managementToken}`,
