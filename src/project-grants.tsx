@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, appError } from "./api.ts";
 import type { ExecutionPermissions } from "./execution-permissions.ts";
@@ -17,8 +17,10 @@ export function ProjectGrants({
 	const [dirty, setDirty] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const observed = useRef(grants);
 	useEffect(() => {
-		if (!dirty) setDraft(grants);
+		if (!dirty && grants !== observed.current) setDraft(grants);
+		observed.current = grants;
 	}, [grants, dirty]);
 	function change(next: ExecutionPermissions) {
 		setDraft(next);
@@ -67,6 +69,7 @@ export function ProjectGrants({
 					<label>
 						{t("grantAccess")}
 						<select
+							aria-label={t("grantAccess")}
 							className="block rounded border p-2"
 							value={scope.access}
 							onChange={(event) =>

@@ -612,15 +612,14 @@ export function createServer(
 		chatId: number,
 		agentId: number,
 	): Promise<ExecutionPermissions> => {
+		const folders = await Promise.all(
+			currentFolders(chatId).map((path) => realpath(path)),
+		);
 		const grants = projectGrants(chatId);
 		return {
 			...grants,
 			paths: [
-				...(
-					await Promise.all(
-						currentFolders(chatId).map((path) => realpath(path)),
-					)
-				)
+				...folders
 					.concat(agentScratch(String(agentId)))
 					.map((path) => ({ path, access: "write" as const })),
 				...grants.paths,
@@ -751,11 +750,13 @@ export function createServer(
 			.prepare("UPDATE tool_calls SET status='running',reason=NULL WHERE id=?")
 			.run(toolCallId);
 		notifyAgent(chatId, agentId);
-		const grants = projectGrants(chatId);
-		return {
-			paths: [...grants.paths, ...extra.paths],
-			domains: [...new Set([...grants.domains, ...extra.domains])],
-			localNetwork: grants.localNetwork || extra.localNetwork,
+		return () => {
+			const grants = projectGrants(chatId);
+			return {
+				paths: [...grants.paths, ...extra.paths],
+				domains: [...new Set([...grants.domains, ...extra.domains])],
+				localNetwork: grants.localNetwork || extra.localNetwork,
+			};
 		};
 	};
 
@@ -1103,7 +1104,11 @@ export function createServer(
 									state.controller.signal,
 								);
 								const result = await commands.read({
-									extraPermissions,
+									extraPermissions: extraPermissions(),
+									resolvePermissions: () => ({
+										targetFolders: currentFolders(id),
+										extraPermissions: extraPermissions(),
+									}),
 									path: value.path,
 									offset,
 									limit,
@@ -1154,7 +1159,11 @@ export function createServer(
 							);
 							let ordinal = 0;
 							const result = await commands.execute({
-								extraPermissions,
+								extraPermissions: extraPermissions(),
+								resolvePermissions: () => ({
+									targetFolders: currentFolders(id),
+									extraPermissions: extraPermissions(),
+								}),
 								command: name === "apply_patch" ? "apply_patch" : value.command,
 								...(name === "apply_patch" ? { patch: value.patch } : {}),
 								cwd: value.cwd,

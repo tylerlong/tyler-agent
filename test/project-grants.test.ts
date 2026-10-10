@@ -265,3 +265,52 @@ test(
 		}
 	},
 );
+
+test(
+	"permission revocation during native scope preparation applies before file and command dispatch",
+	native,
+	async () => {
+		const { CommandExecutor } = await import("../src/command-executor.ts");
+		const f = await fixture();
+		const executor = new CommandExecutor();
+		try {
+			for (const tool of ["read", "command"] as const) {
+				let first = true;
+				const resolvePermissions = () => {
+					const paths = first
+						? [{ path: f.path, access: "write" as const }]
+						: [];
+					first = false;
+					return {
+						targetFolders: [f.root],
+						extraPermissions: { paths, domains: [], localNetwork: false },
+					};
+				};
+				const common = {
+					targetFolders: [f.root],
+					agentId: `149-${tool}`,
+					signal: new AbortController().signal,
+					resolvePermissions,
+				};
+				if (tool === "read")
+					await assert.rejects(
+						executor.read({ ...common, path: f.path, offset: 0, limit: 100 }),
+					);
+				else {
+					const result = await executor.execute({
+						...common,
+						cwd: f.root,
+						command: `printf unexpected > ${quote(f.path)}`,
+						timeoutMs: 10000,
+						onOutput: () => {},
+					});
+					assert.notEqual(result.exitCode, 0);
+				}
+				assert.equal(await readFile(f.path, "utf8"), "shared input");
+			}
+		} finally {
+			await executor.close();
+			await f.close();
+		}
+	},
+);

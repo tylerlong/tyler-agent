@@ -26,6 +26,10 @@ type Execution = {
 	cwd: string;
 	targetFolders: string[];
 	extraPermissions?: ExecutionPermissions;
+	resolvePermissions?: () => Pick<
+		Execution,
+		"targetFolders" | "extraPermissions"
+	>;
 	agentId: string;
 	timeoutMs: number;
 	signal: AbortSignal;
@@ -243,6 +247,31 @@ export class CommandExecutor {
 		}
 	}
 
+	private async latestScope(
+		options: Pick<
+			Execution,
+			| "cwd"
+			| "targetFolders"
+			| "agentId"
+			| "extraPermissions"
+			| "resolvePermissions"
+			| "signal"
+		>,
+	) {
+		for (;;) {
+			options.signal.throwIfAborted();
+			const snapshot = options.resolvePermissions?.();
+			if (snapshot) Object.assign(options, snapshot);
+			const sandbox = await this.scope(options);
+			// Filesystem preparation yields; a management edit must affect an unstarted operation.
+			if (
+				JSON.stringify(snapshot) ===
+				JSON.stringify(options.resolvePermissions?.())
+			)
+				return sandbox;
+		}
+	}
+
 	private async scope(
 		options: Pick<
 			Execution,
@@ -332,7 +361,11 @@ export class CommandExecutor {
 	async read(
 		options: Pick<
 			Execution,
-			"targetFolders" | "agentId" | "signal" | "extraPermissions"
+			| "targetFolders"
+			| "agentId"
+			| "signal"
+			| "extraPermissions"
+			| "resolvePermissions"
 		> & {
 			path: string;
 			offset: number;
@@ -345,7 +378,7 @@ export class CommandExecutor {
 			options.signal.throwIfAborted();
 			this.initialized ??= this.initialize();
 			await this.initialized;
-			const sandbox = await this.scope({
+			const sandbox = await this.latestScope({
 				...options,
 				cwd: agentScratch(options.agentId),
 			});
@@ -414,7 +447,7 @@ export class CommandExecutor {
 			this.initialized ??= this.initialize();
 			await this.initialized;
 			if (this.closing) throw new Error("Command executor is closed");
-			const sandbox = await this.scope(options);
+			const sandbox = await this.latestScope(options);
 			const scratch = agentScratch(options.agentId);
 			const cwd = options.cwd;
 			if (options.signal.aborted) return { exitCode: null, cancelled: true };

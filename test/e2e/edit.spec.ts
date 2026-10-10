@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { expect, test } from "./fixtures.ts";
 
 test("edit menus preserve hidden drafts, retry failures and sync without changing selection or order", async ({
@@ -271,6 +272,7 @@ test("Project permissions edit paths, domains and native network independently a
 			data: { name: "Chat" },
 		})
 	).json();
+	const grantPath = await realpath(app.folder);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${chat.id}`);
@@ -291,16 +293,25 @@ test("Project permissions edit paths, domains and native network independently a
 	const second = await edit(other);
 	await editor.getByRole("button", { name: "Add permission path" }).focus();
 	await page.keyboard.press("Enter");
-	await editor.getByLabel("Permission path", { exact: true }).fill(app.folder);
+	await editor.getByLabel("Permission path", { exact: true }).fill(grantPath);
 	await editor.getByLabel("Access", { exact: true }).selectOption("read");
 	await editor
 		.getByLabel("Allowed domains (one per line)")
 		.fill("EXAMPLE.COM\nlocalhost");
 	await editor.getByRole("checkbox", { name: /Local network:/ }).check();
+	await page.route("**/api/projects", async (route) => {
+		if (route.request().method() === "GET")
+			await route.fulfill({ status: 500, json: { code: "requestFailed" } });
+		else await route.continue();
+	});
 	await editor.getByRole("button", { name: "Save permissions" }).click();
+	await expect(editor.getByLabel("Allowed domains (one per line)")).toHaveValue(
+		"example.com\nlocalhost",
+	);
+	await page.unroute("**/api/projects");
 	await expect(
 		second.getByLabel("Permission path", { exact: true }),
-	).toHaveValue(app.folder);
+	).toHaveValue(grantPath);
 	await expect(second.getByLabel("Allowed domains (one per line)")).toHaveValue(
 		"example.com\nlocalhost",
 	);
@@ -313,7 +324,7 @@ test("Project permissions edit paths, domains and native network independently a
 		"write",
 	);
 	await editor
-		.getByRole("button", { name: `Remove permission ${app.folder}` })
+		.getByRole("button", { name: `Remove permission ${grantPath}` })
 		.click();
 	await editor.getByLabel("Allowed domains (one per line)").fill("");
 	await editor.getByRole("checkbox", { name: /Local network:/ }).uncheck();
