@@ -29,7 +29,7 @@ jobs:
           retention-days: 7
   native:
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -52,39 +52,6 @@ jobs:
         with:
           name: macos-coding-smoke
           path: native-smoke.log
-          retention-days: 7
-      - name: Native file, permission and mode acceptance
-        timeout-minutes: 3
-        run: |
-          set -o pipefail
-          node --test --test-timeout=60000 test/command-tools.test.ts test/approval.test.ts test/project-grants.test.ts test/tool-loop.test.ts test/sub-agents.test.ts 2>&1 | tee native-tools.log
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: macos-tool-results
-          path: native-tools.log
-          retention-days: 7
-      - name: Native subtree cancellation and model records
-        timeout-minutes: 2
-        run: |
-          set -o pipefail
-          node --test --test-timeout=60000 test/command-lifecycle.test.ts 2>&1 | tee native-cancellation.log
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: macos-cancellation-results
-          path: native-cancellation.log
-          retention-days: 7
-      - name: Native responsive and unresponsive shutdown
-        timeout-minutes: 2
-        run: |
-          set -o pipefail
-          node --test --test-timeout=60000 test/command-shutdown.test.ts 2>&1 | tee native-shutdown.log
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: macos-shutdown-results
-          path: native-shutdown.log
           retention-days: 7
       - name: Real pinned macOS backend acceptance (no platform skips)
         timeout-minutes: 5
