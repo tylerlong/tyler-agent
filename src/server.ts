@@ -721,7 +721,7 @@ export function createServer(
 				throw new ExecutionInterruptedError(
 					"Approval interrupted; operation was not executed",
 				);
-			if (decision === "once") extra = requested;
+			if (decision === "once") extra = view.permissions;
 		}
 		signal.throwIfAborted();
 		database
@@ -1451,6 +1451,7 @@ export function createServer(
 					!["deny", "once"].includes(String(input.decision))
 				)
 					throw new InputError("invalidInput");
+				await recheckApprovals();
 				const pending = approvals.get(Number(approvalRoute[1]));
 				if (
 					!pending ||

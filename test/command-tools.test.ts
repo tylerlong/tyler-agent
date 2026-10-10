@@ -159,6 +159,7 @@ commandTest(
 		let root = "",
 			requests = 0,
 			toolId = 0;
+		const pages: { ordinal: number; stream: string; text: string }[] = [];
 		const f = await fixture(async (_url, init) => {
 			const body = JSON.parse(String(init?.body));
 			if (++requests === 1)
@@ -181,6 +182,7 @@ commandTest(
 			if (requests === 2) {
 				assert.equal(result.exitCode, 0, JSON.stringify(result));
 				toolId = result.tool_call_id;
+				pages.push(...result.output.chunks);
 				assert.equal(text(result.output.chunks).length, 16000);
 				assert.equal(result.output.next_offset, 16000);
 				assert.equal(result.output.total_chars, 40008);
@@ -193,6 +195,7 @@ commandTest(
 				]);
 			}
 			if (requests === 3) {
+				pages.push(...result.chunks);
 				assert.equal(text(result.chunks).length, 16000);
 				assert.equal(result.next_offset, 32000);
 				return done([
@@ -204,7 +207,20 @@ commandTest(
 				]);
 			}
 			assert.equal(result.next_offset, 40008);
-			assert.equal(text(result.chunks), `${"x".repeat(8000)}err\ntail`);
+			pages.push(...result.chunks);
+			assert.equal(text(result.chunks).length, 8008);
+			// Independent pipes preserve their own bytes; cross-stream delivery order is not write order.
+			assert.equal(stdout(pages), `${"x".repeat(40000)}tail`);
+			assert.equal(
+				text(pages.filter((chunk) => chunk.stream === "stderr")),
+				"err\n",
+			);
+			assert(
+				pages.every(
+					(chunk, index) =>
+						index === 0 || chunk.ordinal >= pages[index - 1].ordinal,
+				),
+			);
 			return done([answer]);
 		});
 		root = f.root;
@@ -219,7 +235,23 @@ commandTest(
 			const saved = (
 				await f.request(`/api/agents/${id}/tools?toolId=${toolId}`)
 			).toolCalls[0];
-			assert.equal(text(saved.output), `${"x".repeat(40000)}err\ntail`);
+			assert.equal(stdout(saved.output), `${"x".repeat(40000)}tail`);
+			assert.equal(
+				text(
+					saved.output.filter(
+						(chunk: { stream: string }) => chunk.stream === "stderr",
+					),
+				),
+				"err\n",
+			);
+			assert.equal(
+				saved.output.reduce(
+					(bytes: number, chunk: { byteCount: number }) =>
+						bytes + chunk.byteCount,
+					0,
+				),
+				40008,
+			);
 			assert(
 				saved.output.some(
 					(chunk: { stream: string }) => chunk.stream === "stderr",
