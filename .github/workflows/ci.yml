@@ -41,6 +41,18 @@ jobs:
           cache: pnpm
       - run: sw_vers && uname -m && node --version
       - run: pnpm install --frozen-lockfile
+      - name: Real coding smoke before lifecycle acceptance
+        timeout-minutes: 2
+        run: |
+          set -o pipefail
+          pnpm build
+          node --test --test-timeout=60000 --test-name-pattern='coding round trip' test/command-tools.test.ts 2>&1 | tee native-smoke.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-coding-smoke
+          path: native-smoke.log
+          retention-days: 7
       - name: Real pinned macOS backend acceptance (no platform skips)
         timeout-minutes: 5
         run: |

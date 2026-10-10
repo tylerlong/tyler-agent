@@ -120,6 +120,7 @@ commandTest(
 			requests = 0,
 			commandId = 0;
 		const recordings: { request: string; response: unknown }[] = [];
+		const pages: { stream: string; text: string }[] = [];
 		const f = await fixture(async (_url, init) => {
 			const request = String(init?.body);
 			const body = JSON.parse(request);
@@ -171,6 +172,7 @@ commandTest(
 					assert.match(text(result.output.chunks), /pass 1/);
 					assert.equal(text(result.output.chunks).length, 16000);
 					assert(result.output.total_chars > 20000);
+					pages.push(...result.output.chunks);
 					commandId = result.tool_call_id;
 					output = [
 						call(
@@ -181,12 +183,13 @@ commandTest(
 					];
 					break;
 				}
-				default:
-					assert.match(
-						text(JSON.parse(results.at(-1).output).chunks),
-						/log-tail/,
-					);
+				default: {
+					const continuation = JSON.parse(results.at(-1).output);
+					assert(text(continuation.chunks).length > 0);
+					pages.push(...continuation.chunks);
+					assert.match(text(pages), /log-tail/);
 					output = [answer];
+				}
 			}
 			const response = {
 				id: `coding-${requests}`,
@@ -249,7 +252,8 @@ commandTest(
 				requestId: pending.requestId,
 				decision: "once",
 			});
-			assert.equal((await f.wait(id)).status, "succeeded");
+			const agent = await f.wait(id);
+			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
 			assert.equal(await readFile(join(root, "built.txt"), "utf8"), "built");
 			assert.match(
 				await readFile(join(root, "package-lock.json"), "utf8"),

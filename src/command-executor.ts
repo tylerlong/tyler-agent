@@ -132,6 +132,7 @@ export class CommandExecutor {
 			"/opt/homebrew/Cellar",
 			"/opt/homebrew/opt",
 			"/opt/homebrew/etc/openssl@3",
+			"/opt/homebrew/etc/openssl@4",
 			this.binary,
 			rgFolder,
 		];
