@@ -945,11 +945,10 @@ export function createServer(
 						notifyAgent(id, agentId);
 					},
 					toolFinished: (ordinal, result) => {
-						if (closed) throw new Error("Service closed");
 						try {
 							database
 								.prepare(
-									"UPDATE tool_calls SET status=?,result=?,reason=CASE WHEN reason='approvalRequired' THEN NULL ELSE reason END WHERE id=?",
+									"UPDATE tool_calls SET status=?,result=?,reason=CASE WHEN reason='approvalRequired' THEN NULL ELSE reason END WHERE id=? AND status IN ('waiting','running')",
 								)
 								.run(
 									result.status,

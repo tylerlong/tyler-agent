@@ -75,6 +75,7 @@ for (const unresponsive of [false, true])
 			assert(res.ok);
 			return res.json();
 		};
+		let restarted: ReturnType<typeof createTestServer> | undefined;
 		let pid = 0,
 			commandPid = 0,
 			closed = false;
@@ -89,6 +90,8 @@ for (const unresponsive of [false, true])
 			const { agentId } = await request(`/api/chats/${chat.id}`, {
 				prompt: "run",
 			});
+			let toolId = 0;
+			let received: { text: string; data: string; byteCount: number }[] = [];
 			let ready = false;
 			for (let i = 0; i < 500; i++) {
 				const tool = (await request(`/api/agents/${agentId}/tools`))
@@ -102,6 +105,8 @@ for (const unresponsive of [false, true])
 						.join("");
 					const match = log.match(/ready:(\d+)\n/);
 					if (match) {
+						toolId = tool.id;
+						received = output;
 						commandPid = Number(match[1]);
 						ready = true;
 						break;
@@ -126,12 +131,76 @@ for (const unresponsive of [false, true])
 			);
 			if (!unresponsive)
 				assert.throws(() => process.kill(commandPid, 0), { code: "ESRCH" });
+			await setTimeout(0);
+			restarted = createTestServer(
+				async () => {
+					requests++;
+					return new Response(
+						completedBody({ status: "completed", output: [] }),
+					);
+				},
+				join(directory, "db.sqlite"),
+			).listen(0, "127.0.0.1");
+			await new Promise<void>((resolve) =>
+				restarted?.once("listening", resolve),
+			);
+			const restartAddress = restarted.address();
+			assert(restartAddress && typeof restartAddress !== "string");
+			const response = await localFetch(
+				`http://127.0.0.1:${restartAddress.port}/api/agents/${agentId}/tools?toolId=${toolId}`,
+			);
+			assert(response.ok);
+			const saved = (await response.json()).toolCalls[0];
+			assert.equal(saved.status, "interrupted");
+			assert(
+				saved.result,
+				"shutdown must persist final command facts before database close",
+			);
+			const result = JSON.parse(saved.result);
+			assert.equal(result.cancelled, true);
+			assert.equal(result.tool_call_id, toolId);
+			if (unresponsive) {
+				assert.equal(
+					result.exitCode,
+					null,
+					"no exit notification received from stopped backend",
+				);
+				assert.equal(result.interrupted, true);
+				assert.match(result.error, /timed out|termination failed/i);
+			} else {
+				assert.equal(typeof result.exitCode, "number");
+				assert.equal(result.error, undefined);
+			}
+			assert.deepEqual(saved.output.slice(0, received.length), received);
+			assert.deepEqual(
+				result.output.chunks.map((chunk: { stream: string; text: string }) => ({
+					stream: chunk.stream,
+					text: chunk.text,
+				})),
+				saved.output.map((chunk: { stream: string; text: string }) => ({
+					stream: chunk.stream,
+					text: chunk.text,
+				})),
+			);
+			for (const chunk of saved.output)
+				assert.equal(Buffer.from(chunk.data, "base64").length, chunk.byteCount);
+			assert.equal(
+				saved.output.reduce(
+					(sum: number, chunk: { byteCount: number }) => sum + chunk.byteCount,
+					0,
+				),
+				Buffer.byteLength(`ready:${commandPid}\n`),
+			);
 			assert.equal(
 				requests,
 				1,
 				"shutdown does not replay a tool or model request",
 			);
 		} finally {
+			if (restarted) {
+				restarted.closeAllConnections();
+				await new Promise<void>((resolve) => restarted?.close(() => resolve()));
+			}
 			if (pid && (await executorPids()).includes(pid))
 				process.kill(pid, "SIGCONT");
 			if (!closed) {
