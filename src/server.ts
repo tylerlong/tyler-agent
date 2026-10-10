@@ -1150,14 +1150,12 @@ export function createServer(
 								},
 							});
 							return {
-								status: result.interrupted
-									? "interrupted"
-									: result.exitCode === 0 &&
-											!result.error &&
-											!result.cancelled &&
-											!result.timedOut
-										? "succeeded"
-										: "failed",
+								status:
+									result.interrupted || result.cancelled
+										? "interrupted"
+										: result.exitCode === 0 && !result.error && !result.timedOut
+											? "succeeded"
+											: "failed",
 								result: JSON.stringify({
 									tool_call_id: toolId,
 									...result,

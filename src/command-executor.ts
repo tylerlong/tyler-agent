@@ -66,6 +66,7 @@ export class CommandExecutor {
 	private commandPath = "";
 	private disconnected?: Promise<void>;
 	private nextId = 1;
+	private shutdownTimer?: ReturnType<typeof setTimeout>;
 	private pending = new Map<
 		number,
 		{ resolve: (result: unknown) => void; reject: (error: Error) => void }
@@ -81,7 +82,19 @@ export class CommandExecutor {
 			proc.error = this.failure;
 			if (disconnected) proc.finish();
 		}
-		if (!disconnected) this.server?.stdin.end();
+		if (!disconnected) this.stopServer();
+	}
+
+	private stopServer() {
+		const server = this.server;
+		if (!server || server.exitCode !== null || server.signalCode !== null)
+			return;
+		server.stdin.end();
+		if (this.shutdownTimer) return;
+		// A dead/stopped backend cannot acknowledge EOF or native termination.
+		this.shutdownTimer = setTimeout(() => server.kill("SIGKILL"), 5000);
+		this.shutdownTimer.unref();
+		server.once("close", () => clearTimeout(this.shutdownTimer));
 	}
 
 	private async initialize() {
@@ -491,6 +504,7 @@ export class CommandExecutor {
 				}
 			};
 			abort = () => {
+				if (proc?.closed) return;
 				cancelled = true;
 				void stop();
 			};
@@ -530,7 +544,7 @@ export class CommandExecutor {
 			return;
 		await new Promise<void>((resolve) => {
 			server.once("close", resolve);
-			server.stdin.end();
+			this.stopServer();
 		});
 	}
 }

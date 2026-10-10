@@ -80,3 +80,10 @@ exec-server 的原始 RPC 不作为模型工具直接暴露。可信适配层根
 管理写入保留 Host／Origin 校验，另需每次启动生成的 256-bit 服务内存凭据。仅在终端启动 URL fragment 中交给用户，浏览器移除 fragment 后存于本标签 sessionStorage；公开 HTTP 页面、API 和命令环境不返回凭据。原生本机客户端只伪造头部不能批准或修改权限；重启后重新打开新管理 URL。所有 API 修改统一使用这一条用户管理路径，不增加账号／登录系统，不声称防御已获全部浏览器／应用文件访问的同账号进程。
 
 域名批准通过上游受管代理策略执行；精确 localhost/IP 域名授权可访问对应主机，但不授权监听；本机能力沿用 `allowLocalBinding:true`，包含监听、loopback 直连及代理私网检查放宽，不承诺按端口隔离。额外目录 write 同样包含元数据，文件 write 仅授予该文件。schema v17 保存 Tool Call 审批事实，旧库拒绝且不自动迁移／删除。Project 持久授权和 Chat／全局访问模式仍待后续子票。
+
+
+## #151 interruption and cleanup
+
+Native output-close remains the command completion boundary. Cancellation waits for managed command/read cleanup before terminal Agent state, preserves received streams and exit facts, and records cancelled Tool Calls as interrupted. A subtree stop leaves siblings running. Executor loss settles unfinished calls without reconnecting or replaying; ordinary shutdown closes the executor with a five-second forced-close fallback when EOF cannot be acknowledged. This fallback closes only the managed exec-server and does not reclaim every detached daemon or undo file effects.
+
+Restart recovery preserves durable output and approval facts, marks unfinished execution/waits interrupted, and never rebuilds the in-memory pending queue. Permission rechecks cannot revive interrupted calls. Browser closure while the service lives retains waiting approvals. Tests use isolated fresh databases and native HTTP fixtures, including stopped-backend shutdown, subtree/sibling cancellation and exact different-model communication records. The current supported schema is documented in README; old schemas are rejected without migration or deleting the development database.

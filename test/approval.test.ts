@@ -658,6 +658,31 @@ test(
 			).toolCalls[0];
 			assert.equal(tool.status, "interrupted");
 			assert.equal(tool.approval.status, "interrupted");
+			const covered = await localFetch(
+				`${restartBase}/api/projects/${pending.projectId}`,
+				{
+					method: "PUT",
+					body: JSON.stringify({
+						name: "Restart covered",
+						folders: [root, directory],
+					}),
+				},
+			);
+			assert.equal(covered.status, 200);
+			assert.deepEqual(
+				(await (await localFetch(`${restartBase}/api/approvals`)).json())
+					.approvals,
+				[],
+			);
+			assert.equal((await waitForAgent(restartBase, agentId)).status, "failed");
+			assert.equal(
+				(
+					await (
+						await localFetch(`${restartBase}/api/agents/${agentId}/tools`)
+					).json()
+				).toolCalls[0].approval.status,
+				"interrupted",
+			);
 			assert(
 				!(
 					await localFetch(
