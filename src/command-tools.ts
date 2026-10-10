@@ -4,7 +4,7 @@ export const commandTools = [
 		type: "function",
 		name: "exec_command",
 		description:
-			"Run a shell command inside current Project target folders or your scratch. Waits for completion. Network is restricted; errors are returned without escalation or replay. Output is bounded; continue using read_tool_output.",
+			"Run a shell command inside current Project target folders or your scratch. Waits for completion. Explicit extra_permissions plus reason wait for user deny/once approval. Network is restricted; errors are returned without escalation or replay. Output is bounded; continue using read_tool_output.",
 		parameters: {
 			type: "object",
 			properties: {

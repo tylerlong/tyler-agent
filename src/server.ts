@@ -992,10 +992,10 @@ export function createServer(
 										id,
 										agentId,
 										name,
-										args,
+										redactTool(args),
 										value.cwd ?? scratch,
 										requested,
-										value.reason,
+										redactTool(value.reason ?? ""),
 										state.controller.signal,
 									);
 								return runTool(name, args, roots, signal);
@@ -1068,10 +1068,10 @@ export function createServer(
 									id,
 									agentId,
 									name,
-									args,
+									redactTool(args),
 									scratch,
 									requested,
-									value.reason,
+									redactTool(value.reason ?? ""),
 									state.controller.signal,
 								);
 								const result = await commands.read({
@@ -1118,10 +1118,10 @@ export function createServer(
 								id,
 								agentId,
 								name,
-								args,
+								redactTool(args),
 								value.cwd,
 								requested,
-								value.reason,
+								redactTool(value.reason ?? ""),
 								state.controller.signal,
 							);
 							let ordinal = 0;

@@ -245,10 +245,11 @@ export class CommandExecutor {
 			}),
 		);
 		const extraPaths = await Promise.all(
-			(options.extraPermissions?.paths ?? []).map(async (scope) => ({
-				...scope,
-				path: await realpath(scope.path),
-			})),
+			(options.extraPermissions?.paths ?? []).map(async (scope) => {
+				if ((await realpath(scope.path)) !== scope.path)
+					throw new Error("Approved path changed before execution");
+				return scope;
+			}),
 		);
 		const writes = [
 			...targets,

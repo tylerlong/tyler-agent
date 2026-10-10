@@ -6,7 +6,9 @@ import {
 	mkdtemp,
 	readFile,
 	realpath,
+	rename,
 	rm,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
@@ -842,6 +844,72 @@ test(
 			assert.deepEqual((await f.request("/api/approvals")).approvals, []);
 		} finally {
 			await f.close();
+		}
+	},
+);
+
+test(
+	"once approval rejects a canonical file or directory replaced with a symlink while waiting",
+	native,
+	async () => {
+		for (const directoryScope of [false, true]) {
+			let scope = "",
+				path = "";
+			const f = await fixture(() => ({
+				name: "read_file",
+				args: {
+					path,
+					reason: "Read original fixture scope",
+					extra_permissions: { paths: [{ path: scope, access: "read" }] },
+				},
+			}));
+			scope = join(
+				f.directory,
+				directoryScope ? "approved-directory" : "approved-file",
+			);
+			path = directoryScope ? join(scope, "input.txt") : scope;
+			const replacement = join(
+				f.directory,
+				directoryScope ? "unapproved-directory" : "unapproved-file",
+			);
+			const replacementFile = directoryScope
+				? join(replacement, "input.txt")
+				: replacement;
+			try {
+				if (directoryScope) {
+					await mkdir(scope);
+					await mkdir(replacement);
+				}
+				await writeFile(path, "original approved input");
+				await writeFile(replacementFile, "unapproved outside secret");
+				const id = await f.ask();
+				const pending = await f.pending();
+				assert.deepEqual(pending.permissions.paths, [
+					{ path: scope, access: "read" },
+				]);
+				await rename(scope, `${scope}-original`);
+				await symlink(replacement, scope);
+				await f.request(`/api/approvals/${pending.toolCallId}`, {
+					requestId: pending.requestId,
+					decision: "once",
+				});
+				assert.equal((await waitForAgent(f.base, id)).status, "succeeded");
+				assert.equal(f.results.length, 1);
+				assert.match(JSON.stringify(f.results), /error/);
+				assert(
+					!JSON.stringify(f.results).includes("unapproved outside secret"),
+				);
+				assert.deepEqual((await f.request("/api/approvals")).approvals, []);
+				const tools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
+				assert.equal(tools.length, 1);
+				assert.equal(tools[0].status, "failed");
+				assert.equal(
+					await readFile(replacementFile, "utf8"),
+					"unapproved outside secret",
+				);
+			} finally {
+				await f.close();
+			}
 		}
 	},
 );
