@@ -500,7 +500,7 @@ test("tool cards stay collapsed and unread until opened, with localized titles a
 		completedBody({
 			status: "completed",
 			output: [
-				{ ...output()[0], name: "list_files" },
+				{ ...output()[0], name: "read_file" },
 				{ ...output()[0], id: "other", call_id: "other" },
 			],
 		}),
@@ -512,7 +512,7 @@ test("tool cards stay collapsed and unread until opened, with localized titles a
 	await expect(cards.nth(0)).not.toHaveAttribute("open");
 	await expect(cards.nth(1)).not.toHaveAttribute("open");
 	await expect(cards.nth(0).locator("summary")).toContainText(
-		"Tool Call · list_files",
+		"Tool Call · read_file",
 	);
 	await expect(cards.nth(0).locator("summary").getByRole("status")).toHaveCount(
 		1,
@@ -524,7 +524,7 @@ test("tool cards stay collapsed and unread until opened, with localized titles a
 	first.release();
 	await second.entered;
 	await expect(cards.nth(0).locator("summary")).toHaveText(
-		"Tool Call · list_files",
+		"Tool Call · read_file",
 	);
 	await expect(
 		cards.getByRole("button", { name: "Copy", exact: true }),
@@ -554,7 +554,7 @@ test("tool cards stay collapsed and unread until opened, with localized titles a
 		data: { language: "zh-CN" },
 	});
 	await expect(cards.nth(0).locator("summary")).toHaveText(
-		"工具调用 · list_files",
+		"工具调用 · read_file",
 	);
 	await expect(cards.nth(0)).not.toHaveAttribute("open");
 	expect(reads).toBe(1);

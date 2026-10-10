@@ -8,7 +8,7 @@
 
 已选择 Codex exec-server 提供本地文件与进程执行能力。接入优先沿用其默认行为、协议、工具能力和进程生命周期；只有落实已确认的权限范围或解决实测开发命令失败时才调整配置，不为保留旧工具接口而重写上游设计。模型 HTTP 通信、Agent 与子 Agent 的创建、模型选择及调度仍由本项目掌控。
 
-当前交付范围：#146 已实现 macOS 受限命令、持久命令输出与所属 Agent 续读。最终文件工具替换、Project Grant、Pending Approval 和 Tool Access Mode 仍是后续子票的设计词汇，不表示当前已有对应管理功能。旧文件工具仅作为过渡保留；执行不自动扩权、重试或重放。
+当前交付范围：#146／#147 已实现 macOS 受限命令、原生文件读取与 patch、持久命令输出及所属 Agent 续读，替换旧七文件工具。文件与命令共用当前 Target Folders、所属 Agent 的临时工作目录及必要只读工具链范围。Project Grant、Pending Approval 和 Tool Access Mode 仍是后续子票的设计词汇，不表示当前已有对应管理功能；执行不自动扩权、重试或重放。
 
 ## Language
 

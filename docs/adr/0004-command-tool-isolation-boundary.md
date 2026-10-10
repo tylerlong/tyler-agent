@@ -1,6 +1,6 @@
 # 本地工具的首版执行与授权边界
 
-实施规格见 [GitHub issue #145](https://github.com/tylerlong/tyler-agent/issues/145)。以下为已确认的完整设计。#146 已交付受限命令与持久输出的第一个应用切片；其余子票继续实现最终工具面、审批、项目授权与访问模式。
+实施规格见 [GitHub issue #145](https://github.com/tylerlong/tyler-agent/issues/145)。以下为已确认的完整设计。#146／#147 已交付受限命令、原生读取与 patch 和持久输出；其余子票继续实现审批、项目授权与访问模式。
 
 命令工具的权限隔离覆盖它启动的进程及其后代；用户独立启动的 watcher 等外部进程由用户的运行环境负责。首版面向 Tyler 单人本机使用，以 best efforts 限制命令的文件操作范围，不以消除全部隔离边界问题为交付前提，也不承诺范围外数据绝不会受到影响。
 
@@ -56,10 +56,18 @@ exec-server 的原始 RPC 不作为模型工具直接暴露。可信适配层根
 
 实现使用官方 `@openai/codex@0.162.0` 包和一个常驻 stdio 执行器，不引入另一个模型 SDK、Agent 框架或上游 fork。请求、进程及文件句柄在可信层绑定本地 Tool Call；命令输出通知持续归档，上游连接断开时记录中断与已有事实，不恢复旧句柄或自动重放操作。所有获准读写目录均须落实整目录权限，包括 Target Folders、所属 Agent 临时目录和额外写入授权，不能只为 Target Folders 修正元数据保护。
 
-这取代 [ADR 0003](./0003-structured-file-tools.md) 中避免 shell、仅以 Target Folders 授权、固定七个文件工具及其具体接口实现的选择。旧工具的分页、唯一文本替换、移动碰撞及进程内锁等具体契约不成为新接口的兼容要求；新工具沿用其明确记录的能力与限制。工具结果仍须报告真实效果，不承诺修改回滚。受限 exec_command/read_tool_output 已接入；最终文件工具替换及额外授权仍待后续子票实施。
+这取代 [ADR 0003](./0003-structured-file-tools.md) 中避免 shell、仅以 Target Folders 授权、固定七个文件工具及其具体接口实现的选择。旧工具的分页、唯一文本替换、移动碰撞及进程内锁等具体契约不成为新接口的兼容要求；新工具沿用其明确记录的能力与限制。工具结果仍须报告真实效果，不承诺修改回滚。四个本地执行工具已接入；额外授权仍待后续子票实施。
 
 ## #146 交付范围
 
 官方 `@openai/codex@0.162.0` 常驻 stdio exec-server 已通过应用模型／工具循环提供 `exec_command` 与 `read_tool_output`。首个受限策略支持 macOS；不支持的系统明确返回执行错误，不以无沙箱执行代替。命令预算为实际启动起算的 1–3,600,000 毫秒整数，完成等待输出关闭；stdout／stderr 逐块持久保存顺序，模型页面最多 16,000 字符，续读只允许所属 Agent。用户沿用工具卡片查看、手动刷新主／子任务日志，不新增模型请求。
 
-当前策略仅使用最新字面 Target Folders、所属 Agent 独立 scratch 和必要只读工具链范围，网络默认禁止。旧文件工具暂时保留，不构成最终接口兼容要求。审批、Project Grant、Chat／全局访问模式以及 native read_file／apply_patch 留给 #147 及后续子票。测试通过真实应用 HTTP、隔离临时数据库与可控模型响应验证；真实受限策略测试只在 macOS 运行，Linux CI 明确跳过该部分。schema 更新至 v16，旧库仍拒绝且不自动迁移、清空或删除。
+当前策略仅使用最新字面 Target Folders、所属 Agent 独立 scratch 和必要只读工具链范围，网络默认禁止。#147 已替换旧文件工具，历史接口不构成兼容要求。审批、Project Grant、Chat／全局访问模式留给后续子票。测试通过真实应用 HTTP、隔离临时数据库与可控模型响应验证；真实受限策略测试只在 macOS 运行，Linux CI 明确跳过该部分。schema 更新至 v16，旧库仍拒绝且不自动迁移、清空或删除。
+
+## #147 交付范围
+
+模型本地工具面已统一为 `exec_command`、`read_file`、`apply_patch` 和 `read_tool_output`，保留原有子 Agent 工具。`read_file({path, offset?, limit?})` 使用绝对路径与字节偏移，offset 默认 0，limit 默认及最大 51,200 字节；不复刻行／列分页或全文件 UTF-8 扫描。`apply_patch({patch, cwd, timeout_ms?})` 使用同一固定版本二进制的内置 patch，cwd 为允许的绝对目录，timeout_ms 默认 30,000，范围为 1–3,600,000 毫秒。搜索、列目录、复制、移动及删除由命令提供；不保留旧七工具、唯一替换、锁或碰撞契约。
+
+原生读取及 patch 使用与命令相同的可信当前项目／Agent 范围，没有绕过权限的 Node 文件回退。每次读取独立打开原生句柄，完成／失败后关闭；取消时停止取新块、结清在途请求并关闭。不同 Agent 的临时目录不互相授权，零 Target Folders 仍允许所属 Agent scratch；符号链接按实际目标权限处理，已有跨范围硬链接保持已知限制。不承诺修改回滚。
+
+真实后端 HTTP 测试以可控模型响应串联读取、patch、验证命令及下一次模型请求，验证实际结果和三种执行路径的范围外拒绝，使用隔离临时数据库／目录。历史 Tool Call 参数和结果仍可通过通用卡片读取。应用仍掌握模型 HTTP 记录、串行单 Agent 循环、结果配对与子 Agent 调度；本切片不实现审批、Project Grant 或 Tool Access Mode。

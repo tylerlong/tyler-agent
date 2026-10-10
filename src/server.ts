@@ -6,13 +6,17 @@ import {
 	type ServerResponse,
 } from "node:http";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { agentScratch, CommandExecutor } from "./command-executor.ts";
+import {
+	agentScratch,
+	CommandExecutor,
+	ExecutionInterruptedError,
+} from "./command-executor.ts";
 import { outputPage } from "./command-tools.ts";
 import { listProjects, openDatabase } from "./database.ts";
-import { executeTool, type ToolExecutor } from "./file-tools.ts";
+import type { ToolExecutor } from "./file-tools.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
 import { createModelSettings, ModelSettingsError } from "./model-settings.ts";
 import {
@@ -175,7 +179,7 @@ export function createServer(
 	fetchModel: typeof fetch = fetch,
 	databasePath?: string,
 	fetchCatalog: typeof fetch = fetch,
-	runTool: ToolExecutor = executeTool,
+	runTool?: ToolExecutor,
 ) {
 	const database = openDatabase(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
@@ -237,7 +241,7 @@ export function createServer(
 				...call,
 				id: call.id,
 				...(content &&
-					call.name === "exec_command" && {
+					["exec_command", "apply_patch"].includes(String(call.name)) && {
 						output: savedOutput(Number(call.id)),
 					}),
 				...(!content && { child: childOverview(Number(call.id)) }),
@@ -793,7 +797,14 @@ export function createServer(
 				},
 				async (name, args, roots, signal) => {
 					signal?.throwIfAborted();
-					if (name === "exec_command" || name === "read_tool_output") {
+					if (
+						name === "exec_command" ||
+						name === "read_tool_output" ||
+						name === "apply_patch" ||
+						name === "read_file"
+					) {
+						if (runTool && (name === "read_file" || name === "apply_patch"))
+							return runTool(name, args, roots, signal);
 						try {
 							const value = JSON.parse(args);
 							if (!value || typeof value !== "object" || Array.isArray(value))
@@ -816,7 +827,7 @@ export function createServer(
 									throw new InputError("invalidInput");
 								const owner = database
 									.prepare(
-										"SELECT model_calls.agent_id FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE tool_calls.id=? AND tool_calls.name='exec_command'",
+										"SELECT model_calls.agent_id FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE tool_calls.id=? AND tool_calls.name IN ('exec_command','apply_patch')",
 									)
 									.get(value.tool_call_id);
 								if (owner?.agent_id !== agentId)
@@ -830,12 +841,48 @@ export function createServer(
 									),
 								};
 							}
+							if (name === "read_file") {
+								const offset = value.offset ?? 0,
+									limit = value.limit ?? 51200;
+								if (
+									Object.keys(value).some(
+										(key) => !["path", "offset", "limit"].includes(key),
+									) ||
+									typeof value.path !== "string" ||
+									!isAbsolute(value.path) ||
+									value.path.includes("\0") ||
+									!Number.isSafeInteger(offset) ||
+									offset < 0 ||
+									!Number.isSafeInteger(limit) ||
+									limit < 1 ||
+									limit > 51200 ||
+									!Number.isSafeInteger(offset + limit)
+								)
+									throw new InputError("invalidInput");
+								const result = await commands.read({
+									path: value.path,
+									offset,
+									limit,
+									targetFolders: currentFolders(id),
+									agentId: String(agentId),
+									signal: state.controller.signal,
+								});
+								return { status: "succeeded", result: JSON.stringify(result) };
+							}
+							if (name === "apply_patch") value.timeout_ms ??= 30000;
+
 							if (
 								Object.keys(value).some(
-									(key) => !["command", "cwd", "timeout_ms"].includes(key),
+									(key) =>
+										![
+											name === "apply_patch" ? "patch" : "command",
+											"cwd",
+											"timeout_ms",
+										].includes(key),
 								) ||
-								typeof value.command !== "string" ||
-								!value.command.trim() ||
+								typeof value[name === "apply_patch" ? "patch" : "command"] !==
+									"string" ||
+								!value[name === "apply_patch" ? "patch" : "command"].trim() ||
 								typeof value.cwd !== "string" ||
 								!value.cwd.startsWith("/") ||
 								!Number.isSafeInteger(value.timeout_ms) ||
@@ -846,7 +893,8 @@ export function createServer(
 							const toolId = activeToolId;
 							let ordinal = 0;
 							const result = await commands.execute({
-								command: value.command,
+								command: name === "apply_patch" ? "apply_patch" : value.command,
+								...(name === "apply_patch" ? { patch: value.patch } : {}),
 								cwd: value.cwd,
 								targetFolders: currentFolders(id),
 								agentId: String(agentId),
@@ -884,7 +932,11 @@ export function createServer(
 							};
 						} catch (error) {
 							return {
-								status: "failed",
+								status:
+									state.controller.signal.aborted ||
+									error instanceof ExecutionInterruptedError
+										? "interrupted"
+										: "failed",
 								result: JSON.stringify({
 									error: error instanceof Error ? error.message : String(error),
 								}),
@@ -920,7 +972,12 @@ export function createServer(
 						}
 					}
 					if (name !== "create_sub_agent")
-						return runTool(name, args, roots, signal);
+						return runTool
+							? runTool(name, args, roots, signal)
+							: {
+									status: "failed",
+									result: JSON.stringify({ error: "Unknown tool" }),
+								};
 					try {
 						const input: unknown = JSON.parse(args);
 						if (!input || typeof input !== "object" || Array.isArray(input))

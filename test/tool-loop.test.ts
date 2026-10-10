@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import {
-	lstat,
 	mkdir,
 	mkdtemp,
 	readdir,
 	readFile,
-	readlink,
-	realpath,
 	rm,
 	symlink,
 	writeFile,
@@ -15,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { executeTool, type ToolExecutor } from "../src/file-tools.ts";
+import type { ToolExecutor } from "../src/file-tools.ts";
 import { createServer } from "../src/server.ts";
 import { waitForAgent, waitForIdle } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
@@ -30,7 +27,7 @@ const message = (text: string) => ({
 const tool = (path: string, call_id = "count-1") => ({
 	id: call_id,
 	type: "function_call",
-	name: "list_files",
+	name: "read_file",
 	arguments: JSON.stringify({ path }),
 	call_id,
 });
@@ -103,7 +100,9 @@ async function fixture(
 	};
 }
 
-test("fresh database configures through HTTP and saves a complete tool loop", async () => {
+test("fresh database configures through HTTP and saves a complete tool loop", {
+	skip: process.platform !== "darwin",
+}, async () => {
 	const directory = await mkdtemp(join(tmpdir(), "tool-fresh-"));
 	const root = join(directory, "files");
 	await mkdir(root);
@@ -118,8 +117,9 @@ test("fresh database configures through HTTP and saves a complete tool loop", as
 				new Headers(init?.headers).get("authorization"),
 				"Bearer fresh-secret",
 			);
-			if (calls === 1) return new Response(completed([tool(root)]));
-			assert.equal(JSON.parse(request.input.at(-1).output).entries.length, 1);
+			if (calls === 1)
+				return new Response(completed([tool(join(root, "one.txt"))]));
+			assert.equal(JSON.parse(request.input.at(-1).output).text, "one");
 			return new Response(completed([message("one file")]));
 		},
 		join(directory, "db.sqlite"),
@@ -179,7 +179,7 @@ test("fresh database configures through HTTP and saves a complete tool loop", as
 		assert.equal(history.agents[0].toolCalls[0].status, "succeeded");
 		const saved = await request(`/api/agents/${accepted.agentId}/tools`);
 		assert.equal(saved.toolCalls.length, 1);
-		assert.equal(JSON.parse(saved.toolCalls[0].result).entries.length, 1);
+		assert.equal(JSON.parse(saved.toolCalls[0].result).text, "one");
 		assert.equal(calls, 2);
 	} finally {
 		server.closeAllConnections();
@@ -188,7 +188,9 @@ test("fresh database configures through HTTP and saves a complete tool loop", as
 	}
 });
 
-test("Agent lists a real tree and continues with complete protocol context while retaining earlier output", async () => {
+test("Agent reads a real file and continues with complete protocol context while retaining earlier output", {
+	skip: process.platform !== "darwin",
+}, async () => {
 	const root = await mkdtemp(join(tmpdir(), "tool-tree-"));
 	await mkdir(join(root, "nested"));
 	await mkdir(join(root, ".hidden"));
@@ -215,7 +217,7 @@ test("Agent lists a real tree and continues with complete protocol context while
 		encrypted_content: "opaque",
 		summary: [{ type: "summary_text", text: "thinking" }],
 	};
-	const call = tool(root);
+	const call = tool(join(root, "中文"));
 	const f = await fixture(
 		async (_url, init) => {
 			const body = JSON.parse(String(init?.body));
@@ -240,7 +242,7 @@ test("Agent lists a real tree and continues with complete protocol context while
 			const result = body.input.at(-1);
 			assert.equal(result.type, "function_call_output");
 			assert.equal(result.call_id, "count-1");
-			assert.equal(JSON.parse(result.output).entries.length, 8);
+			assert.equal(JSON.parse(result.output).text, "unchanged");
 			return new Response(completed([message("109 files")]));
 		},
 		[root],
@@ -260,7 +262,7 @@ test("Agent lists a real tree and continues with complete protocol context while
 		assert.equal(calls.length, 2);
 		assert(calls.every((c: { status: string }) => c.status === "succeeded"));
 		for (const request of requests) {
-			assert.equal(request.tools[0].name, "list_files");
+			assert.equal(request.tools[0].name, "read_file");
 			assert.match(request.instructions, new RegExp(root));
 		}
 		assert.deepEqual(await readdir(root), before);
@@ -271,122 +273,6 @@ test("Agent lists a real tree and continues with complete protocol context while
 	} finally {
 		await f.close();
 		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("Tool Results reject invalid scope and arguments and let the model correct them in order", async () => {
-	const base = await mkdtemp(join(tmpdir(), "tool-scope-"));
-	const root = join(base, "root"),
-		sibling = join(base, "root-neighbor"),
-		second = join(base, "second");
-	await Promise.all([root, sibling, second].map((path) => mkdir(path)));
-	await mkdir(join(root, "empty"));
-	await writeFile(join(second, "file"), "keep");
-	await symlink(sibling, join(root, "escape"));
-	await symlink(root, join(base, "configured-link"));
-	const invalid = [
-		{ ...tool(root, "unknown"), name: "shell" },
-		{ ...tool(root, "json"), arguments: "{" },
-		{
-			...tool(root, "extra"),
-			arguments: JSON.stringify({ path: root, command: "touch injected" }),
-		},
-		{ ...tool(root, "type"), arguments: JSON.stringify({ path: 2 }) },
-		tool("relative", "relative"),
-		tool(sibling, "neighbor"),
-		tool(join(root, "escape"), "escape"),
-		tool(join(root, "missing"), "missing"),
-		tool(join(second, "file"), "file"),
-		tool(join(root, "$(touch injected)"), "injection"),
-	];
-	let request = 0;
-	const f = await fixture(
-		async (_url, init) => {
-			request++;
-			const body = JSON.parse(String(init?.body));
-			if (request === 1) return new Response(completed(invalid));
-			if (request === 2) {
-				const results = body.input.filter(
-					(i: { type: string }) => i.type === "function_call_output",
-				);
-				assert.deepEqual(
-					results.map((r: { call_id: string; output: string }) => r.call_id),
-					invalid.map((i) => i.call_id),
-				);
-				assert.deepEqual(
-					results.map(
-						(r: { call_id: string; output: string }) =>
-							JSON.parse(r.output).error.kind,
-					),
-					[
-						"validation",
-						"validation",
-						"validation",
-						"validation",
-						"validation",
-						"scope",
-						"scope",
-						"execution",
-						"validation",
-						"execution",
-					],
-				);
-				return new Response(
-					completed([
-						tool(join(root, "empty"), "empty"),
-						tool(second, "second"),
-						tool(join(base, "configured-link"), "link"),
-					]),
-				);
-			}
-			assert.deepEqual(
-				body.input
-					.filter((i: { type: string }) => i.type === "function_call_output")
-					.slice(-3)
-					.map(
-						(r: { call_id: string; output: string }) =>
-							JSON.parse(r.output).entries.length,
-					),
-				[0, 1, 2],
-			);
-			return new Response(completed([message("corrected")]));
-		},
-		[join(base, "configured-link"), second],
-	);
-	try {
-		const accepted = await f.ask();
-		assert.equal(accepted.status, 202);
-		assert.equal(
-			(await f.wait((await accepted.json()).agentId)).status,
-			"succeeded",
-		);
-		assert.equal(request, 3);
-		assert.deepEqual(await readdir(root), ["empty", "escape"]);
-	} finally {
-		await f.close();
-		await rm(base, { recursive: true, force: true });
-	}
-});
-
-test("a tool request with no target folders gets a scope error without gating text chat", async () => {
-	let request = 0;
-	const f = await fixture(async (_url, init) => {
-		request++;
-		if (request === 1) return new Response(completed([tool("/tmp")]));
-		const body = JSON.parse(String(init?.body));
-		assert.equal(JSON.parse(body.input.at(-1).output).error.kind, "scope");
-		return new Response(completed([message("no configured folders")]));
-	}, []);
-	try {
-		const accepted = await f.ask();
-		assert.equal(accepted.status, 202);
-		assert.equal(
-			(await f.wait((await accepted.json()).agentId)).status,
-			"succeeded",
-		);
-		assert.equal(request, 2);
-	} finally {
-		await f.close();
 	}
 });
 
@@ -443,7 +329,7 @@ for (const output of [
 	[
 		{
 			type: "function_call",
-			name: "list_files",
+			name: "read_file",
 			arguments: '{"path":"/tmp"}',
 		},
 	],
@@ -530,7 +416,9 @@ test("remote continuation failure retains saved prior and partial output without
 	}
 });
 
-test("each tool and subsequent Model Call reads current scope and credentials", async () => {
+test("each tool and subsequent Model Call reads current scope and credentials", {
+	skip: process.platform !== "darwin",
+}, async () => {
 	const base = await mkdtemp(join(tmpdir(), "tool-capture-"));
 	const root = join(base, "initial"),
 		later = join(base, "later");
@@ -561,11 +449,14 @@ test("each tool and subsequent Model Call reads current scope and credentials", 
 				return new Response(
 					completed([
 						message("tool-secret first response"),
-						tool(root, "tool-secret"),
+						tool(join(root, "file"), "tool-secret"),
 					]),
 				);
 			}
-			assert.equal(JSON.parse(body.input.at(-1).output).error.kind, "scope");
+			assert.match(
+				JSON.parse(body.input.at(-1).output).error,
+				/Operation not permitted|denied/i,
+			);
 			assert.match(JSON.stringify(body.input), /tool-secret/);
 			return new Response(
 				completed([message("tool-secret changed-secret captured")]),
@@ -598,7 +489,11 @@ test("each tool and subsequent Model Call reads current scope and credentials", 
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, true);
 		assert.equal((await f.ask()).status, 409);
 		release();
-		assert.equal((await f.wait(agentId)).status, "succeeded");
+		assert.equal(
+			(await f.wait(agentId)).status,
+			"succeeded",
+			JSON.stringify(await f.get(`/api/agents/${agentId}/tools`)),
+		);
 		assert.equal(requests, 2);
 		for (const endpoint of [
 			`/api/chats/${f.chat.id}`,
@@ -1394,1101 +1289,59 @@ test("each tool in one Model Call reads the current Project scope", async () => 
 	}
 });
 
-const fileCall = (name: string, args: object, call_id: string) => ({
-	id: call_id,
-	type: "function_call",
-	name,
-	arguments: JSON.stringify(args),
-	call_id,
-});
-
-test("file tools return real scoped paths, literal UTF-8 matches and usable bounded continuations through HTTP", async () => {
-	const base = await realpath(
-		await mkdtemp(join(tmpdir(), "file-tools-http-")),
-	);
-	const root = join(base, "root"),
-		second = join(base, "second"),
-		outside = join(base, "root-neighbor");
-	await Promise.all([root, second, outside].map((path) => mkdir(path)));
-	await mkdir(join(root, "nested"));
-	await mkdir(join(root, ".git"));
-	await writeFile(join(root, ".hidden"), "secret 中文\n");
-	await writeFile(join(root, ".git", "config"), "secret git\n");
-	await writeFile(join(second, "other.txt"), "second root\n");
-	await writeFile(join(outside, "outside.txt"), "secret outside\n");
-	await symlink(outside, join(root, "escape"));
-	const textPath = join(root, "nested", "文.txt");
-	await writeFile(textPath, "中文 😀\nneedle.* literal\nNeedle.* differs\n");
-	await writeFile(join(root, "binary"), Buffer.from([0x61, 0, 0x62]));
-	await writeFile(join(root, "invalid-utf8"), Buffer.from([0xff, 0xfe]));
-	await Promise.all(
-		Array.from({ length: 105 }, (_, i) =>
-			writeFile(
-				join(root, `entry-${String(i).padStart(3, "0")}.txt`),
-				"match\n",
-			),
-		),
-	);
-	const linesPath = join(root, "many-lines.txt");
-	await writeFile(linesPath, "short\n".repeat(2005));
-	let requests = 0;
-	let listOffset = 0,
-		searchOffset = 0;
-	const f = await fixture(
-		async (_url, init) => {
-			requests++;
-			const body = JSON.parse(String(init?.body));
-			if (requests === 1)
-				return new Response(
-					completed([
-						fileCall("list_files", { path: root }, "listing"),
-						fileCall(
-							"list_files",
-							{ path: root, pattern: "nested/**/*.txt" },
-							"discovery",
-						),
-						fileCall(
-							"search_files",
-							{ path: root, query: "needle.*" },
-							"literal",
-						),
-						fileCall(
-							"search_files",
-							{ path: root, query: "match" },
-							"search-page",
-						),
-						fileCall(
-							"search_files",
-							{ path: root, query: "secret" },
-							"hidden-search",
-						),
-						fileCall(
-							"read_file",
-							{ path: textPath, startLine: 1, endLine: 2 },
-							"unicode",
-						),
-						fileCall("read_file", { path: linesPath }, "lines-page"),
-						fileCall(
-							"read_file",
-							{ path: join(root, ".git", "config") },
-							"git",
-						),
-						fileCall(
-							"read_file",
-							{ path: join(second, "other.txt") },
-							"second",
-						),
-						fileCall("read_file", { path: join(root, "binary") }, "binary"),
-						fileCall(
-							"read_file",
-							{ path: join(root, "invalid-utf8") },
-							"invalid",
-						),
-						fileCall(
-							"read_file",
-							{ path: join(root, "escape", "outside.txt") },
-							"symlink",
-						),
-						fileCall(
-							"read_file",
-							{ path: `${root}/../root-neighbor/outside.txt` },
-							"traversal",
-						),
-						fileCall(
-							"read_file",
-							{ path: join(outside, "outside.txt") },
-							"sibling",
-						),
-						fileCall("read_file", { path: join(root, "missing") }, "missing"),
-					]),
-				);
-			const outputs = body.input.filter(
-				(item: { type: string }) => item.type === "function_call_output",
-			);
-			const results = new Map<
-				string,
-				{
-					entries: { path: string; type: string }[];
-					matches: {
-						path: string;
-						line: number;
-						text: string;
-						textTruncated: boolean;
-					}[];
-					truncated: boolean;
-					nextOffset: number;
-					text: string;
-					nextLine: number;
-					error: { kind: string };
-				}
-			>(
-				outputs.map((item: { call_id: string; output: string }) => [
-					item.call_id,
-					JSON.parse(item.output),
-				]),
-			);
-			const result = (id: string) => {
-				const found = results.get(id);
-				assert(found, `Missing result ${id}`);
-				return found;
-			};
-			if (requests === 2) {
-				const listing = result("listing");
-				assert.equal(listing.entries.length, 100);
-				assert.equal(listing.truncated, true);
-				listOffset = listing.nextOffset;
-				assert.equal(listOffset, 100);
-				assert(
-					listing.entries.every(
-						(entry: { path: string; type: string }) =>
-							entry.path.startsWith(`${root}/`) &&
-							["file", "directory", "symlink"].includes(entry.type),
-					),
-				);
-				assert.deepEqual(result("discovery").entries, [
-					{ path: textPath, type: "file" },
-				]);
-				assert.deepEqual(
-					result("literal").matches.map(({ path, line, text }) => ({
-						path,
-						line,
-						text,
-					})),
-					[{ path: textPath, line: 2, text: "needle.* literal" }],
-				);
-				assert.equal(result("search-page").matches.length, 100);
-				searchOffset = result("search-page").nextOffset;
-				assert.equal(searchOffset, 100);
-				assert.deepEqual(
-					result("hidden-search")
-						.matches.map(
-							(match: {
-								textTruncated: boolean;
-								path: string;
-								line: number;
-								text: string;
-							}) => match.path,
-						)
-						.sort(),
-					[join(root, ".hidden"), join(root, ".git", "config")].sort(),
-				);
-				assert.equal(result("unicode").text, "中文 😀\nneedle.* literal\n");
-				assert.equal(result("unicode").truncated, false);
-				assert.equal(result("lines-page").text, "short\n".repeat(2000));
-				assert.equal(result("lines-page").nextLine, 2001);
-				assert.equal(result("git").text, "secret git\n");
-				assert.equal(result("second").text, "second root\n");
-				for (const id of ["binary", "invalid", "traversal"])
-					assert.equal(result(id).error.kind, "validation");
-				for (const id of ["symlink", "sibling"])
-					assert.equal(result(id).error.kind, "scope");
-				assert.equal(result("missing").error.kind, "execution");
-				return new Response(
-					completed([
-						fileCall(
-							"list_files",
-							{ path: root, offset: listOffset },
-							"listing-rest",
-						),
-						fileCall(
-							"search_files",
-							{ path: root, query: "match", offset: searchOffset },
-							"search-rest",
-						),
-						fileCall(
-							"read_file",
-							{ path: linesPath, startLine: 2001 },
-							"lines-rest",
-						),
-						fileCall(
-							"read_file",
-							{ path: textPath, startLine: 2, endLine: 2 },
-							"read-again",
-						),
-					]),
-				);
-			}
-			assert.equal(result("listing-rest").truncated, false);
-			assert.equal(result("listing-rest").nextOffset, null);
-			const allEntries = [
-				...result("listing").entries,
-				...result("listing-rest").entries,
-			];
-			assert.equal(allEntries.length, (await readdir(root)).length);
-			assert.equal(
-				new Set(allEntries.map((entry) => entry.path)).size,
-				allEntries.length,
-			);
-			assert.equal(result("search-rest").matches.length, 5);
-			assert.equal(result("search-rest").truncated, false);
-			assert.equal(
-				new Set(
-					[
-						...result("search-page").matches,
-						...result("search-rest").matches,
-					].map((match) => match.path),
-				).size,
-				105,
-			);
-			assert.equal(result("lines-rest").text, "short\n".repeat(5));
-			assert.equal(result("read-again").text, "needle.* literal\n");
-			return new Response(completed([message("files inspected")]));
-		},
-		[root, second],
-	);
-	try {
-		const { agentId } = await (await f.ask()).json();
-		assert.equal((await f.wait(agentId)).status, "succeeded");
-		const saved = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
-		assert.equal(saved.length, 19);
-		assert.equal(
-			new Set(saved.map((call: { id: number }) => call.id)).size,
-			19,
-		);
-		assert.deepEqual(
-			saved.slice(0, 3).map((call: { name: string }) => call.name),
-			["list_files", "list_files", "search_files"],
-		);
-		assert.equal(requests, 3);
-		await f.restart();
-		assert.deepEqual(
-			(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
-			saved,
-		);
-	} finally {
-		await f.close();
-		await rm(base, { recursive: true, force: true });
-	}
-});
-
-test("read_file byte continuation preserves a long Unicode line exactly", async () => {
-	const root = await mkdtemp(join(tmpdir(), "file-tools-bytes-"));
-	const path = join(root, "long.txt"),
-		text = `${"😀中文".repeat(9000)}\nend\n`;
-	await writeFile(path, text);
-	let requests = 0,
-		collected = "";
-	const f = await fixture(
-		async (_url, init) => {
-			requests++;
-			if (requests === 1)
-				return new Response(
-					completed([fileCall("read_file", { path }, "first")]),
-				);
-			const result = JSON.parse(
-				JSON.parse(String(init?.body)).input.at(-1).output,
-			);
-			assert(Buffer.byteLength(result.text) <= 50 * 1024);
-			assert(!result.text.includes("�"));
-			collected += result.text;
-			if (result.truncated) {
-				assert(result.nextLine >= 1 && result.nextColumn >= 1);
-				return new Response(
-					completed([
-						fileCall(
-							"read_file",
-							{
-								path,
-								startLine: result.nextLine,
-								startColumn: result.nextColumn,
-							},
-							`page-${requests}`,
-						),
-					]),
-				);
-			}
-			assert.equal(collected, text);
-			return new Response(completed([message("read completely")]));
-		},
-		[root],
-	);
-	try {
-		const { agentId } = await (await f.ask()).json();
-		assert.equal((await f.wait(agentId)).status, "succeeded");
-		assert.equal(requests, 3);
-	} finally {
-		await f.close();
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("file tools validate continuation arguments and expose Unicode-safe search locations beyond the excerpt boundary", async () => {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), "file-tools-arguments-")),
-	);
-	const path = join(root, "astral.txt");
-	await writeFile(path, `${"😀".repeat(5000)}needle${"😀".repeat(5000)}\n`);
-	const invalid = [
-		fileCall("list_files", { path: root, offset: -1 }, "negative"),
-		fileCall("list_files", { path: root, offset: 1.5 }, "fraction"),
-		fileCall("list_files", { path: root, pattern: [] }, "pattern"),
-		fileCall("search_files", { path: root, query: "" }, "empty"),
-		fileCall("read_file", { path, startLine: 0 }, "zero"),
-		fileCall("read_file", { path, startLine: 2, endLine: 1 }, "reversed"),
-		fileCall("read_file", { path, startColumn: 10009 }, "column"),
-		fileCall("read_file", { path: [path] }, "array"),
-	];
-	let requests = 0;
-	const f = await fixture(
-		async (_url, init) => {
-			requests++;
-			if (requests === 1)
-				return new Response(
-					completed([
-						fileCall(
-							"search_files",
-							{ path: root, query: "needle" },
-							"long-match",
-						),
-						...invalid,
-					]),
-				);
-			const outputs = JSON.parse(String(init?.body)).input.filter(
-				(item: { type: string }) => item.type === "function_call_output",
-			);
-			assert.deepEqual(
-				outputs.map((item: { call_id: string }) => item.call_id),
-				["long-match", ...invalid.map((item) => item.call_id)],
-			);
-			const result = JSON.parse(outputs[0].output);
-			assert.equal(result.matches.length, 1);
-			const match = result.matches[0];
-			assert.equal(match.path, path);
-			assert.equal(match.line, 1);
-			assert.equal(match.column, 5001);
-			assert.equal(match.textTruncated, true);
-			assert.equal(Array.from(match.text).length, 4096);
-			assert(!match.text.includes("�"));
-			assert(match.text.includes("needle"));
-			assert.equal(
-				Array.from(match.text)
-					.slice(
-						match.column - match.textStartColumn,
-						match.column - match.textStartColumn + 6,
-					)
-					.join(""),
-				"needle",
-			);
-			for (const item of outputs.slice(1))
-				assert.equal(JSON.parse(item.output).error.kind, "validation");
-			return new Response(completed([message("validated")]));
-		},
-		[root],
-	);
-	try {
-		const { agentId } = await (await f.ask()).json();
-		assert.equal((await f.wait(agentId)).status, "succeeded");
-		assert.equal(requests, 2);
-	} finally {
-		await f.close();
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("mutation tools perform scoped text and path operations with independent results", async () => {
-	const base = await realpath(await mkdtemp(join(tmpdir(), "mutations-")));
-	const root = join(base, "root"),
-		second = join(base, "second"),
-		outside = join(base, "root-other");
-	await Promise.all([root, second, outside].map((path) => mkdir(path)));
-	await writeFile(join(outside, "keep"), "outside");
-	await symlink(outside, join(root, "escape"));
-	await symlink(join(outside, "absent"), join(root, "dangling"));
-	await writeFile(join(root, "binary"), Buffer.from([0, 1, 2]));
-	await writeFile(join(root, "invalid"), Buffer.from([255]));
-	await mkdir(join(root, "folder"));
-	await symlink(outside, join(root, "folder", "link"));
-	await writeFile(join(root, "folder", "child"), "child");
-	const path = join(root, "new", "深", "file.txt");
-	const calls = [
-		fileCall("write_file", { path, content: "one 😀" }, "create"),
-		fileCall("write_file", { path, content: "two two" }, "replace"),
-		fileCall("edit_file", { path, oldText: "missing", newText: "bad" }, "zero"),
-		fileCall(
-			"edit_file",
-			{ path, oldText: "two", newText: "bad" },
-			"ambiguous",
-		),
-		fileCall(
-			"edit_file",
-			{ path, oldText: "two two", newText: "three 中文" },
-			"edit",
-		),
-		fileCall(
-			"move_path",
-			{ path, destination: join(second, "renamed") },
-			"file-move",
-		),
-		fileCall(
-			"move_path",
-			{ path: join(root, "folder"), destination: join(root, "renamed-folder") },
-			"folder-move",
-		),
-		fileCall(
-			"move_path",
-			{ path: join(second, "renamed"), destination: join(root, "binary") },
-			"collision",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "binary"), content: "bad" },
-			"binary",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "invalid"), content: "bad" },
-			"invalid",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "bad"), content: "\ud800" },
-			"surrogate",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "escape", "created", "x"), content: "bad" },
-			"escape",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "dangling"), content: "bad" },
-			"dangling",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(outside, "x"), content: "bad" },
-			"sibling",
-		),
-		fileCall(
-			"write_file",
-			{ path: `${root}/../root-other/x`, content: "bad" },
-			"traversal",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, ".git", "config"), content: "git" },
-			"git",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, ".hidden"), content: "hidden" },
-			"hidden",
-		),
-		fileCall(
-			"move_path",
-			{
-				path: join(root, "binary"),
-				destination: join(root, "missing", "file"),
-			},
-			"missing-parent",
-		),
-		fileCall(
-			"delete_path",
-			{ path: join(root, "renamed-folder") },
-			"recursive-delete",
-		),
-		fileCall("delete_path", { path: join(root, "binary") }, "binary-delete"),
-		fileCall("delete_path", { path: join(root, "absent") }, "missing"),
-	];
-	const failed = new Map([
-		["zero", "validation"],
-		["ambiguous", "validation"],
-		["collision", "validation"],
-		["binary", "validation"],
-		["invalid", "validation"],
-		["surrogate", "validation"],
-		["escape", "scope"],
-		["dangling", "scope"],
-		["sibling", "scope"],
-		["traversal", "validation"],
-		["missing-parent", "execution"],
-		["missing", "execution"],
+test("native read_file byte continuations preserve Unicode and binary content through recorded HTTP results", {
+	skip: process.platform !== "darwin",
+}, async () => {
+	const root = await mkdtemp(join(tmpdir(), "tool-read-bytes-"));
+	const path = join(root, "long Unicode 文件.bin");
+	const content = Buffer.concat([
+		Buffer.from("😀".repeat(14000)),
+		Buffer.from([0, 255, 128]),
 	]);
+	await writeFile(path, content);
+	const chunks: Buffer[] = [];
 	let requests = 0;
-	const f = await fixture(
-		async (_url, init) => {
-			requests++;
-			const body = JSON.parse(String(init?.body));
-			assert.deepEqual(
-				body.tools.slice(0, 7).map((tool: { name: string }) => tool.name),
-				[
-					"list_files",
-					"search_files",
-					"read_file",
-					"write_file",
-					"edit_file",
-					"move_path",
-					"delete_path",
-				],
-			);
-			if (requests === 1) return new Response(completed(calls));
-			const outputs = body.input.filter(
-				(item: { type: string }) => item.type === "function_call_output",
-			);
-			assert.deepEqual(
-				outputs.map((item: { call_id: string }) => item.call_id),
-				calls.map((call) => call.call_id),
-			);
-			for (const item of outputs) {
-				const result = JSON.parse(item.output);
-				if (failed.has(item.call_id))
-					assert.equal(
-						result.error.kind,
-						failed.get(item.call_id),
-						item.call_id,
-					);
-				else assert.equal(result.error, undefined, item.call_id);
-			}
-			assert.equal(
-				await readFile(join(second, "renamed"), "utf8"),
-				"three 中文",
-			);
-			assert.equal(await readFile(join(root, ".git", "config"), "utf8"), "git");
-			assert.equal(await readFile(join(root, ".hidden"), "utf8"), "hidden");
-			assert.equal(await readFile(join(outside, "keep"), "utf8"), "outside");
-			assert.deepEqual(await readdir(outside), ["keep"]);
-			assert(!(await readdir(root)).includes("renamed-folder"));
-			assert(!(await readdir(root)).includes("binary"));
-			assert.deepEqual(
-				await readFile(join(root, "invalid")),
-				Buffer.from([255]),
-			);
-			return new Response(completed([message("done")]));
-		},
-		[root, second],
-	);
-	try {
-		const { agentId } = await (await f.ask()).json();
-		assert.equal((await f.wait(agentId)).status, "succeeded");
-		const saved = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
-		assert.equal(saved.length, calls.length);
-		assert.equal(
-			new Set(saved.map((call: { id: number }) => call.id)).size,
-			calls.length,
-		);
-		assert.deepEqual(
-			saved.map((call: { status: string }) => call.status),
-			calls.map((call) => (failed.has(call.call_id) ? "failed" : "succeeded")),
-		);
-		await f.restart();
-		assert.deepEqual(
-			(await f.get(`/api/agents/${agentId}/tools`)).toolCalls,
-			saved,
-		);
-		assert.equal(requests, 2);
-	} finally {
-		await f.close();
-		await rm(base, { recursive: true, force: true });
-	}
-});
-
-for (const rootsAfter of ["second", "none"]) {
-	test(`mutations use changed current roots before each dispatch: ${rootsAfter}`, async () => {
-		const base = await realpath(
-			await mkdtemp(join(tmpdir(), "mutation-scope-")),
-		);
-		const root = join(base, "root"),
-			second = join(base, "second");
-		await mkdir(root);
-		await mkdir(second);
-		let entered!: () => void, release!: () => void;
-		const started = new Promise<void>((r) => (entered = r)),
-			held = new Promise<void>((r) => (release = r));
-		let executions = 0,
-			requests = 0;
-		const f = await fixture(
-			async () =>
-				new Response(
-					completed(
-						++requests === 1
-							? [
-									fileCall(
-										"write_file",
-										{ path: join(root, "first"), content: "first" },
-										"first",
-									),
-									fileCall(
-										"write_file",
-										{ path: join(root, "blocked"), content: "bad" },
-										"blocked",
-									),
-									fileCall(
-										"write_file",
-										{ path: join(second, "second"), content: "second" },
-										"second",
-									),
-								]
-							: [message("done")],
-					),
-				),
-			[root],
-			async (name, args, roots, signal) => {
-				const result = await executeTool(name, args, roots, signal);
-				if (++executions === 1) {
-					entered();
-					await held;
-				}
-				return result;
-			},
-		);
-		try {
-			const { agentId } = await (await f.ask()).json();
-			await started;
-			assert.equal(
-				(
-					await f.send(
-						`/api/projects/${f.project.id}`,
-						{ name: "P", folders: rootsAfter === "none" ? [] : [second] },
-						"PUT",
-					)
-				).status,
-				200,
-			);
-			release();
-			assert.equal((await f.wait(agentId)).status, "succeeded");
-			assert.deepEqual(await readdir(root), ["first"]);
-			assert.deepEqual(
-				await readdir(second),
-				rootsAfter === "none" ? [] : ["second"],
-			);
-			const saved = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
-			assert.equal(JSON.parse(saved[1].result).error.kind, "scope");
-			if (rootsAfter === "none")
-				assert.equal(JSON.parse(saved[2].result).error.kind, "scope");
-		} finally {
-			release();
-			await f.close();
-			await rm(base, { recursive: true, force: true });
-		}
+	const read = (offset: number) => ({
+		id: `read-${offset}`,
+		type: "function_call",
+		name: "read_file",
+		call_id: `read-${offset}`,
+		arguments: JSON.stringify({ path, offset }),
 	});
-}
-
-test("cancellation retains a completed mutation and prevents remaining operations", async () => {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), "mutation-cancel-")),
-	);
-	let entered!: () => void;
-	const started = new Promise<void>((r) => (entered = r));
-	let requests = 0;
 	const f = await fixture(
-		async () => {
-			requests++;
-			return new Response(
-				completed([
-					fileCall(
-						"write_file",
-						{ path: join(root, "saved"), content: "actual change" },
-						"write",
-					),
-					fileCall("delete_path", { path: join(root, "saved") }, "delete"),
-				]),
-			);
+		async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			if (++requests === 1) return new Response(completed([read(0)]));
+			const result = JSON.parse(body.input.at(-1).output);
+			assert.equal(result.path, path);
+			const block = Buffer.from(result.content, "base64");
+			assert.equal(result.bytes_read, block.length);
+			assert(block.length <= 50 * 1024);
+			chunks.push(block);
+			if (!result.eof) {
+				assert.equal(result.next_offset, 50 * 1024);
+				return new Response(completed([read(result.next_offset)]));
+			}
+			assert.deepEqual(Buffer.concat(chunks), content);
+			return new Response(completed([message("Read complete")]));
 		},
 		[root],
-		async (name, args, roots, signal) => {
-			const result = await executeTool(name, args, roots, signal);
-			entered();
-			await new Promise<void>((r) =>
-				signal?.addEventListener("abort", () => r(), { once: true }),
-			);
-			return result;
-		},
 	);
 	try {
 		const { agentId } = await (await f.ask()).json();
-		await started;
 		assert.equal(
-			(await f.send(`/api/agents/${agentId}/cancel`, {})).status,
-			200,
+			(await f.wait(agentId)).status,
+			"succeeded",
+			JSON.stringify(await f.get(`/api/agents/${agentId}/tools`)),
 		);
-		await f.wait(agentId);
-		assert.equal(await readFile(join(root, "saved"), "utf8"), "actual change");
-		const tools = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
-		assert.equal(tools[0].status, "succeeded");
-		assert.equal(JSON.parse(tools[0].result).bytesWritten, 13);
-		assert.equal(tools[1].status, "interrupted");
-		assert.equal(requests, 1);
-	} finally {
-		await f.close();
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("concurrent Agents cannot overwrite one move destination", async () => {
-	const root = await realpath(await mkdtemp(join(tmpdir(), "move-collision-")));
-	const sources = [join(root, "first"), join(root, "second")],
-		destination = join(root, "destination");
-	await Promise.all(
-		sources.map((path, index) => writeFile(path, String(index))),
-	);
-	let arrivals = 0,
-		release!: () => void,
-		initial = 0;
-	const gate = new Promise<void>((r) => (release = r));
-	const f = await fixture(
-		async (_url, init) => {
-			const input = JSON.parse(String(init?.body)).input;
-			return new Response(
-				completed(
-					input.some(
-						(item: { type: string }) => item.type === "function_call_output",
-					)
-						? [message("done")]
-						: [
-								fileCall(
-									"move_path",
-									{ path: sources[initial++], destination },
-									"move",
-								),
-							],
-				),
-			);
-		},
-		[root],
-		async (name, args, roots, signal) => {
-			if (++arrivals === 2) release();
-			await gate;
-			return executeTool(name, args, roots, signal);
-		},
-	);
-	try {
-		const secondChat = await (
-			await f.send(`/api/projects/${f.project.id}/chats`, { name: "Second" })
-		).json();
-		const accepted = await Promise.all([
-			f.ask(),
-			f.send(`/api/chats/${secondChat.id}`, {
-				modelId: "tool-model",
-				prompt: "move",
-			}),
-		]);
-		const agents = await Promise.all(accepted.map((r) => r.json()));
-		await Promise.all(agents.map((agent) => f.wait(agent.agentId)));
-		const tools = (
-			await Promise.all(
-				agents.map((agent) => f.get(`/api/agents/${agent.agentId}/tools`)),
-			)
-		).flatMap((result) => result.toolCalls);
-		assert.deepEqual(
-			tools.map((tool: { status: string }) => tool.status).sort(),
-			["failed", "succeeded"],
+		assert.equal(requests, 3);
+		const { toolCalls } = await f.get(`/api/agents/${agentId}/tools`);
+		assert.equal(toolCalls.length, 2);
+		assert(
+			toolCalls.every(
+				(call: { status: string }) => call.status === "succeeded",
+			),
 		);
-		const winner = await readFile(destination, "utf8");
-		assert(["0", "1"].includes(winner));
-		const loser = winner === "0" ? 1 : 0;
-		assert.equal(await readFile(sources[loser], "utf8"), String(loser));
-		assert.equal((await readdir(root)).length, 2);
-	} finally {
-		release();
-		await f.close();
-		await rm(root, { recursive: true, force: true });
-	}
-});
-
-test("link entries move/delete independently while content follows combined roots", async () => {
-	const base = await realpath(await mkdtemp(join(tmpdir(), "link-tools-")));
-	const root = join(base, "root"),
-		second = join(base, "second"),
-		outside = join(base, "outside");
-	await Promise.all([root, second, outside].map((path) => mkdir(path)));
-	await writeFile(join(root, "file"), "same");
-	await writeFile(join(second, "file"), "cross");
-	await writeFile(join(outside, "file"), "outside");
-	await mkdir(join(root, "directory"));
-	await mkdir(join(second, "directory"));
-	await writeFile(join(second, "directory", "keep"), "second-keep");
-	await writeFile(join(root, "directory", "keep"), "keep");
-	const targets = ["file", "directory", "missing", join(outside, "file")];
-	const calls: ReturnType<typeof fileCall>[] = [];
-	for (const [index, target] of targets.entries()) {
-		const path = join(root, `link-${index}`),
-			destination = join(
-				index === 3 ? join(root, "parent") : second,
-				`moved-${index}`,
-			);
-		await symlink(target, path);
-		calls.push(fileCall("move_path", { path, destination }, `move-${index}`));
-	}
-	await symlink("missing", join(second, "collision"));
-	await symlink(join(second, "file"), join(root, "cross"));
-	await symlink("file", join(root, "same"));
-	await symlink(second, join(root, "parent"));
-	await symlink(outside, join(root, "escape"));
-	await symlink("absent", join(root, "dangling"));
-	calls.push(
-		fileCall("read_file", { path: join(root, "same") }, "same-read"),
-		fileCall("read_file", { path: join(root, "cross") }, "cross-read"),
-		fileCall(
-			"write_file",
-			{ path: join(root, "cross"), content: "changed" },
-			"cross-write",
-		),
-		fileCall(
-			"edit_file",
-			{ path: join(root, "cross"), oldText: "changed", newText: "edited" },
-			"cross-edit",
-		),
-		fileCall(
-			"read_file",
-			{ path: join(root, "parent", "file") },
-			"parent-read",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "parent", "new", "file"), content: "new" },
-			"parent-write",
-		),
-		fileCall(
-			"edit_file",
-			{ path: join(root, "same"), oldText: "same", newText: "updated" },
-			"same-edit",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "same"), content: "same-final" },
-			"same-write",
-		),
-		fileCall(
-			"move_path",
-			{ path: join(root, "same"), destination: join(second, "collision") },
-			"collision",
-		),
-		fileCall(
-			"move_path",
-			{ path: join(root, "same"), destination: join(second, "file") },
-			"file-collision",
-		),
-		fileCall(
-			"move_path",
-			{
-				path: join(root, "same"),
-				destination: join(root, "missing-parent", "new"),
-			},
-			"missing-parent",
-		),
-		fileCall(
-			"move_path",
-			{ path: join(root, "same"), destination: join(root, "escape", "new") },
-			"outside-destination",
-		),
-		fileCall(
-			"delete_path",
-			{ path: join(root, "escape", "file") },
-			"outside-entry",
-		),
-		fileCall(
-			"read_file",
-			{ path: join(root, "escape", "file") },
-			"outside-read",
-		),
-		fileCall(
-			"write_file",
-			{ path: join(root, "escape", "file"), content: "bad" },
-			"outside-write",
-		),
-		fileCall(
-			"edit_file",
-			{
-				path: join(root, "escape", "file"),
-				oldText: "outside",
-				newText: "bad",
-			},
-			"outside-edit",
-		),
-		fileCall("read_file", { path: join(root, "dangling") }, "dangling-read"),
-		fileCall(
-			"write_file",
-			{ path: join(root, "dangling"), content: "bad" },
-			"dangling-write",
-		),
-		fileCall(
-			"edit_file",
-			{ path: join(root, "dangling"), oldText: "absent", newText: "bad" },
-			"dangling-edit",
-		),
-	);
-	const failures = new Set([
-		"collision",
-		"file-collision",
-		"missing-parent",
-		"outside-destination",
-		"outside-entry",
-		"outside-read",
-		"outside-write",
-		"outside-edit",
-		"dangling-read",
-		"dangling-write",
-		"dangling-edit",
-	]);
-	let requests = 0;
-	const f = await fixture(
-		async (_url, init) => {
-			requests++;
-			if (requests === 1) return new Response(completed(calls));
-			if (requests === 3) {
-				assert.equal(await readFile(join(second, "file"), "utf8"), "edited");
-				assert.equal(
-					await readFile(join(second, "directory", "keep"), "utf8"),
-					"second-keep",
-				);
-				for (const [index] of targets.entries())
-					await assert.rejects(lstat(join(second, `moved-${index}`)), {
-						code: "ENOENT",
-					});
-				assert.equal(await readFile(join(root, "file"), "utf8"), "same-final");
-				assert.equal(
-					await readFile(join(root, "directory", "keep"), "utf8"),
-					"keep",
-				);
-				assert.equal(await readFile(join(outside, "file"), "utf8"), "outside");
-				return new Response(completed([message("done")]));
-			}
-			const outputs = JSON.parse(String(init?.body)).input.filter(
-				(item: { type: string }) => item.type === "function_call_output",
-			);
-			assert.equal(outputs.length, calls.length);
-			for (const item of outputs) {
-				const result = JSON.parse(item.output);
-				assert.equal(
-					Boolean(result.error),
-					failures.has(item.call_id),
-					item.call_id,
-				);
-				if (failures.has(item.call_id))
-					assert.equal(result.mutationMayHaveOccurred, undefined, item.call_id);
-				if (item.call_id === "same-read") assert.equal(result.text, "same");
-				if (item.call_id === "cross-read") assert.equal(result.text, "cross");
-				if (item.call_id === "parent-read") assert.equal(result.text, "edited");
-			}
-			for (const [index, target] of targets.entries()) {
-				const moved = join(second, `moved-${index}`);
-				assert((await lstat(moved)).isSymbolicLink());
-				assert.equal(await readlink(moved), target);
-				await assert.rejects(lstat(join(root, `link-${index}`)), {
-					code: "ENOENT",
-				});
-			}
-			assert.equal(await readlink(join(root, "cross")), join(second, "file"));
-			assert.equal(await readlink(join(root, "same")), "file");
-			assert.equal(await readlink(join(second, "collision")), "missing");
-			assert.equal(await readlink(join(root, "dangling")), "absent");
-			assert.equal(await readFile(join(root, "file"), "utf8"), "same-final");
-			assert.equal(await readFile(join(second, "file"), "utf8"), "edited");
-			assert.equal(await readFile(join(second, "new", "file"), "utf8"), "new");
-			assert.equal(await readFile(join(outside, "file"), "utf8"), "outside");
-			assert.equal(
-				await readFile(join(root, "directory", "keep"), "utf8"),
-				"keep",
-			);
-			await assert.rejects(lstat(join(outside, "new")), { code: "ENOENT" });
-			await assert.rejects(lstat(join(root, "absent")), { code: "ENOENT" });
-			return new Response(
-				completed(
-					targets.map((_, index) =>
-						fileCall(
-							"delete_path",
-							{
-								path: join(
-									index === 3 ? join(root, "parent") : second,
-									`moved-${index}`,
-								),
-							},
-							`delete-${index}`,
-						),
-					),
-				),
-			);
-		},
-		[root, second],
-	);
-	try {
-		const { agentId } = await (await f.ask()).json();
-		assert.equal((await f.wait(agentId)).status, "succeeded");
-	} finally {
-		await f.close();
-		await rm(base, { recursive: true, force: true });
-	}
-});
-
-test("streaming file pages preserve chunk boundaries and reject unsupported suffixes through HTTP", async () => {
-	const root = await realpath(
-		await mkdtemp(join(tmpdir(), "file-stream-http-")),
-	);
-	const large = join(root, "large.txt"),
-		boundary = join(root, "boundary.txt");
-	await writeFile(large, "x".repeat(20 * 1024 * 1024));
-	const text = `${"a".repeat(65534)}😀needle${"中".repeat(5000)}\r\naa😀needle\n`;
-	await writeFile(boundary, text);
-	await writeFile(
-		join(root, "a-invalid"),
-		Buffer.concat([
-			Buffer.from("needle\n".repeat(101) + "x".repeat(100000)),
-			Buffer.from([0xff]),
-		]),
-	);
-	await writeFile(join(root, "b-binary"), `needle\n${"x".repeat(100000)}\0`);
-	await writeFile(join(root, "bom"), "\ufeffone\r\ntwo\n");
-	const calls = [
-		fileCall("read_file", { path: large }, "large"),
-		fileCall(
-			"read_file",
-			{ path: large, startColumn: 20 * 1024 * 1024 - 2 },
-			"tail",
-		),
-		fileCall("read_file", { path: boundary, startColumn: 65535 }, "unicode"),
-		fileCall("read_file", { path: join(root, "bom") }, "bom"),
-		fileCall("read_file", { path: join(root, "a-invalid") }, "invalid"),
-		fileCall("read_file", { path: join(root, "b-binary") }, "binary"),
-		fileCall("search_files", { path: root, query: "aa😀needle" }, "boundary"),
-		fileCall(
-			"search_files",
-			{ path: root, query: "needle", offset: 1 },
-			"offset",
-		),
-	];
-	let requests = 0;
-	const f = await fixture(
-		async (_url, init) => {
-			if (++requests === 1) return new Response(completed(calls));
-			const outputs = JSON.parse(String(init?.body)).input.filter(
-				(item: { type: string }) => item.type === "function_call_output",
-			);
-			const results = outputs.map((item: { output: string }) =>
-				JSON.parse(item.output),
-			);
-			assert.equal(results[0].text, "x".repeat(50 * 1024));
-			assert.equal(results[0].nextLine, 1);
-			assert.equal(results[0].nextColumn, 50 * 1024 + 1);
-			assert.equal(results[1].text, "xxx");
-			assert.equal(results[1].truncated, false);
-			assert.equal(results[2].text, text.slice(65534));
-			assert.equal(results[3].text, "\ufeffone\r\ntwo\n");
-			assert.equal(results[4].error.kind, "validation");
-			assert.equal(results[5].error.kind, "validation");
-			assert.equal(results[6].matches.length, 2);
-			assert.equal(results[6].matches[0].column, 65533);
-			assert.equal(results[6].matches[0].textStartColumn, 65533 - 128);
-			assert.equal(Array.from(results[6].matches[0].text).length, 4096);
-			assert.equal(results[6].matches[0].textTruncated, true);
-			assert.equal(results[6].matches[1].text, "aa😀needle");
-			assert.deepEqual(results[7].matches, [
-				{
-					path: boundary,
-					line: 2,
-					column: 4,
-					text: "aa😀needle",
-					textStartColumn: 1,
-					textTruncated: false,
-				},
-			]);
-			return new Response(completed([message("validated streamed pages")]));
-		},
-		[root],
-	);
-	try {
-		const { agentId } = await (await f.ask()).json();
-		assert.equal((await f.wait(agentId)).status, "succeeded");
-		assert.equal(requests, 2);
 	} finally {
 		await f.close();
 		await rm(root, { recursive: true, force: true });

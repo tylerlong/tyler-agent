@@ -222,7 +222,7 @@ test("prompt acceptance uses saved choices, busy edits affect the next call but 
 					{
 						id: "tool",
 						type: "function_call",
-						name: "list_files",
+						name: "read_file",
 						call_id: "tool",
 						arguments: JSON.stringify({ path: "/tmp" }),
 					},
@@ -281,7 +281,7 @@ test("deleting the selected model stops continuation without issuing another Mod
 				{
 					id: "tool",
 					type: "function_call",
-					name: "list_files",
+					name: "read_file",
 					call_id: "tool",
 					arguments: JSON.stringify({ path: "/tmp" }),
 				},

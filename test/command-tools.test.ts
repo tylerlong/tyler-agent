@@ -978,3 +978,295 @@ commandTest(
 		}
 	},
 );
+
+commandTest(
+	"native read, patch and command round trip shares literal scope and denies outside targets",
+	async () => {
+		let root = "",
+			literal = "",
+			outside = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			const results = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.map((item: { output: string }) => JSON.parse(item.output));
+			if (++requests === 1) {
+				assert.deepEqual(
+					body.tools.map((tool: { name: string }) => tool.name).sort(),
+					[
+						"apply_patch",
+						"cancel_sub_agent",
+						"create_sub_agent",
+						"exec_command",
+						"read_file",
+						"read_tool_output",
+					],
+				);
+				return done([call("read_file", { path: join(root, "input.txt") })]);
+			}
+			if (requests === 2) {
+				assert.equal(results.at(-1).text, "before\n");
+				assert.equal(
+					Buffer.from(results.at(-1).content, "base64").toString(),
+					"before\n",
+				);
+				return done([
+					call(
+						"apply_patch",
+						{
+							cwd: literal,
+							patch: `*** Begin Patch\n*** Update File: ${join(root, "input.txt")}\n@@\n-before\n+after\n*** Add File: .git/config\n+fixture\n*** End Patch`,
+						},
+						"patch",
+					),
+				]);
+			}
+			if (requests === 3) {
+				assert.equal(results.at(-1).exitCode, 0, JSON.stringify(results));
+				return done([
+					call(
+						"exec_command",
+						{
+							cwd: root,
+							timeout_ms: 10000,
+							command: `test "$(cat input.txt)" = after && test "$(cat ${quote(join(literal, ".git/config"))})" = fixture && printf validated`,
+						},
+						"check",
+					),
+					...[outside, join(root, "escape")].flatMap((path, index) => [
+						call("read_file", { path }, `deny-read-${index}`),
+						call(
+							"apply_patch",
+							{
+								cwd: root,
+								patch: `*** Begin Patch\n*** Update File: ${path}\n@@\n-outside-secret\n+changed\n*** End Patch`,
+							},
+							`deny-patch-${index}`,
+						),
+					]),
+					call(
+						"exec_command",
+						{ cwd: root, timeout_ms: 10000, command: `cat ${quote(outside)}` },
+						"deny-command",
+					),
+				]);
+			}
+			assert.equal(results[2].exitCode, 0);
+			assert.equal(text(results[2].output.chunks), "validated");
+			for (const result of [results[3], results[5]])
+				assert.equal(typeof result.error, "string");
+			for (const result of [results[4], results[6], results[7]])
+				assert.notEqual(result.exitCode, 0);
+			assert(
+				!JSON.stringify(results.slice(3)).includes('"text":"outside-secret'),
+			);
+			return done([answer]);
+		});
+		root = f.root;
+		literal = join(f.directory, "target [*?] ü");
+		outside = join(f.directory, "private.txt");
+		try {
+			await mkdir(literal);
+			await writeFile(join(root, "input.txt"), "before\n");
+			await writeFile(outside, "outside-secret\n");
+			await symlink(outside, join(root, "escape"));
+			await f.request(
+				`/api/projects/${f.projectId}`,
+				{ name: "Native", folders: [root, literal] },
+				"PUT",
+			);
+			const id = await f.ask();
+			assert.equal((await f.wait(id)).status, "succeeded");
+			assert.equal(await readFile(join(root, "input.txt"), "utf8"), "after\n");
+			assert.equal(await readFile(outside, "utf8"), "outside-secret\n");
+			const tools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
+			const patch = tools.find(
+				(tool: { name: string }) => tool.name === "apply_patch",
+			);
+			assert.match(
+				text(
+					(await f.request(`/api/agents/${id}/tools?toolId=${patch.id}`))
+						.toolCalls[0].output,
+				),
+				/Success/,
+			);
+			assert.equal(requests, 4);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"executor disconnect marks native file reads interrupted without replay",
+	async () => {
+		let root = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			if (++requests === 1)
+				return done([
+					call("exec_command", {
+						command: "printf ready",
+						cwd: root,
+						timeout_ms: 10000,
+					}),
+				]);
+			if (requests === 2) {
+				const { stdout: processes } = await promisify(execFile)("ps", [
+					"-axo",
+					"pid=,ppid=,command=",
+				]);
+				const owned = processes.split("\n").flatMap((line) => {
+					const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+					return match &&
+						Number(match[2]) === process.pid &&
+						match[3].includes("exec-server --listen stdio://")
+						? [Number(match[1])]
+						: [];
+				});
+				assert.equal(owned.length, 1);
+				process.kill(owned[0], "SIGKILL");
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				return done([
+					call("read_file", { path: join(root, "fixture") }, "read"),
+				]);
+			}
+			const result = JSON.parse(
+				JSON.parse(String(init?.body)).input.at(-1).output,
+			);
+			assert.match(result.error, /disconnected/i);
+			return done([answer]);
+		});
+		root = f.root;
+		try {
+			await writeFile(join(root, "fixture"), "preserved");
+			const id = await f.ask();
+			assert.equal((await f.wait(id)).status, "succeeded");
+			const tools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
+			assert.equal(tools[1].status, "interrupted");
+			assert.equal(requests, 3);
+			assert.equal(await readFile(join(root, "fixture"), "utf8"), "preserved");
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"cancelled native reads settle before Agent completion and later reads still work",
+	async () => {
+		let root = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			requests++;
+			const body = JSON.parse(String(init?.body));
+			if (
+				body.input.some(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+			)
+				return done([answer]);
+			return done([call("read_file", { path: join(root, "fixture") })]);
+		});
+		root = f.root;
+		try {
+			await writeFile(join(root, "fixture"), "x".repeat(100000));
+			const id = await f.ask();
+			for (let attempt = 0; attempt < 500; attempt++) {
+				const tools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
+				if (tools[0]?.status === "running") break;
+				await new Promise((resolve) => setTimeout(resolve, 1));
+			}
+			await f.request(`/api/agents/${id}/cancel`, {});
+			assert.equal((await f.wait(id)).status, "cancelled");
+			assert.equal(
+				(await f.request(`/api/agents/${id}/tools`)).toolCalls[0].status,
+				"interrupted",
+			);
+			assert.equal(requests, 1);
+			const next = await f.ask("next");
+			assert.equal((await f.wait(next)).status, "succeeded");
+			const tools = (await f.request(`/api/agents/${next}/tools`)).toolCalls;
+			const result = JSON.parse(
+				(await f.request(`/api/agents/${next}/tools?toolId=${tools[0].id}`))
+					.toolCalls[0].result,
+			);
+			assert.equal(result.bytes_read, 51200);
+			assert.equal(requests, 3);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"native reads and patches use owning scratch and deny another Agent scratch",
+	async () => {
+		let firstScratch = "",
+			requests = 0;
+		const marker = `native-${Date.now()}.txt`;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			const scratch = JSON.parse(
+				body.instructions.match(
+					/private command scratch directory: ("[^"]+")/,
+				)[1],
+			);
+			if (++requests === 1) {
+				firstScratch = scratch;
+				return done([
+					call(
+						"apply_patch",
+						{
+							cwd: scratch,
+							patch: `*** Begin Patch\n*** Add File: ${marker}\n+own\n*** End Patch`,
+						},
+						"own-patch",
+					),
+					call("read_file", { path: join(scratch, marker) }, "own-read"),
+				]);
+			}
+			if (requests === 3)
+				return done([
+					call(
+						"read_file",
+						{ path: join(firstScratch, marker) },
+						"foreign-read",
+					),
+					call(
+						"apply_patch",
+						{
+							cwd: scratch,
+							patch: `*** Begin Patch\n*** Update File: ${join(firstScratch, marker)}\n@@\n-own\n+foreign\n*** End Patch`,
+						},
+						"foreign-patch",
+					),
+				]);
+			const results = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.map((item: { output: string }) => JSON.parse(item.output));
+			if (requests === 2) {
+				assert.equal(results[0].exitCode, 0);
+				assert.equal(results[1].text, "own\n");
+			} else {
+				assert.equal(typeof results[0].error, "string");
+				assert.notEqual(results[1].exitCode, 0);
+			}
+			return done([answer]);
+		});
+		try {
+			assert.equal((await f.wait(await f.ask("first"))).status, "succeeded");
+			assert.equal((await f.wait(await f.ask("second"))).status, "succeeded");
+			assert.equal(await readFile(join(firstScratch, marker), "utf8"), "own\n");
+			assert.equal(requests, 4);
+		} finally {
+			if (firstScratch) await rm(join(firstScratch, marker), { force: true });
+			await f.close();
+		}
+	},
+);

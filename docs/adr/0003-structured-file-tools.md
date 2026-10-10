@@ -1,6 +1,6 @@
 # Structured file tools within Target Folders
 
-The subsequent decision in [ADR 0004](./0004-command-tool-isolation-boundary.md) replaces the fixed seven-tool interface, execution implementation and Target-Folders-only authorization with Codex exec-server and shared file/command permissions. The original decision below records the previous implementation; its specific tool contracts are not compatibility requirements for the replacement.
+The subsequent decision in [ADR 0004](./0004-command-tool-isolation-boundary.md) replaces the fixed seven-tool interface, execution implementation and Target-Folders-only authorization with Codex exec-server and shared file/command permissions. The replacement is delivered by #146/#147 as `exec_command`, native byte-bounded `read_file`, built-in `apply_patch` and `read_tool_output`. The original decision below records the previous implementation; its specific tool contracts are not compatibility requirements for the replacement. Saved historical Tool Calls remain inspectable.
 
 Replace the example file counter with seven structured tools: `list_files`, `search_files`, `read_file`, `write_file`, `edit_file`, `move_path` and `delete_path`. Each Tool Call performs one operation with an independent result; repeated calls retain their identities and execute serially within the existing Agent loop, avoiding shell access and multi-path batch variants. The discovery/read trio is delivered in #125 and mutations in #126.
 

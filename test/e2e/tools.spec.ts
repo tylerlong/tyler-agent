@@ -26,6 +26,18 @@ test("a tool agent retains output and exposes both communications while Send sta
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const first = app.rawStreamModel();
 	const continuation = app.holdModel();
+	const read = app.holdTool({
+		status: "succeeded",
+		result: JSON.stringify({
+			path: join(folder, "first"),
+			content: "b25l",
+			text: "one",
+			bytes_read: 3,
+			next_offset: null,
+			eof: true,
+		}),
+	});
+	read.release();
 	await page.getByLabel("Prompt").fill("Count my files");
 	const send = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 	await send.click();
@@ -43,9 +55,9 @@ test("a tool agent retains output and exposes both communications while Send sta
 		{
 			id: "tool",
 			type: "function_call",
-			name: "list_files",
+			name: "read_file",
 			call_id: "count-1",
-			arguments: JSON.stringify({ path: folder }),
+			arguments: JSON.stringify({ path: join(folder, "first") }),
 		},
 	];
 	for (const [output_index, item] of output.entries())
@@ -86,8 +98,8 @@ test("a tool agent retains output and exposes both communications while Send sta
 	await response.locator("summary").click();
 	await expect(request).toContainText("function_call_output");
 	await expect(request).toContainText("count-1");
-	await expect(request).toContainText('\\"entries\\"');
-	await expect(response).toContainText("list_files");
+	await expect(request).toContainText('\\"bytes_read\\"');
+	await expect(response).toContainText("read_file");
 	await expect(
 		request.getByRole("button", { name: "Copy", exact: true }),
 	).toHaveCount(0);
@@ -121,7 +133,7 @@ test("a tool agent retains output and exposes both communications while Send sta
 		"0",
 		"1",
 		"Response 1",
-		"Tool Call · list_files",
+		"Tool Call · read_file",
 		"Request 2",
 		"0",
 		"Response 2",
@@ -168,7 +180,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 		status: "failed",
 		result: '{"error":"zkey failure","extra":7}',
 	});
-	const output = ["write_file", "edit_file", "move_path", "delete_path"].map(
+	const output = ["read_file", "apply_patch", "read_file", "apply_patch"].map(
 		(name, index) => ({
 			id: `tool-${index}`,
 			type: "function_call",
@@ -200,7 +212,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await expect(inspect).not.toHaveAttribute("open");
 	success.release();
 	await plain.entered;
-	await expect(inspect.locator("summary")).toHaveText("Tool Call · write_file");
+	await expect(inspect.locator("summary")).toHaveText("Tool Call · read_file");
 	await expect(inspect).not.toHaveAttribute("open");
 	await inspect.locator("summary").click();
 	await expect(inspect).toContainText('"error": "business field"');
@@ -220,7 +232,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await failure.entered;
 	failure.release();
 	await expect(cards.nth(3).locator("summary")).toHaveText(
-		"Tool Call · delete_path · Failed",
+		"Tool Call · apply_patch · Failed",
 	);
 	await cards.nth(3).locator("summary").click();
 	await expect(cards.nth(3)).toContainText('"error": "[REDACTED] failure"');
@@ -233,10 +245,10 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	expect(order).toEqual([
 		"Request 1",
 		"Response 1",
-		"Tool Call · write_file",
-		"Tool Call · edit_file",
-		"Tool Call · move_path",
-		"Tool Call · delete_path · Failed",
+		"Tool Call · read_file",
+		"Tool Call · apply_patch",
+		"Tool Call · read_file",
+		"Tool Call · apply_patch · Failed",
 		"Request 2",
 		"Response 2",
 	]);

@@ -197,7 +197,7 @@ export function ToolCallCard({
 						</span>
 					)}
 				</summary>
-				{call.name === "exec_command" && (
+				{["exec_command", "apply_patch"].includes(call.name) && (
 					<button
 						type="button"
 						className="mt-2 underline"

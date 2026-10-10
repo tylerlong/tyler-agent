@@ -278,7 +278,7 @@ async function requestOnce(
 			createSubAgentTool,
 			cancelSubAgentTool,
 		],
-		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use file tools only within these folders. Your private command scratch directory: ${JSON.stringify(config?.scratch ?? null)}. Commands may use target folders and this scratch; network access is restricted. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
+		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. File and command tools share these folders and your own scratch. Use commands for discovery, listing, copying, moving and deletion; use apply_patch for text creation and changes. File reads use bounded byte blocks. No rollback guarantee; existing cross-scope hard links may affect the same inode outside scope. Your private command scratch directory: ${JSON.stringify(config?.scratch ?? null)}. Commands may use target folders and this scratch; network access is restricted. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
 
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
-import { executeTool, type ToolExecutor } from "../src/file-tools.ts";
+import type { ToolExecutor } from "../src/file-tools.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
@@ -850,7 +850,7 @@ for (const during of ["model", "tool"])
 						childTool({ prompt: "ordered two" }, "two"),
 					];
 					if (during === "tool")
-						output.push({ ...childTool({}, "held-tool"), name: "list_files" });
+						output.push({ ...childTool({}, "held-tool"), name: "read_file" });
 					return completedResponse({ output });
 				}
 				if (during === "model" && parentInputs.length === 2) {
@@ -1223,7 +1223,7 @@ test("later child calls resolve current root effort, credentials, capability met
 					childStarted.release();
 					await release.promise;
 					return completedResponse({
-						output: [{ ...childTool({}, "local"), name: "list_files" }],
+						output: [{ ...childTool({}, "local"), name: "read_file" }],
 					});
 				}
 				return completedResponse({ output: [message("child done")] });
@@ -1624,8 +1624,8 @@ test("cancellation signals an active tool and holds the chat until tool cleanup 
 			requests++;
 			return completedResponse({
 				output: [
-					{ ...childTool({}, "active-tool"), name: "list_files" },
-					{ ...childTool({}, "queued-tool"), name: "list_files" },
+					{ ...childTool({}, "active-tool"), name: "read_file" },
+					{ ...childTool({}, "queued-tool"), name: "read_file" },
 				],
 			});
 		},
@@ -1718,7 +1718,7 @@ test("a failed child leaves its sibling running until the model explicitly cance
 						output: [
 							{
 								...childTool({ path: "/unused" }, "B-tool"),
-								name: "list_files",
+								name: "read_file",
 							},
 						],
 					});
@@ -1818,31 +1818,5 @@ test("a failed child leaves its sibling running until the model explicitly cance
 		cancel.release();
 		cleanup.release();
 		await f.close();
-	}
-});
-
-test("cancelling search_files interrupts an active filesystem traversal", {
-	timeout: 15000,
-}, async () => {
-	const directory = await mkdtemp(join(tmpdir(), "cancel-files-"));
-	const cancellation = new AbortController();
-	try {
-		await Promise.all(
-			Array.from({ length: 250 }, (_, index) =>
-				writeFile(join(directory, String(index)), "search me\n".repeat(1000)),
-			),
-		);
-		const execution = executeTool(
-			"search_files",
-			JSON.stringify({ path: directory, query: "absent" }),
-			[directory],
-			cancellation.signal,
-		);
-		await setTimeout(10);
-		cancellation.abort();
-		assert.equal((await execution).status, "interrupted");
-	} finally {
-		cancellation.abort();
-		await rm(directory, { recursive: true, force: true });
 	}
 });

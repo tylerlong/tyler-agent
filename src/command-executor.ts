@@ -8,6 +8,8 @@ import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
+export class ExecutionInterruptedError extends Error {}
+
 type Stream = "stdout" | "stderr";
 type ExecutionResult = {
 	exitCode: number | null;
@@ -18,6 +20,7 @@ type ExecutionResult = {
 };
 type Execution = {
 	command: string;
+	patch?: string;
 	cwd: string;
 	targetFolders: string[];
 	agentId: string;
@@ -69,7 +72,7 @@ export class CommandExecutor {
 	private fail(message: string, disconnected = false) {
 		this.failure ??= message;
 		for (const request of this.pending.values())
-			request.reject(new Error(this.failure));
+			request.reject(new ExecutionInterruptedError(this.failure));
 		this.pending.clear();
 		for (const proc of this.processes.values()) {
 			proc.error = this.failure;
@@ -206,7 +209,7 @@ export class CommandExecutor {
 	}
 
 	private async rpc(method: string, params: object): Promise<unknown> {
-		if (this.failure) throw new Error(this.failure);
+		if (this.failure) throw new ExecutionInterruptedError(this.failure);
 		const id = this.nextId++;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		try {
@@ -221,6 +224,122 @@ export class CommandExecutor {
 			});
 		} finally {
 			clearTimeout(timer);
+		}
+	}
+
+	private async scope(
+		options: Pick<Execution, "cwd" | "targetFolders" | "agentId">,
+	) {
+		const scratch = await agentScratch(options.agentId);
+		const targets = await Promise.all(
+			options.targetFolders.map(async (path) => {
+				if (!isAbsolute(path))
+					throw new Error("Target Folders must be absolute literal paths");
+				return realpath(path);
+			}),
+		);
+		const cwd = await realpath(options.cwd);
+		if (
+			![...targets, scratch].some((root) => {
+				const within = relative(root, cwd);
+				return (
+					within === "" ||
+					(within !== ".." &&
+						!within.startsWith(`..${sep}`) &&
+						!isAbsolute(within))
+				);
+			})
+		)
+			throw new Error(
+				"Working directory is outside Target Folders and Agent scratch",
+			);
+		return {
+			permissions: {
+				type: "managed",
+				file_system: {
+					type: "restricted",
+					entries: [
+						{
+							path: { type: "special", value: { kind: "minimal" } },
+							access: "read",
+						},
+						entry("/private/tmp", "deny"),
+						entry("/private/var/tmp", "deny"),
+						...this.toolPaths.map((path) => entry(path, "read")),
+						...[...targets, scratch].flatMap((path) => [
+							entry(path, "write"),
+							...[".git", ".agents", ".codex", ".aws"].map((name) =>
+								entry(join(path, name), "write"),
+							),
+						]),
+					],
+				},
+				network: "restricted",
+			},
+			cwd: uri(cwd),
+			workspaceRoots: targets.map(uri),
+			windowsSandboxLevel: "disabled",
+			useLegacyLandlock: false,
+		};
+	}
+
+	async read(
+		options: Pick<Execution, "targetFolders" | "agentId" | "signal"> & {
+			path: string;
+			offset: number;
+			limit: number;
+		},
+	) {
+		const handleId = randomUUID().replaceAll("-", "");
+		let opened = false;
+		try {
+			options.signal.throwIfAborted();
+			this.initialized ??= this.initialize();
+			await this.initialized;
+			const sandbox = await this.scope({
+				...options,
+				cwd: agentScratch(options.agentId),
+			});
+			options.signal.throwIfAborted();
+			await this.rpc("fs/open", {
+				handleId,
+				path: uri(options.path),
+				mode: "read",
+				sandbox,
+			});
+			opened = true;
+			const chunks: Buffer[] = [];
+			let bytes = 0,
+				eof = false;
+			while (bytes < options.limit && !eof) {
+				options.signal.throwIfAborted();
+				const block = (await this.rpc("fs/readBlock", {
+					handleId,
+					offset: options.offset + bytes,
+					len: Math.min(16384, options.limit - bytes),
+				})) as { chunk: string; eof: boolean };
+				const chunk = Buffer.from(block.chunk, "base64");
+				if (
+					chunk.length > options.limit - bytes ||
+					(!chunk.length && !block.eof)
+				)
+					throw new Error("Invalid native file block");
+				chunks.push(chunk);
+				bytes += chunk.length;
+				eof = block.eof;
+			}
+			options.signal.throwIfAborted();
+			const content = Buffer.concat(chunks);
+			return {
+				path: options.path,
+				content: content.toString("base64"),
+				text: content.toString("utf8"),
+				bytes_read: bytes,
+				next_offset: options.offset + bytes,
+				eof,
+			};
+		} finally {
+			if (opened) await this.rpc("fs/close", { handleId });
 		}
 	}
 
@@ -246,29 +365,9 @@ export class CommandExecutor {
 			this.initialized ??= this.initialize();
 			await this.initialized;
 			if (this.closing) throw new Error("Command executor is closed");
-			const scratch = await agentScratch(options.agentId);
-			const targets = await Promise.all(
-				options.targetFolders.map(async (path) => {
-					if (!isAbsolute(path))
-						throw new Error("Target Folders must be absolute literal paths");
-					return realpath(path);
-				}),
-			);
-			const cwd = await realpath(options.cwd);
-			if (
-				![...targets, scratch].some((root) => {
-					const within = relative(root, cwd);
-					return (
-						within === "" ||
-						(within !== ".." &&
-							!within.startsWith(`..${sep}`) &&
-							!isAbsolute(within))
-					);
-				})
-			)
-				throw new Error(
-					"Working directory is outside Target Folders and Agent scratch",
-				);
+			const sandbox = await this.scope(options);
+			const scratch = agentScratch(options.agentId);
+			const cwd = options.cwd;
 			if (options.signal.aborted) return { exitCode: null, cancelled: true };
 			let complete!: () => void;
 			const completed = new Promise<void>((resolve) => {
@@ -300,7 +399,10 @@ export class CommandExecutor {
 			this.processes.set(processId, proc);
 			await this.rpc("process/start", {
 				processId,
-				argv: ["/bin/sh", "-c", options.command],
+				argv:
+					options.patch === undefined
+						? ["/bin/sh", "-c", options.command]
+						: [this.binary, "--codex-run-as-apply-patch", options.patch],
 				cwd: uri(cwd),
 				env: {
 					PATH: this.commandPath,
@@ -316,34 +418,7 @@ export class CommandExecutor {
 				tty: false,
 				pipeStdin: false,
 				arg0: null,
-				sandbox: {
-					permissions: {
-						type: "managed",
-						file_system: {
-							type: "restricted",
-							entries: [
-								{
-									path: { type: "special", value: { kind: "minimal" } },
-									access: "read",
-								},
-								entry("/private/tmp", "deny"),
-								entry("/private/var/tmp", "deny"),
-								...this.toolPaths.map((path) => entry(path, "read")),
-								...[...targets, scratch].flatMap((path) => [
-									entry(path, "write"),
-									...[".git", ".agents", ".codex", ".aws"].map((name) =>
-										entry(join(path, name), "write"),
-									),
-								]),
-							],
-						},
-						network: "restricted",
-					},
-					cwd: uri(cwd),
-					workspaceRoots: targets.map(uri),
-					windowsSandboxLevel: "disabled",
-					useLegacyLandlock: false,
-				},
+				sandbox,
 			});
 			const stop = async () => {
 				if (proc?.closed) return;
