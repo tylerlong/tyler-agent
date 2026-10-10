@@ -756,6 +756,7 @@ export function createServer(
 						notifyAgent(id, agentId);
 					},
 					result: (result, output) => {
+						if (closed) return;
 						if (callId === undefined)
 							throw new Error("Missing saved model call");
 						database.exec("BEGIN");
@@ -867,11 +868,12 @@ export function createServer(
 								},
 							});
 							return {
-								status:
-									result.exitCode === 0 &&
-									!result.error &&
-									!result.cancelled &&
-									!result.timedOut
+								status: result.interrupted
+									? "interrupted"
+									: result.exitCode === 0 &&
+											!result.error &&
+											!result.cancelled &&
+											!result.timedOut
 										? "succeeded"
 										: "failed",
 								result: JSON.stringify({
@@ -1975,17 +1977,7 @@ export function createServer(
 		json(response, 404, errorBody("notFound"));
 	}).on("close", () => {
 		closed = true;
-		for (const state of running.values())
-			state.controller.abort(
-				new ModelError("agentCancelled", "Service closed"),
-			);
-		void Promise.all([...running.values()].map((state) => state.done)).finally(
-			async () => {
-				await commands.close();
-				closed = true;
-				database.close();
-			},
-		);
+		void commands.close().finally(() => database.close());
 	});
 }
 if (import.meta.main) {

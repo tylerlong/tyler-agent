@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
 	mkdir,
@@ -7,11 +7,13 @@ import {
 	readFile,
 	realpath,
 	rm,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { promisify } from "node:util";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
@@ -62,12 +64,10 @@ async function fixture(model: typeof globalThis.fetch) {
 	const address = server.address();
 	assert(address && typeof address !== "string");
 	const base = `http://127.0.0.1:${address.port}`;
-	const request = async (route: string, body?: unknown) => {
+	const request = async (route: string, body?: unknown, method = "POST") => {
 		const response = await fetch(
 			base + route,
-			body === undefined
-				? undefined
-				: { method: "POST", body: JSON.stringify(body) },
+			body === undefined ? undefined : { method, body: JSON.stringify(body) },
 		);
 		assert(response.ok, `${route}: ${response.status}`);
 		return response.json();
@@ -86,6 +86,7 @@ async function fixture(model: typeof globalThis.fetch) {
 	return {
 		directory,
 		root,
+		projectId: project.id,
 		request,
 		ask,
 		wait: (id: number) => waitForAgent(base, id),
@@ -802,6 +803,178 @@ commandTest(
 				await new Promise<void>((resolve) => restarted?.close(() => resolve()));
 			}
 			await rm(directory, { recursive: true, force: true });
+		}
+	},
+);
+
+commandTest(
+	"multiple literal Target Folders permit both roots and reject outside symlink effects",
+	async () => {
+		let ordinary = "",
+			literal = "",
+			outside = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			if (++requests === 1)
+				return done([
+					call(
+						"exec_command",
+						{
+							command: `printf ordinary > ${quote(join(ordinary, "ordinary.txt"))}; printf literal > ${quote(join(literal, "literal.txt"))}`,
+							cwd: literal,
+							timeout_ms: 10000,
+						},
+						"both",
+					),
+					call(
+						"exec_command",
+						{
+							command: `cat ${quote(join(ordinary, "escape", "secret"))}; printf changed > ${quote(join(ordinary, "escape", "secret"))}`,
+							cwd: ordinary,
+							timeout_ms: 10000,
+						},
+						"link",
+					),
+					call(
+						"exec_command",
+						{
+							command: `printf outside > ${quote(join(outside, "new.txt"))}`,
+							cwd: literal,
+							timeout_ms: 10000,
+						},
+						"outside",
+					),
+				]);
+			const results = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.map((item: { output: string }) => JSON.parse(item.output));
+			assert.equal(results[0].exitCode, 0, JSON.stringify(results[0]));
+			for (const result of results.slice(1)) {
+				assert.notEqual(result.exitCode, 0);
+				assert(!text(result.output.chunks).includes("outside-secret"));
+			}
+			return done([answer]);
+		});
+		ordinary = f.root;
+		literal = join(f.directory, "target [*?] ü");
+		outside = join(f.directory, "target neighbor");
+		try {
+			await mkdir(literal);
+			await mkdir(outside);
+			await writeFile(join(outside, "secret"), "outside-secret");
+			await symlink(outside, join(ordinary, "escape"));
+			await f.request(
+				`/api/projects/${f.projectId}`,
+				{ name: "Literal roots", folders: [ordinary, literal] },
+				"PUT",
+			);
+			const id = await f.ask();
+			const agent = await f.wait(id);
+			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
+			assert.equal(
+				await readFile(join(ordinary, "ordinary.txt"), "utf8"),
+				"ordinary",
+			);
+			assert.equal(
+				await readFile(join(literal, "literal.txt"), "utf8"),
+				"literal",
+			);
+			assert.equal(
+				await readFile(join(outside, "secret"), "utf8"),
+				"outside-secret",
+			);
+			await assert.rejects(readFile(join(outside, "new.txt")), {
+				code: "ENOENT",
+			});
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"native executor disconnect returns failure with saved partial output without replay",
+	async () => {
+		const executorPids = async () => {
+			const { stdout: processes } = await promisify(execFile)("ps", [
+				"-axo",
+				"pid=,ppid=,command=",
+			]);
+			return processes.split("\n").flatMap((line) => {
+				const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+				return match &&
+					Number(match[2]) === process.pid &&
+					match[3].includes("exec-server --listen stdio://")
+					? [Number(match[1])]
+					: [];
+			});
+		};
+		const beforePids = new Set(await executorPids());
+		let root = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			if (++requests === 1)
+				return done([
+					call("exec_command", {
+						command: "printf partial-before-disconnect; sleep 5",
+						cwd: root,
+						timeout_ms: 10000,
+					}),
+				]);
+			const result = JSON.parse(
+				JSON.parse(String(init?.body)).input.at(-1).output,
+			);
+			assert.match(result.error, /disconnected/i);
+			assert.equal(stdout(result.output.chunks), "partial-before-disconnect");
+			return done([answer]);
+		});
+		root = f.root;
+		try {
+			const id = await f.ask();
+			let toolId = 0,
+				ready = false;
+			for (let attempt = 0; attempt < 500; attempt++) {
+				const tool = (await f.request(`/api/agents/${id}/tools`)).toolCalls[0];
+				if (tool) {
+					toolId = tool.id;
+					const detail = (
+						await f.request(`/api/agents/${id}/tools?toolId=${toolId}`)
+					).toolCalls[0];
+					if (stdout(detail.output).includes("partial-before-disconnect")) {
+						ready = true;
+						break;
+					}
+				}
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			assert(ready, "native output persisted before disconnection");
+			const owned = (await executorPids()).filter(
+				(pid) => !beforePids.has(pid),
+			);
+			assert.equal(
+				owned.length,
+				1,
+				"identify only this fixture's native executor child",
+			);
+			process.kill(owned[0], "SIGKILL");
+			const agent = await f.wait(id);
+			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
+			const detail = (
+				await f.request(`/api/agents/${id}/tools?toolId=${toolId}`)
+			).toolCalls[0];
+			assert.equal(detail.status, "interrupted");
+			assert.match(JSON.parse(detail.result).error, /disconnected/i);
+			assert.equal(stdout(detail.output), "partial-before-disconnect");
+			assert.equal(requests, 2);
+			assert.equal(
+				(await f.request(`/api/agents/${id}/tools`)).toolCalls.length,
+				1,
+			);
+		} finally {
+			await f.close();
 		}
 	},
 );

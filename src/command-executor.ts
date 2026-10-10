@@ -14,6 +14,7 @@ type ExecutionResult = {
 	error?: string;
 	timedOut?: boolean;
 	cancelled?: boolean;
+	interrupted?: boolean;
 };
 type Execution = {
 	command: string;
@@ -367,13 +368,17 @@ export class CommandExecutor {
 			await completed;
 			return {
 				exitCode: proc.exitCode,
-				...(proc.error ? { error: proc.error } : {}),
+				...(proc.error ? { error: proc.error, interrupted: true } : {}),
 				...(cancelled ? { cancelled } : {}),
 				...(timedOut ? { timedOut } : {}),
 			};
 		} catch (error) {
 			if (this.failure) await this.disconnected;
-			return { exitCode: proc?.exitCode ?? null, error: String(error) };
+			return {
+				exitCode: proc?.exitCode ?? null,
+				error: String(error),
+				...(this.failure ? { interrupted: true } : {}),
+			};
 		} finally {
 			clearTimeout(timer);
 			if (abort) options.signal.removeEventListener("abort", abort);

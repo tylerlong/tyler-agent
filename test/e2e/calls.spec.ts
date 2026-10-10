@@ -117,6 +117,8 @@ test("communication is lazy, formatted and copied as displayed text, retained ac
 			{ type: "function", name: "edit_file" },
 			{ type: "function", name: "move_path" },
 			{ type: "function", name: "delete_path" },
+			{ type: "function", name: "exec_command" },
+			{ type: "function", name: "read_tool_output" },
 			{ type: "function", name: "create_sub_agent" },
 			{ type: "function", name: "cancel_sub_agent" },
 		],
