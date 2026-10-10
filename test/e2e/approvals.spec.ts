@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { completedBody } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
@@ -104,7 +104,9 @@ for (const decision of ["once", "always"] as const) {
 		const stored = (await (await request.get(`${app.url}/api/projects`)).json())
 			.projects[0].grants;
 		expect(stored.paths).toEqual(
-			decision === "always" ? [{ path: secret, access: "read" }] : [],
+			decision === "always"
+				? [{ path: await realpath(secret), access: "read" }]
+				: [],
 		);
 	});
 }
