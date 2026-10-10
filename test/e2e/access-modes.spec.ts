@@ -195,7 +195,34 @@ test("Settings Close waits for an access-default save and failed saves remain re
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).toBeVisible();
 	fail = false;
+	await page.unroute("**/api/access-defaults");
+	let retryEntered!: () => void, retryRelease!: () => void;
+	const retryStarted = new Promise<void>((resolve) => (retryEntered = resolve)),
+		retryGate = new Promise<void>((resolve) => (retryRelease = resolve));
+	await page.route("**/api/access-defaults", async (route) => {
+		if (route.request().method() === "PATCH") {
+			retryEntered();
+			await retryGate;
+		}
+		await route.continue();
+	});
 	await section.getByRole("button", { name: "Retry", exact: true }).click();
+	await retryStarted;
+	await expect(
+		section.getByLabel("File access", { exact: true }),
+	).toBeDisabled();
+	await expect(
+		section.getByLabel("Network access", { exact: true }),
+	).toBeDisabled();
+	await expect(
+		section.getByRole("button", { name: "Retry", exact: true }),
+	).toBeDisabled();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	retryRelease();
+	await expect(dialog).not.toBeVisible();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
 	await expect(section.getByRole("alert")).toHaveCount(0);
 	await expect(
 		section.getByLabel("Network access", { exact: true }),

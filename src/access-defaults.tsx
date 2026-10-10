@@ -115,7 +115,9 @@ export function AccessDefaults({
 					{t("accessDefaultsFailed")}{" "}
 					<button
 						type="button"
+						disabled={saving}
 						onClick={() => {
+							setSaving(true);
 							setLoading(true);
 							const retry = retryPatch.current
 								? state
@@ -123,13 +125,15 @@ export function AccessDefaults({
 										.then((result) => result === "saved")
 								: state.refresh();
 							reading.current = retry;
-							pending.current = retry.then((ok) => {
-								writeFailed.current = !ok;
-								if (ok) retryPatch.current = null;
-								setLoading(false);
-								setFailed(!ok);
-								return ok;
-							});
+							pending.current = retry
+								.then((ok) => {
+									writeFailed.current = !ok;
+									if (ok) retryPatch.current = null;
+									setLoading(false);
+									setFailed(!ok);
+									return ok;
+								})
+								.finally(() => setSaving(false));
 						}}
 					>
 						{t("retry")}
