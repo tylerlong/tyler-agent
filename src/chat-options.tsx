@@ -124,9 +124,20 @@ export function ChatOptionPicker({
 		values: { value: string | null; label: string }[],
 		selected: string | null,
 		select: (value: string | null) => void,
+		layout: "plain" | "scroll" | "inline" = "plain",
 	) {
 		return (
-			<div role="radiogroup" aria-label={label} className="shrink-0">
+			<div
+				role="radiogroup"
+				aria-label={label}
+				className={
+					layout === "scroll"
+						? "min-h-24 overflow-y-auto"
+						: layout === "inline"
+							? "flex shrink-0 gap-2"
+							: "shrink-0"
+				}
+			>
 				{values.map((item) => (
 					<label
 						key={item.value ?? "default"}
@@ -214,6 +225,7 @@ export function ChatOptionPicker({
 										models,
 									),
 								),
+							"scroll",
 						)}
 						{efforts.length > 0 && (
 							<>
@@ -248,6 +260,7 @@ export function ChatOptionPicker({
 									],
 									options[key],
 									(value) => change({ ...options, [key]: value }),
+									"inline",
 								)}
 							</div>
 						))}
