@@ -623,7 +623,9 @@ test(
 			const { agentId } = await request(`/api/chats/${chat.id}`, {
 				prompt: "Read",
 			});
-			let pending: { toolCallId: number; requestId: string } | undefined;
+			let pending:
+				| { toolCallId: number; requestId: string; projectId: number }
+				| undefined;
 			for (let attempt = 0; attempt < 1000; attempt++) {
 				pending = (await request("/api/approvals")).approvals[0];
 				if (pending) break;
