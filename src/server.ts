@@ -56,6 +56,7 @@ const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
 );
 const errorMessages: Record<string, string> = {
+	invalidAccessMode: "Choose restricted or full access",
 	agentCancelled: "Agent cancelled",
 	agentCancelFailed: "Could not stop Agent",
 	invalidCancellationTarget:

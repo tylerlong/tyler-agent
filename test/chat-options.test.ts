@@ -365,6 +365,10 @@ test("access defaults initialize only new Chats and independent saved choices su
 				.status,
 			400,
 		);
+		const invalid = await f.request("/api/access-defaults", "PATCH", {
+			fileAccess: "bad",
+		});
+		assert.match((await invalid.json()).error, /restricted or full/);
 		await f.restart();
 		assert.deepEqual(await f.json("/api/access-defaults"), {
 			fileAccess: "full",
