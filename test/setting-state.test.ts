@@ -83,3 +83,33 @@ test("a superseded confirmation read reports unknown when the newer refresh fail
 	assert.equal(await saving, "unknown");
 	assert.equal(displayed, null);
 });
+
+test("a superseded confirmation waits for the pending newer refresh before judging a save", async () => {
+	const reads: Array<(value: string) => void> = [];
+	let displayed: string | null = null;
+	const state = createSettingState(
+		() => new Promise<string>((resolve) => reads.push(resolve)),
+		async () => {},
+		(value) => {
+			displayed = value;
+		},
+	);
+	let settled = false;
+	const saving = state.save("en").then((result) => {
+		settled = true;
+		return result;
+	});
+	await new Promise((resolve) => setImmediate(resolve));
+	const newer = state.refresh();
+	reads[0]("en");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(
+		settled,
+		false,
+		"a pending newer read is not a failed confirmation",
+	);
+	reads[1]("zh-CN");
+	assert.equal(await newer, true);
+	assert.equal(await saving, "saved");
+	assert.equal(displayed, "zh-CN");
+});

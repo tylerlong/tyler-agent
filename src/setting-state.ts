@@ -4,21 +4,23 @@ export function createSettingState<T>(
 	apply: (value: T | null) => void,
 ) {
 	let latestRead = 0;
-	let latestReadSucceeded = false;
-	const refresh = async () => {
+	let latestRefresh: Promise<boolean> = Promise.resolve(false);
+	const refresh = () => {
 		const version = ++latestRead;
-		latestReadSucceeded = false;
-		try {
-			const value = await read();
-			if (version !== latestRead) return latestReadSucceeded;
-			latestReadSucceeded = true;
-			apply(value);
-			return true;
-		} catch {
-			if (version !== latestRead) return latestReadSucceeded;
-			apply(null);
-			return false;
-		}
+		const operation = (async () => {
+			try {
+				const value = await read();
+				if (version !== latestRead) return latestRefresh;
+				apply(value);
+				return true;
+			} catch {
+				if (version !== latestRead) return latestRefresh;
+				apply(null);
+				return false;
+			}
+		})();
+		latestRefresh = operation;
+		return operation;
 	};
 	return {
 		refresh,
