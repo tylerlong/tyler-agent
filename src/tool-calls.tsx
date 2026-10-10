@@ -102,6 +102,15 @@ export function ToolCallCard({
 				...(content.result !== null
 					? [{ text: prettyToolContent(content.result), body: true }]
 					: []),
+				...(content.output
+					? [
+							{ text: t("commandOutput"), body: false },
+							...content.output.map((chunk) => ({
+								text: `[${chunk.ordinal} ${chunk.stream}]\n${chunk.text}`,
+								body: true,
+							})),
+						]
+					: []),
 				...(call.reason ? [{ text: t(call.reason), body: false }] : []),
 			]
 		: [];
@@ -188,6 +197,16 @@ export function ToolCallCard({
 						</span>
 					)}
 				</summary>
+				{call.name === "exec_command" && (
+					<button
+						type="button"
+						className="mt-2 underline"
+						disabled={record.loading}
+						onClick={() => void load()}
+					>
+						{t("refresh")}
+					</button>
+				)}
 				{record.loading && <p role="status">{t("loading")}</p>}
 				{record.error && (
 					<p role="alert" className="text-red-700">

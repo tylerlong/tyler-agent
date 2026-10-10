@@ -1,3 +1,4 @@
+import { commandTools } from "./command-tools.ts";
 import {
 	executeTool,
 	fileTools,
@@ -95,6 +96,7 @@ export type ModelConfig = {
 	model: string;
 	reasoningEffort?: string | null;
 	targetFolders?: string[];
+	scratch?: string;
 	models?: { id: string; name: string; reasoningEfforts: string[] }[];
 };
 export type ToolRequest = { name: string; arguments: string; call_id: string };
@@ -270,8 +272,13 @@ async function requestOnce(
 	const body = JSON.stringify({
 		model,
 		input,
-		tools: [...fileTools, createSubAgentTool, cancelSubAgentTool],
-		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use file tools only within these folders. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
+		tools: [
+			...fileTools,
+			...commandTools,
+			createSubAgentTool,
+			cancelSubAgentTool,
+		],
+		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. Use file tools only within these folders. Your private command scratch directory: ${JSON.stringify(config?.scratch ?? null)}. Commands may use target folders and this scratch; network access is restricted. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.`,
 
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),

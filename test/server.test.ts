@@ -205,7 +205,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		server.emit("close");
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 15);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 16);
 		assert.deepEqual(
 			db
 				.prepare(
@@ -222,6 +222,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				"projects",
 				"settings",
 				"tool_calls",
+				"tool_output",
 			],
 		);
 		assert.equal(

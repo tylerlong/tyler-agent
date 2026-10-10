@@ -175,7 +175,11 @@ export function useReasoningReader(
 		retry: () => setRetry((value) => value + 1),
 	};
 }
-type ToolContent = ToolCall & { arguments: string; result: string | null };
+type ToolContent = ToolCall & {
+	arguments: string;
+	result: string | null;
+	output?: { ordinal: number; stream: string; text: string }[];
+};
 type ToolRecord = ReadState & { content?: ToolContent };
 const tools = new Map<number, ToolRecord>();
 export function useToolReader(call: ToolCall, choice: { open: boolean }) {

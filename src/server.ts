@@ -9,6 +9,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { agentScratch, CommandExecutor } from "./command-executor.ts";
+import { outputPage } from "./command-tools.ts";
 import { listProjects, openDatabase } from "./database.ts";
 import { executeTool, type ToolExecutor } from "./file-tools.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
@@ -179,6 +181,13 @@ export function createServer(
 		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
 		databasePath === undefined,
 	);
+	const commands = new CommandExecutor();
+	const savedOutput = (toolId: number) =>
+		database
+			.prepare(
+				"SELECT ordinal,stream,text,data,byte_count AS byteCount FROM tool_output WHERE tool_call_id=? ORDER BY ordinal",
+			)
+			.all(toolId) as { ordinal: number; stream: string; text: string }[];
 	const home = homedir();
 	const busy = new Set<number>();
 	const unsavedAgents = new Set<number>();
@@ -227,6 +236,10 @@ export function createServer(
 			.map((call) => ({
 				...call,
 				id: call.id,
+				...(content &&
+					call.name === "exec_command" && {
+						output: savedOutput(Number(call.id)),
+					}),
 				...(!content && { child: childOverview(Number(call.id)) }),
 				...(unsavedTools.has(Number(call.id)) && {
 					status: "interrupted",
@@ -635,6 +648,7 @@ export function createServer(
 		let failure: unknown;
 		let callId: number | undefined;
 		let savedToolIds: number[] = [];
+		let activeToolId = 0;
 		const secrets = [
 			...new Set([apiKey, JSON.stringify(apiKey).slice(1, -1)]),
 		].filter(Boolean);
@@ -648,6 +662,7 @@ export function createServer(
 				text,
 			);
 		try {
+			const scratch = agentScratch(String(agentId));
 			await requestModel(
 				agentSource(agentId).parentAgentId === null
 					? successfulMessages(id, agentId)
@@ -692,6 +707,7 @@ export function createServer(
 						notifyAgent(id, agentId);
 					},
 					toolStarted: (ordinal) => {
+						activeToolId = savedToolIds[ordinal - 1];
 						if (closed) throw new Error("Service closed");
 						try {
 							database
@@ -772,10 +788,107 @@ export function createServer(
 				() => {
 					const next = currentConfig(id, agentId);
 					rememberKey(next.apiKey);
-					return next;
+					return { ...next, scratch };
 				},
 				async (name, args, roots, signal) => {
 					signal?.throwIfAborted();
+					if (name === "exec_command" || name === "read_tool_output") {
+						try {
+							const value = JSON.parse(args);
+							if (!value || typeof value !== "object" || Array.isArray(value))
+								throw new InputError("invalidInput");
+							if (name === "read_tool_output") {
+								const offset = value.offset ?? 0;
+								const limit = value.limit ?? 16000;
+								if (
+									Object.keys(value).some(
+										(key) => !["tool_call_id", "offset", "limit"].includes(key),
+									) ||
+									!Number.isSafeInteger(value.tool_call_id) ||
+									value.tool_call_id <= 0 ||
+									!Number.isSafeInteger(offset) ||
+									offset < 0 ||
+									!Number.isSafeInteger(limit) ||
+									limit < 1 ||
+									limit > 16000
+								)
+									throw new InputError("invalidInput");
+								const owner = database
+									.prepare(
+										"SELECT model_calls.agent_id FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE tool_calls.id=? AND tool_calls.name='exec_command'",
+									)
+									.get(value.tool_call_id);
+								if (owner?.agent_id !== agentId)
+									throw new Error(
+										"Output is available only for this Agent's command calls",
+									);
+								return {
+									status: "succeeded",
+									result: JSON.stringify(
+										outputPage(savedOutput(value.tool_call_id), offset, limit),
+									),
+								};
+							}
+							if (
+								Object.keys(value).some(
+									(key) => !["command", "cwd", "timeout_ms"].includes(key),
+								) ||
+								typeof value.command !== "string" ||
+								!value.command.trim() ||
+								typeof value.cwd !== "string" ||
+								!value.cwd.startsWith("/") ||
+								!Number.isSafeInteger(value.timeout_ms) ||
+								value.timeout_ms < 1 ||
+								value.timeout_ms > 3600000
+							)
+								throw new InputError("invalidInput");
+							const toolId = activeToolId;
+							let ordinal = 0;
+							const result = await commands.execute({
+								command: value.command,
+								cwd: value.cwd,
+								targetFolders: currentFolders(id),
+								agentId: String(agentId),
+								timeoutMs: value.timeout_ms,
+								signal: state.controller.signal,
+								onOutput: (stream, text, data = "") => {
+									database
+										.prepare(
+											"INSERT INTO tool_output(tool_call_id,ordinal,stream,text,data,byte_count) VALUES(?,?,?,?,?,?)",
+										)
+										.run(
+											toolId,
+											++ordinal,
+											stream,
+											text,
+											data,
+											Buffer.from(data, "base64").length,
+										);
+								},
+							});
+							return {
+								status:
+									result.exitCode === 0 &&
+									!result.error &&
+									!result.cancelled &&
+									!result.timedOut
+										? "succeeded"
+										: "failed",
+								result: JSON.stringify({
+									tool_call_id: toolId,
+									...result,
+									output: outputPage(savedOutput(toolId)),
+								}),
+							};
+						} catch (error) {
+							return {
+								status: "failed",
+								result: JSON.stringify({
+									error: error instanceof Error ? error.message : String(error),
+								}),
+							};
+						}
+					}
 					if (name === "cancel_sub_agent") {
 						try {
 							const value = JSON.parse(args);
@@ -1862,7 +1975,17 @@ export function createServer(
 		json(response, 404, errorBody("notFound"));
 	}).on("close", () => {
 		closed = true;
-		database.close();
+		for (const state of running.values())
+			state.controller.abort(
+				new ModelError("agentCancelled", "Service closed"),
+			);
+		void Promise.all([...running.values()].map((state) => state.done)).finally(
+			async () => {
+				await commands.close();
+				closed = true;
+				database.close();
+			},
+		);
 	});
 }
 if (import.meta.main) {
