@@ -698,6 +698,7 @@ function App() {
 	const [error, setError] = useState<ApiError | null>(null);
 	const settingsDialog = useRef<HTMLDialogElement>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const accessDefaultsCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const executionCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const modelsCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const closingSettings = useRef(false);
@@ -1076,12 +1077,14 @@ function App() {
 		closingSettings.current = true;
 		setSettingsClosing(true);
 		try {
-			const [languageOK, enterOK, executionOK, modelsOK] = await Promise.all([
-				commitLanguage(),
-				commitEnter(),
-				executionCommit.current?.() ?? false,
-				modelsCommit.current?.() ?? false,
-			]);
+			const [languageOK, enterOK, executionOK, modelsOK, accessOK] =
+				await Promise.all([
+					commitLanguage(),
+					commitEnter(),
+					executionCommit.current?.() ?? false,
+					modelsCommit.current?.() ?? false,
+					accessDefaultsCommit.current?.() ?? false,
+				]);
 			if (!languageOK || !enterOK) {
 				setSettingsTab("general");
 				return;
@@ -1090,7 +1093,7 @@ function App() {
 				setSettingsTab("models");
 				return;
 			}
-			if (!executionOK) {
+			if (!executionOK || !accessOK) {
 				setSettingsTab("execution");
 				return;
 			}
@@ -1912,7 +1915,10 @@ function App() {
 					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
 				>
 					<fieldset disabled={settingsClosing} className="min-w-0">
-						<AccessDefaults open={settingsOpen} />
+						<AccessDefaults
+							open={settingsOpen}
+							commitRef={accessDefaultsCommit}
+						/>
 						<ExecutionLimits open={settingsOpen} commitRef={executionCommit} />
 					</fieldset>
 				</div>

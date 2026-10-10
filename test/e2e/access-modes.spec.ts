@@ -106,3 +106,100 @@ test("Settings defaults synchronize and initialize only new Chats, with localize
 		"restricted",
 	);
 });
+
+test("access-default errors clear after successful Retry and initial loading is not an error", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	let failed = true;
+	await page.route("**/api/access-defaults", async (route) => {
+		if (failed)
+			await route.fulfill({
+				status: 500,
+				contentType: "application/json",
+				body: '{"error":"failed"}',
+			});
+		else await route.continue();
+	});
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
+	const section = page.locator("section", {
+		has: page.getByRole("heading", { name: "New Chat access defaults" }),
+	});
+	await expect(section.getByRole("alert")).toContainText(
+		"Unable to read or save access defaults",
+	);
+	failed = false;
+	await section.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(section.getByRole("alert")).toHaveCount(0);
+	await expect(
+		section.getByLabel("File access", { exact: true }),
+	).toBeEnabled();
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => (release = resolve));
+	await page.route("**/api/access-defaults", async (route) => {
+		await gate;
+		await route.continue();
+	});
+	await page.getByRole("button", { name: "Close", exact: true }).click();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
+	try {
+		await expect(section.getByRole("alert")).toHaveCount(0);
+	} finally {
+		release();
+	}
+});
+
+test("Settings Close waits for an access-default save and failed saves remain retryable", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	const section = dialog.locator("section", {
+		has: page.getByRole("heading", { name: "New Chat access defaults" }),
+	});
+	let entered!: () => void, release!: () => void;
+	const started = new Promise<void>((resolve) => (entered = resolve)),
+		gate = new Promise<void>((resolve) => (release = resolve));
+	await page.route("**/api/access-defaults", async (route) => {
+		if (route.request().method() === "PATCH") {
+			entered();
+			await gate;
+		}
+		await route.continue();
+	});
+	await section.getByLabel("File access", { exact: true }).selectOption("full");
+	await started;
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	release();
+	await expect(dialog).not.toBeVisible();
+	await page.unroute("**/api/access-defaults");
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
+	let fail = true;
+	await page.route("**/api/access-defaults", async (route) => {
+		if (fail && route.request().method() === "PATCH")
+			await route.fulfill({ status: 500, body: "{}" });
+		else await route.continue();
+	});
+	await section
+		.getByLabel("Network access", { exact: true })
+		.selectOption("full");
+	await expect(section.getByRole("alert")).toBeVisible();
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	fail = false;
+	await section.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(section.getByRole("alert")).toHaveCount(0);
+	await expect(
+		section.getByLabel("Network access", { exact: true }),
+	).toHaveValue("full");
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).not.toBeVisible();
+});

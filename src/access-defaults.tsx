@@ -1,15 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { managementHeaders } from "./api.ts";
 import type { ChatOptions } from "./chat-options.tsx";
 import { createSettingState } from "./setting-state.ts";
 
 type Defaults = Partial<Pick<ChatOptions, "fileAccess" | "networkAccess">>;
-export function AccessDefaults({ open }: { open: boolean }) {
+export function AccessDefaults({
+	open,
+	commitRef,
+}: {
+	open: boolean;
+	commitRef: RefObject<(() => Promise<boolean>) | null>;
+}) {
 	const { t } = useTranslation();
 	const [value, setValue] = useState<Defaults | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [failed, setFailed] = useState(false);
+	const [loading, setLoading] = useState(true);
+	const pending = useRef<Promise<boolean>>(Promise.resolve(true));
+	const reading = useRef<Promise<boolean>>(Promise.resolve(true));
+	const retryPatch = useRef<Defaults | null>(null);
+	const writeFailed = useRef(false);
 	const state = useMemo(
 		() =>
 			createSettingState<Defaults>(
@@ -36,12 +47,25 @@ export function AccessDefaults({ open }: { open: boolean }) {
 	useEffect(() => {
 		if (!open) return;
 		const refresh = () => {
-			void state.refresh();
+			reading.current = state.refresh().then((ok) => {
+				setLoading(false);
+				setFailed(!ok || writeFailed.current);
+				return ok;
+			});
 		};
 		refresh();
 		window.addEventListener("settings-changed", refresh);
 		return () => window.removeEventListener("settings-changed", refresh);
 	}, [open, state]);
+	useEffect(() => {
+		commitRef.current = async () => {
+			const saved = await pending.current;
+			return (await reading.current) && saved;
+		};
+		return () => {
+			commitRef.current = null;
+		};
+	}, [commitRef]);
 	return (
 		<section className="mb-6" aria-labelledby="access-defaults-title">
 			<h3 id="access-defaults-title" className="font-semibold">
@@ -62,7 +86,18 @@ export function AccessDefaults({ open }: { open: boolean }) {
 							setFailed(false);
 							// Only the changed field is sent, preserving choices saved on another page.
 							try {
-								setFailed((await state.save({ [key]: chosen })) !== "saved");
+								retryPatch.current = { [key]: chosen };
+								const operation = state
+									.save(retryPatch.current)
+									.then((result) => {
+										const ok = result === "saved";
+										if (ok) retryPatch.current = null;
+										writeFailed.current = !ok;
+										setFailed(!ok);
+										return ok;
+									});
+								pending.current = operation;
+								await operation;
 							} catch {
 								setFailed(true);
 							} finally {
@@ -75,10 +110,28 @@ export function AccessDefaults({ open }: { open: boolean }) {
 					</select>
 				</label>
 			))}
-			{(failed || !value) && (
+			{(failed || (!loading && !value)) && (
 				<div role="alert">
 					{t("accessDefaultsFailed")}{" "}
-					<button type="button" onClick={() => void state.refresh()}>
+					<button
+						type="button"
+						onClick={() => {
+							setLoading(true);
+							const retry = retryPatch.current
+								? state
+										.save(retryPatch.current)
+										.then((result) => result === "saved")
+								: state.refresh();
+							reading.current = retry;
+							pending.current = retry.then((ok) => {
+								writeFailed.current = !ok;
+								if (ok) retryPatch.current = null;
+								setLoading(false);
+								setFailed(!ok);
+								return ok;
+							});
+						}}
+					>
 						{t("retry")}
 					</button>
 				</div>

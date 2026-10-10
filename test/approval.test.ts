@@ -143,6 +143,21 @@ test("management writes reject native forged Origin and cannot bootstrap a token
 			});
 			assert.equal(res.status, 403);
 		}
+		for (const [route, method] of [
+			[`/api/chats/${f.chat.id}`, "PUT"],
+			["/api/access-defaults", "PATCH"],
+		]) {
+			assert.equal(
+				(
+					await fetch(f.base + route, {
+						method,
+						headers: { Origin: f.base },
+						body: JSON.stringify({ fileAccess: "full", networkAccess: "full" }),
+					})
+				).status,
+				403,
+			);
+		}
 		for (const route of [
 			"/api/management-token",
 			"/api/bootstrap",
