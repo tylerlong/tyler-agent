@@ -11,7 +11,7 @@ pnpm install
 pnpm start
 ```
 
-`pnpm start` 先构建页面再启动服务，打开 `http://127.0.0.1:3000`。后端代码变化时自动重启；前端变化后重新运行以构建页面。可用启动参数改变端口：
+`pnpm start` 先构建页面再启动服务，打开终端打印的管理 URL（`http://127.0.0.1:3000/#management=...`）。后端代码变化时自动重启；前端变化后重新运行以构建页面。可用启动参数改变端口：
 
 ```sh
 pnpm start --port 3001
@@ -19,7 +19,9 @@ pnpm start --port 3001
 
 端口须为 1–65535 的整数，默认 3000。启动前通过 `lsof` 检查所选端口；如果被占用，先终止监听进程及其 Node watcher，再启动服务。需要系统提供 `lsof` 和 `ps`；停止服务使用终端 Ctrl+C。启动和前端构建不加载 `.env` 文件，应用配置不从环境变量读取。
 
-本机请求保护：服务继续只监听本机回环地址；统一 HTTP 入口只接受`127.0.0.1`、`localhost` 或 `[::1]` 的规范 Host 和实际监听端口，所有修改操作（包括启动／取消 Agent 和修改设置）的 Origin 必须与请求目标的协议、主机和端口完全一致；来源不同、缺失或为 null 时，在产生副作用之前拒绝请求。继续不开放跨来源 CORS，不新增自定义防伪请求头、token 或依赖；测试／脚本调用修改接口时显式提供同源 Origin。不信任转发 Host；无效 Host 或 Origin 返回 HTTP 403。程序调用示例：`fetch(base + "/api/language", { method: "PUT", headers: { Origin: new URL(base).origin }, body: JSON.stringify({ language: "en" }) })`，其中 base 包含实际端口。浏览器禁止跨来源读取响应不代表请求未执行。
+本机请求保护：服务只监听本机回环地址；统一 HTTP 入口只接受 `127.0.0.1`、`localhost` 或 `[::1]` 的规范 Host 和实际监听端口，所有 API 修改操作的 Origin 必须与请求目标完全一致。修改操作还须提供 `x-tyler-management-token`：每次启动在服务内存中生成随机凭据，仅通过终端打印的 URL fragment 交给用户。浏览器读取后移除 fragment，并在当前标签的 sessionStorage 保存；重启服务后须重新打开新打印的管理 URL。没有公开的 HTTP 凭据引导接口，不开放跨来源 CORS，也不把该凭据放入命令环境、模型请求或数据库。脚本调用需从启动终端取得凭据，不能只伪造 Host／Origin 自行批准。请将管理 URL 当作凭据保存，不分享或授权工具读取浏览器／应用数据；此边界不承诺防御已获文件完全访问的恶意同账号进程。
+
+User management writes require the per-service credential from the URL printed at startup, plus matching Host/Origin. The fragment is removed after the browser stores it for the current tab. A plain localhost URL supports viewing; reopen the printed management URL to make changes, including after service restart. No HTTP route returns the credential.
 
 默认数据库为项目根目录的 `data/tyler-agent.sqlite`，默认目录自动创建。可指定数据库：
 
@@ -27,7 +29,7 @@ pnpm start --port 3001
 pnpm start --db /path/to/chat.sqlite
 ```
 
-相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v16 空数据库结构，不读取或迁移旧数据库。升级时请使用明确指定的新数据库路径；删除或重建实际开发库需要单独授权，应用启动不会自动清库。测试始终使用隔离临时数据库。
+相对路径按启动工作目录解析；自定义路径的父目录须已存在、可写且仅当前用户可访问（例如权限 `0700`）；服务不会修改自定义父目录权限，不符合要求则在打开数据库前报错。新数据库自动创建当前 schema 和默认设置，不创建项目或对话。数据库无法打开、不支持/未知/损坏 schema 或初始化失败时服务报错退出，绝不自动删除或重置；本版本使用新的 v17 空数据库结构，不读取或迁移旧数据库。升级时请使用明确指定的新数据库路径；删除或重建实际开发库需要单独授权，应用启动不会自动清库。测试始终使用隔离临时数据库。
 
 ## 项目与对话
 
@@ -192,13 +194,15 @@ Instructions include the actual independent scratch path; command temporary/cach
 
 Each native read handle belongs to one Tool Call and is closed after success or failure. On cancellation, reading stops requesting more blocks, settles in-flight work and closes its handle before the Agent releases busy. Command/patch timeout starts at actual process startup; cancellation stops ordinary managed processes while sibling Agents continue independently. Best efforts does not promise rollback or recovery of deliberately detached processes.
 
-All received stdout/stderr chunks and their order are saved separately, including trailing output and failed/cancelled command or patch work. The archive retains each raw base64 chunk and byte count alongside decoded text; native disconnect marks unfinished work interrupted without reconnecting or replaying. Expand a Tool Call card to inspect saved logs, including child Agent calls, and manually refresh while running. Reading logs does not call a model or rerun the tool. Scratch is not cleaned by the application and is not durable storage. Use an explicitly chosen fresh v16 database; old databases are rejected without migration or deletion.
+All received stdout/stderr chunks and their order are saved separately, including trailing output and failed/cancelled command or patch work. The archive retains each raw base64 chunk and byte count alongside decoded text; native disconnect marks unfinished work interrupted without reconnecting or replaying. Expand a Tool Call card to inspect saved logs, including child Agent calls, and manually refresh while running. Reading logs does not call a model or rerun the tool. Scratch is not cleaned by the application and is not durable storage. Use an explicitly chosen fresh v17 database; old databases are rejected without migration or deletion.
 
-Extra-permission approvals, Project grants and configurable file/network modes remain planned in later children of #145 and are not available in this slice. Real-backend HTTP tests use isolated folders/databases and controlled model responses to read a fixture, patch it, validate it with a command and verify the actual following model request. Restricted-policy tests run on macOS; Linux CI explicitly skips those platform-specific checks while ordinary backend/browser checks still run. No paid models or actual development database resets are used.
+`exec_command`, `read_file` and `apply_patch` optionally accept `extra_permissions` plus a nonempty `reason`. Scopes are `paths: [{path, access: "read" | "write"}]` (absolute existing files/directories), `domains: ["example.com"]` (literal hostnames, no ports/wildcards), and `localNetwork: true`. Uncovered scopes wait before execution. The Tool Call and the sidebar pending count show Project/Chat/Agent, immutable operation/arguments/cwd, reason and unmet permissions; new requests never switch your page. Deny returns a truthful failure result; Allow once authorizes only that original Tool Call. Browser closure does not expire a waiting request while the service remains alive. Cancellation or restart interrupts it; duplicate, altered, stale and cancelled decisions cannot replay work. Command timeout begins after actual startup. Permission edits recheck pending work, showing only unmet needs or executing a fully covered original call once; one-time approvals never cover another call.
+
+Approved domains use upstream managed network policy. Default local/private protection and listener prohibition remain; upstream permits an explicitly approved literal localhost/IP host without granting listener capability; explicit `localNetwork` enables native local binding and direct loopback, and relaxes the proxy private-address check. This capability has no per-port isolation. An approved directory write includes metadata paths; a read approval does not permit writes. Tool denial never triggers an automatic approval, escalation, replay or model request. Project persistent grants and configurable file/network modes remain later children of #145. Real-backend HTTP tests use isolated folders/databases and controlled model responses to read a fixture, patch it, validate it with a command and verify the actual following model request. Restricted-policy tests run on macOS; Linux CI explicitly skips those platform-specific checks while ordinary backend/browser checks still run. No paid models or actual development database resets are used.
 
 本地执行工具统一为 `exec_command`、`read_file`、`apply_patch` 和 `read_tool_output`，子 Agent 工具保持原有接口。搜索、列目录、复制、移动及删除使用命令；创建与文本修改使用 Codex 内置 patch。旧七工具不再发送给模型，已保存的历史调用仍可查看。读取使用字节 offset（默认 0）和最多 51,200 字节的 limit，不保留旧行／列分页、全文件 UTF-8 扫描、唯一替换、锁或碰撞契约。patch 的 cwd 为允许的绝对目录，timeout_ms 默认 30,000，按实际启动起算；修改失败或取消不承诺回滚。
 
-读取、patch 和命令共同使用最新字面目标文件夹、所属 Agent 独立临时目录及必要只读工具链范围，默认禁止范围外用户文件和网络，符号链接按实际目标权限处理；已有跨范围硬链接保留已知限制。读取句柄仅属于本次调用，成功／失败均关闭；取消时停止取新块、结清在途请求再关闭。零目标文件夹仍可使用所属 Agent 的临时目录，访问项目文件需通过“编辑项目 → 添加文件夹”授权。stdout／stderr 完整持久保存，模型只接收有限片段并可续读自己的输出；用户可在工具卡片查看与手动刷新。审批、项目授权和访问模式留待后续子票。此版本使用 v16 新数据库，不迁移或删除已有数据。
+读取、patch 和命令共同使用最新字面目标文件夹、所属 Agent 独立临时目录及必要只读工具链范围，默认禁止范围外用户文件和网络，符号链接按实际目标权限处理；已有跨范围硬链接保留已知限制。读取句柄仅属于本次调用，成功／失败均关闭；取消时停止取新块、结清在途请求再关闭。零目标文件夹仍可使用所属 Agent 的临时目录，访问项目文件需通过“编辑项目 → 添加文件夹”授权。stdout／stderr 完整持久保存，模型只接收有限片段并可续读自己的输出；用户可在工具卡片查看与手动刷新。审批已支持拒绝／仅本次批准：三个执行工具可携带明确的额外路径读写、域名或本机网络需求及理由，等待不消耗命令预算，关闭浏览器不取消申请。侧栏统一入口与工具卡片显示任务归属和原始操作，不自动跳转；取消、重复或过期决策不能恢复／重放。项目持久授权和访问模式留待后续子票。此版本使用 v17 新数据库，不迁移或删除已有数据。
 
 只有完整有效的 completed 响应才触发工具，先组装参数，再按输出顺序执行；工具-only 或混合文本响应都可继续。后续请求携带完整 output items（含推理元数据）与对应 `call_id` 的 `function_call_output`，模型可修正工具错误并重新调用。每 Agent 默认最多 16 次实际模型请求，初次、失败及子任务终态通知触发的调用均计入。最后允许的调用可用最终回答成功；若仍请求工具则保存为未执行，不发起超限请求。远程请求、协议或持久化失败立即停止，不自动重试付费调用。
 

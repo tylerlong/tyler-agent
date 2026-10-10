@@ -1,3 +1,4 @@
+import { permissionParameters } from "./execution-permissions.ts";
 export const commandTools = [
 	{
 		type: "function",
@@ -7,6 +8,7 @@ export const commandTools = [
 		parameters: {
 			type: "object",
 			properties: {
+				...permissionParameters,
 				command: { type: "string" },
 				cwd: { type: "string", description: "Absolute working directory" },
 				timeout_ms: { type: "integer", minimum: 1, maximum: 3600000 },

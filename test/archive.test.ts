@@ -219,6 +219,7 @@ test("accepted saves finish after archive while subsequent saves are refused", a
 				headers: {
 					"content-type": "application/json",
 					expect: "100-continue",
+					"x-tyler-management-token": server.managementToken,
 					Origin: base,
 				},
 			});

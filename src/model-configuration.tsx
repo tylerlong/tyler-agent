@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { managementHeaders } from "./api.ts";
 import type { ManagedModel, ModelSettings } from "./model-settings.ts";
 
 const input =
@@ -115,10 +116,13 @@ export function ModelConfiguration({
 	async function request(path: string, method: string, body?: unknown) {
 		const response = await fetch(path, {
 			method,
+			headers: {
+				...(body === undefined ? {} : { "content-type": "application/json" }),
+				...(method !== "GET" ? managementHeaders() : {}),
+			},
 			...(body === undefined
 				? {}
 				: {
-						headers: { "content-type": "application/json" },
 						body: JSON.stringify(body),
 					}),
 		});
@@ -356,7 +360,10 @@ export function ModelConfiguration({
 		let current = true;
 		setCatalogLoading(true);
 		setCatalogError(false);
-		void fetch("/api/model-catalog", { method: "POST" })
+		void fetch("/api/model-catalog", {
+			method: "POST",
+			headers: managementHeaders(),
+		})
 			.then(async (response) => {
 				if (!response.ok) throw new Error("catalogReadFailed");
 				const data = await response.json();

@@ -1,3 +1,4 @@
+import { permissionParameters } from "./execution-permissions.ts";
 export const fileTools = [
 	{
 		type: "function",
@@ -7,6 +8,7 @@ export const fileTools = [
 		parameters: {
 			type: "object",
 			properties: {
+				...permissionParameters,
 				path: { type: "string", description: "Absolute file path" },
 				offset: { type: "integer", minimum: 0 },
 				limit: { type: "integer", minimum: 1, maximum: 51200 },
@@ -23,6 +25,7 @@ export const fileTools = [
 		parameters: {
 			type: "object",
 			properties: {
+				...permissionParameters,
 				patch: { type: "string" },
 				cwd: { type: "string", description: "Absolute working directory" },
 				timeout_ms: { type: "integer", minimum: 1, maximum: 3600000 },

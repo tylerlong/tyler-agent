@@ -1,12 +1,14 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
+
+import type { ExecutionPermissions } from "./execution-permissions.ts";
 
 export class ExecutionInterruptedError extends Error {}
 
@@ -23,6 +25,7 @@ type Execution = {
 	patch?: string;
 	cwd: string;
 	targetFolders: string[];
+	extraPermissions?: ExecutionPermissions;
 	agentId: string;
 	timeoutMs: number;
 	signal: AbortSignal;
@@ -228,7 +231,10 @@ export class CommandExecutor {
 	}
 
 	private async scope(
-		options: Pick<Execution, "cwd" | "targetFolders" | "agentId">,
+		options: Pick<
+			Execution,
+			"cwd" | "targetFolders" | "agentId" | "extraPermissions"
+		>,
 	) {
 		const scratch = await agentScratch(options.agentId);
 		const targets = await Promise.all(
@@ -238,9 +244,31 @@ export class CommandExecutor {
 				return realpath(path);
 			}),
 		);
+		const extraPaths = await Promise.all(
+			(options.extraPermissions?.paths ?? []).map(async (scope) => ({
+				...scope,
+				path: await realpath(scope.path),
+			})),
+		);
+		const writes = [
+			...targets,
+			scratch,
+			...extraPaths
+				.filter((scope) => scope.access === "write")
+				.map((scope) => scope.path),
+		];
+		const writeDirectories = new Set(
+			(
+				await Promise.all(
+					writes.map(async (path) =>
+						(await stat(path)).isDirectory() ? path : null,
+					),
+				)
+			).filter((path) => path !== null),
+		);
 		const cwd = await realpath(options.cwd);
 		if (
-			![...targets, scratch].some((root) => {
+			![...writes, ...extraPaths.map((scope) => scope.path)].some((root) => {
 				const within = relative(root, cwd);
 				return (
 					within === "" ||
@@ -266,11 +294,15 @@ export class CommandExecutor {
 						entry("/private/tmp", "deny"),
 						entry("/private/var/tmp", "deny"),
 						...this.toolPaths.map((path) => entry(path, "read")),
-						...[...targets, scratch].flatMap((path) => [
+						...extraPaths
+							.filter((scope) => scope.access === "read")
+							.map((scope) => entry(scope.path, "read")),
+						...writes.flatMap((path) => [
 							entry(path, "write"),
-							...[".git", ".agents", ".codex", ".aws"].map((name) =>
-								entry(join(path, name), "write"),
-							),
+							...(writeDirectories.has(path)
+								? [".git", ".agents", ".codex", ".aws"]
+								: []
+							).map((name) => entry(join(path, name), "write")),
 						]),
 					],
 				},
@@ -284,7 +316,10 @@ export class CommandExecutor {
 	}
 
 	async read(
-		options: Pick<Execution, "targetFolders" | "agentId" | "signal"> & {
+		options: Pick<
+			Execution,
+			"targetFolders" | "agentId" | "signal" | "extraPermissions"
+		> & {
 			path: string;
 			offset: number;
 			limit: number;
@@ -419,6 +454,31 @@ export class CommandExecutor {
 				pipeStdin: false,
 				arg0: null,
 				sandbox,
+				...(options.extraPermissions?.domains.length ||
+				options.extraPermissions?.localNetwork
+					? {
+							enforceManagedNetwork: true,
+							networkProxy: {
+								proxy: {
+									enabled: true,
+									enableSocks5: false,
+									enableSocks5Udp: false,
+									allowUpstreamProxy: false,
+									dangerouslyAllowAllUnixSockets: false,
+									mode: "full",
+									domains: Object.fromEntries(
+										(options.extraPermissions?.domains ?? []).map((domain) => [
+											domain,
+											"allow",
+										]),
+									),
+									unixSockets: {},
+									allowLocalBinding:
+										options.extraPermissions?.localNetwork === true,
+								},
+							},
+						}
+					: {}),
 			});
 			const stop = async () => {
 				if (proc?.closed) return;

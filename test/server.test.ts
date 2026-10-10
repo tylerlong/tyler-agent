@@ -14,8 +14,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
+import { createServer } from "./server-fixture.ts";
 
 // CLI startup releases its selected port, so never use the user's default.
 async function freeCliPort() {
@@ -205,7 +205,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		server.emit("close");
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 16);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 17);
 		assert.deepEqual(
 			db
 				.prepare(

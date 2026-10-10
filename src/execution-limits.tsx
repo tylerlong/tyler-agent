@@ -6,6 +6,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { managementHeaders } from "./api.ts";
 
 const keys = ["modelCallLimit", "subAgentLimit"] as const;
 type Key = (typeof keys)[number];
@@ -80,7 +81,10 @@ export function ExecutionLimits({
 				try {
 					const response = await fetch("/api/execution-limits", {
 						method: "PATCH",
-						headers: { "content-type": "application/json" },
+						headers: {
+							"content-type": "application/json",
+							...managementHeaders(),
+						},
 						body: JSON.stringify({ [key]: value }),
 					});
 					if (!response.ok) throw new Error();

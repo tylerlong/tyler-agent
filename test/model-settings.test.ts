@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { openDatabase } from "../src/database.ts";
-import { createServer } from "../src/server.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
 import { completedResponse } from "./model-fixture.ts";
+import { createServer } from "./server-fixture.ts";
 
 const catalogModel = (id: string, name = id, reasoning?: unknown) => ({
 	id,
@@ -354,7 +354,7 @@ test("fresh database has empty model settings with no environment fallback", asy
 		db.exec(
 			"INSERT INTO projects(id,name,created_at) VALUES(1,'Project',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1)",
 		);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 16);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 17);
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
 			{

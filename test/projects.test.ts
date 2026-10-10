@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createServer } from "../src/server.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
+import { createServer } from "./server-fixture.ts";
 
 test("projects and empty chats survive restart without default records", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-projects-"));

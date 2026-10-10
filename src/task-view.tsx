@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
+import { managementHeaders } from "./api.ts";
 
 export const urlAgent = () => {
 	const value = new URL(location.href).searchParams.get("agent");
@@ -202,6 +203,7 @@ export function TaskView({
 		try {
 			const response = await fetch(`/api/agents/${id}/cancel`, {
 				method: "POST",
+				headers: managementHeaders(),
 			});
 			if (!response.ok) throw new Error();
 		} catch {

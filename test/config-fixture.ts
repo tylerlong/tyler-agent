@@ -1,6 +1,6 @@
 import { openDatabase } from "../src/database.ts";
 import type { ToolExecutor } from "../src/file-tools.ts";
-import { createServer } from "../src/server.ts";
+import { createServer } from "./server-fixture.ts";
 
 export function configureDatabase(
 	path: string,

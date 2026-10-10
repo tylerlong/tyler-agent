@@ -816,7 +816,11 @@ test("restart preserves nested partial records and interrupts the tree without r
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, false);
 		assert.equal(requests, before);
 	} finally {
-		leafStream?.close();
+		try {
+			leafStream?.close();
+		} catch {
+			/* Shutdown may already cancel the held stream. */
+		}
 		await f.close();
 	}
 });

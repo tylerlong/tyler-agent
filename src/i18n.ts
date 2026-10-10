@@ -3,6 +3,34 @@ import { initReactI18next } from "react-i18next";
 export const resources = {
 	en: {
 		translation: {
+			approvalStatus_denied: "Approval denied",
+			approvalStatus_once: "Approved once",
+			approvalStatus_covered: "Permissions already covered",
+			approvalStatus_interrupted: "Approval interrupted",
+			approvalRequired: "Waiting for approval",
+			approvalWaiting: "Waiting for approval",
+			approvalEntry: "Pending approvals ({{count}})",
+			approvalOwner: "Project: {{project}} · Chat: {{chat}} · Agent #{{agent}}",
+			approvalReason: "Reason",
+			approvalCwd: "Working directory",
+			approvalPermissions: "Unmet permissions",
+			approvalAccess_read: "Read path",
+			approvalAccess_write: "Write path",
+			approvalDomain: "Domain",
+			approvalLocalNetwork:
+				"Local network: native binding/loopback access and relaxed private-address checks",
+			approvalOnceHelp:
+				"Allow once applies only to this exact operation and its requested permissions. Waiting continues until a decision or cancellation.",
+			approvalDeny: "Deny",
+			approvalOnce: "Allow once",
+			approvalSettled: "Decision saved",
+			approvalEmpty: "No pending approvals.",
+			managementAuthorizationRequired:
+				"Management authorization is required. Reopen the startup URL printed by the server.",
+			approvalStale:
+				"This approval is no longer pending. Refresh to see current requests.",
+			approvalInvalid: "This approval request is invalid.",
+
 			searchCommunication: "Search communication",
 			responsePartial:
 				"Partial content; a complete response has not been accepted.",
@@ -270,6 +298,32 @@ export const resources = {
 	},
 	"zh-CN": {
 		translation: {
+			approvalStatus_denied: "已拒绝批准",
+			approvalStatus_once: "已批准一次",
+			approvalStatus_covered: "权限已覆盖",
+			approvalStatus_interrupted: "批准已中断",
+			approvalRequired: "等待批准",
+			approvalWaiting: "等待批准",
+			approvalEntry: "待批准请求（{{count}}）",
+			approvalOwner: "项目：{{project}} · 聊天：{{chat}} · Agent #{{agent}}",
+			approvalReason: "原因",
+			approvalCwd: "工作目录",
+			approvalPermissions: "尚未授予的权限",
+			approvalAccess_read: "读取路径",
+			approvalAccess_write: "写入路径",
+			approvalDomain: "域名",
+			approvalLocalNetwork: "本地网络：原生绑定/回环访问，并放宽私有地址检查",
+			approvalOnceHelp:
+				"仅批准本次操作及其请求的权限。请求将一直等待，直到批准、拒绝或取消。",
+			approvalDeny: "拒绝",
+			approvalOnce: "仅批准一次",
+			approvalSettled: "已保存决定",
+			approvalEmpty: "没有待批准请求。",
+			managementAuthorizationRequired:
+				"需要管理授权。请重新打开服务器打印的启动链接。",
+			approvalStale: "此请求已不再等待批准。请刷新以查看当前请求。",
+			approvalInvalid: "批准请求无效。",
+
 			searchCommunication: "搜索通信内容",
 			responsePartial: "部分内容；尚未收到已接受的完整响应。",
 			taskReadFailed: "读取任务详情失败，请重试。",

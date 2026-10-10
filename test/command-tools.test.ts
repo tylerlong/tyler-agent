@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
-import { localFetch as fetch } from "./local-fetch.ts";
+import { localFetch as fetch, managementTokens } from "./local-fetch.ts";
 import { completedBody } from "./model-fixture.ts";
 
 const commandTest = (name: string, run: () => Promise<void>) =>
@@ -681,7 +681,7 @@ commandTest(
  id:'command',call_id:'command',type:'function_call',name:'exec_command',
  arguments:JSON.stringify({command:'printf before-restart; sleep 30; printf replayed > replayed',cwd:${JSON.stringify(root)},timeout_ms:30000})
  }]})), ${JSON.stringify(database)}).listen(0,'127.0.0.1');
- server.once('listening',()=>console.log(server.address().port));
+ server.once('listening',()=>console.log(JSON.stringify({port:server.address().port,token:server.managementToken})));
  `,
 			],
 			{ stdio: ["ignore", "pipe", "pipe"] },
@@ -703,7 +703,12 @@ commandTest(
 					output += String(chunk);
 					if (output.includes("\n")) {
 						clearTimeout(timer);
-						resolve(Number(output.trim()));
+						const startup = JSON.parse(output.trim());
+						managementTokens.set(
+							`http://127.0.0.1:${startup.port}`,
+							startup.token,
+						);
+						resolve(startup.port);
 					}
 				});
 				child.once("error", (error) => {

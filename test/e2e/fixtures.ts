@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { type APIRequestContext, test as base, expect } from "@playwright/test";
 import { openDatabase } from "../../src/database.ts";
 import { executeTool, type ToolExecution } from "../../src/file-tools.ts";
-import { createServer } from "../../src/server.ts";
+import { managementTokens } from "../local-fetch.ts";
+import { createServer } from "../server-fixture.ts";
 
 export const test = base.extend<{
 	app: {
@@ -29,10 +30,21 @@ export const test = base.extend<{
 		streamModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
-	page: async ({ page, request }, use) => {
+	page: async ({ page, context, request, app: _app }, use) => {
 		// page.request is an API client too; browser networking remains untouched.
-		Object.defineProperty(page, "request", { value: request });
+		const configurePage = (value: typeof page) =>
+			Object.defineProperty(value, "request", {
+				value: request,
+				configurable: true,
+			});
+		for (const value of context.pages()) configurePage(value);
+		context.on("page", configurePage);
+		Object.defineProperty(context, "request", {
+			value: request,
+			configurable: true,
+		});
 		await use(page);
+		context.off("page", configurePage);
 	},
 	request: async ({ playwright }, use) => {
 		const client = await playwright.request.newContext();
@@ -50,7 +62,12 @@ export const test = base.extend<{
 					) =>
 						target[key as "fetch"](url, {
 							...options,
-							headers: { Origin: new URL(url).origin, ...options.headers },
+							headers: {
+								Origin: new URL(url).origin,
+								"x-tyler-management-token":
+									managementTokens.get(new URL(url).origin) ?? "",
+								...options.headers,
+							},
 						});
 				const value = Reflect.get(target, key);
 				return typeof value === "function" ? value.bind(target) : value;
@@ -62,7 +79,7 @@ export const test = base.extend<{
 			await client.dispose();
 		}
 	},
-	app: async ({ browserName: _browserName }, use) => {
+	app: async ({ browserName: _browserName, context }, use) => {
 		const folder = await mkdtemp(join(tmpdir(), "agent-e2e-"));
 		const configured = openDatabase(join(folder, "db.sqlite"), false);
 		configured
@@ -148,6 +165,14 @@ export const test = base.extend<{
 		];
 		const originalHome = process.env.HOME;
 		process.env.HOME = folder;
+		const initializeToken = async (url: string) =>
+			context.addInitScript(
+				({ url, token }) => {
+					if (location.origin === url && token)
+						sessionStorage.setItem("tyler-management-token", token);
+				},
+				{ url, token: managementTokens.get(url) },
+			);
 		const start = () =>
 			createServer(
 				async () => {
@@ -265,8 +290,10 @@ export const test = base.extend<{
 					if (!address || typeof address === "string")
 						throw new Error("Missing restarted server address");
 					app.url = `http://127.0.0.1:${address.port}`;
+					await initializeToken(app.url);
 				},
 			};
+			await initializeToken(app.url);
 			await use(app);
 		} finally {
 			server.closeAllConnections();

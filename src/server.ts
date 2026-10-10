@@ -1,5 +1,6 @@
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
-import { access, readdir, readFile, stat } from "node:fs/promises";
+import { access, readdir, readFile, realpath, stat } from "node:fs/promises";
 import {
 	createServer as createHttpServer,
 	type IncomingMessage,
@@ -16,6 +17,13 @@ import {
 } from "./command-executor.ts";
 import { outputPage } from "./command-tools.ts";
 import { listProjects, openDatabase } from "./database.ts";
+import {
+	type ExecutionPermissions,
+	emptyPermissions,
+	needsApproval,
+	requestedPermissions,
+	unmetPermissions,
+} from "./execution-permissions.ts";
 import type { ToolExecutor } from "./file-tools.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
 import { createModelSettings, ModelSettingsError } from "./model-settings.ts";
@@ -186,6 +194,7 @@ export function createServer(
 		databasePath === undefined,
 	);
 	const commands = new CommandExecutor();
+	const managementToken = randomBytes(32).toString("hex");
 	const savedOutput = (toolId: number) =>
 		database
 			.prepare(
@@ -234,11 +243,12 @@ export function createServer(
 	const toolCalls = (agentId: number, content = false) =>
 		database
 			.prepare(
-				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=? ORDER BY model_call_id,ordinal`,
+				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason,approval${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=? ORDER BY model_call_id,ordinal`,
 			)
 			.all(agentId)
 			.map((call) => ({
 				...call,
+				approval: call.approval ? JSON.parse(String(call.approval)) : null,
 				id: call.id,
 				...(content &&
 					["exec_command", "apply_patch"].includes(String(call.name)) && {
@@ -557,6 +567,170 @@ export function createServer(
 	const notifyChange = () => {
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
 	};
+
+	type Approval = {
+		toolCallId: number;
+		requestId: string;
+		projectId: number;
+		projectName: string;
+		chatId: number;
+		chatName: string;
+		agentId: number;
+		name: string;
+		arguments: string;
+		cwd: string;
+		reason: string;
+		permissions: ExecutionPermissions;
+		status: "pending" | "denied" | "once" | "covered" | "interrupted";
+	};
+	const approvals = new Map<
+		number,
+		{
+			view: Approval;
+			requested: ExecutionPermissions;
+			signal: AbortSignal;
+			settle: (decision: Approval["status"]) => void;
+		}
+	>();
+	const currentPermissions = async (
+		chatId: number,
+		agentId: number,
+	): Promise<ExecutionPermissions> => ({
+		paths: (
+			await Promise.all(currentFolders(chatId).map((path) => realpath(path)))
+		)
+			.concat(agentScratch(String(agentId)))
+			.map((path) => ({ path, access: "write" })),
+		domains: [],
+		localNetwork: false,
+	});
+	const saveApproval = (view: Approval) => {
+		database
+			.prepare("UPDATE tool_calls SET approval=? WHERE id=?")
+			.run(JSON.stringify(view), view.toolCallId);
+		notifyAgent(view.chatId, view.agentId);
+		notifyChange();
+	};
+	const recheckApprovals = async () => {
+		for (const [toolId, pending] of approvals) {
+			if (pending.signal.aborted) {
+				pending.settle("interrupted");
+				continue;
+			}
+			const unmet = unmetPermissions(
+				pending.requested,
+				await currentPermissions(pending.view.chatId, pending.view.agentId),
+			);
+			if (approvals.get(toolId) !== pending) continue;
+			if (!needsApproval(unmet)) pending.settle("covered");
+			else if (
+				JSON.stringify(unmet) !== JSON.stringify(pending.view.permissions)
+			) {
+				pending.view.permissions = unmet;
+				pending.view.requestId = randomUUID();
+				saveApproval(pending.view);
+			}
+		}
+	};
+	const authorize = async (
+		toolCallId: number,
+		chatId: number,
+		agentId: number,
+		name: string,
+		args: string,
+		cwd: string,
+		requested: ExecutionPermissions,
+		reason: string,
+		signal: AbortSignal,
+	) => {
+		signal.throwIfAborted();
+		const unmet = unmetPermissions(
+			requested,
+			await currentPermissions(chatId, agentId),
+		);
+		let extra = emptyPermissions();
+		if (needsApproval(unmet)) {
+			const chat = database
+				.prepare(
+					"SELECT chats.project_id, chats.name AS chatName, projects.name AS projectName FROM chats JOIN projects ON projects.id=chats.project_id WHERE chats.id=?",
+				)
+				.get(chatId);
+			if (!chat) throw new Error("Approval Chat no longer exists");
+			const view: Approval = {
+				toolCallId,
+				requestId: randomUUID(),
+				projectId: Number(chat.project_id),
+				projectName: String(chat.projectName),
+				chatId,
+				chatName: String(chat.chatName),
+				agentId,
+				name,
+				arguments: args,
+				cwd,
+				reason,
+				permissions: unmet,
+				status: "pending",
+			};
+			const decision = await new Promise<Approval["status"]>(
+				(resolve, reject) => {
+					const interrupted = () => pending.settle("interrupted");
+					const pending = {
+						view,
+						requested,
+						signal,
+						settle: (decision: Approval["status"]) => {
+							if (approvals.get(toolCallId) !== pending) return;
+							approvals.delete(toolCallId);
+							signal.removeEventListener("abort", interrupted);
+							view.status = decision;
+							try {
+								saveApproval(view);
+								resolve(decision);
+							} catch {
+								reject(
+									new ModelError(
+										"toolWriteFailed",
+										errorMessages.toolWriteFailed,
+									),
+								);
+							}
+						},
+					};
+					approvals.set(toolCallId, pending);
+					try {
+						database
+							.prepare(
+								"UPDATE tool_calls SET status='waiting',reason='approvalRequired' WHERE id=?",
+							)
+							.run(toolCallId);
+						saveApproval(view);
+						signal.addEventListener("abort", interrupted, { once: true });
+						if (signal.aborted) interrupted();
+					} catch (error) {
+						approvals.delete(toolCallId);
+						reject(error);
+					}
+				},
+			);
+			signal.throwIfAborted();
+			if (decision === "denied")
+				throw new Error(
+					"User denied extra permissions; operation was not executed",
+				);
+			if (decision === "interrupted")
+				throw new ExecutionInterruptedError(
+					"Approval interrupted; operation was not executed",
+				);
+			if (decision === "once") extra = requested;
+		}
+		signal.throwIfAborted();
+		database
+			.prepare("UPDATE tool_calls SET status='running',reason=NULL WHERE id=?")
+			.run(toolCallId);
+		notifyAgent(chatId, agentId);
+		return extra;
+	};
+
 	const modelSettings = createModelSettings(
 		database,
 		fetchCatalog,
@@ -729,7 +903,9 @@ export function createServer(
 						if (closed) throw new Error("Service closed");
 						try {
 							database
-								.prepare("UPDATE tool_calls SET status=?,result=? WHERE id=?")
+								.prepare(
+									"UPDATE tool_calls SET status=?,result=?,reason=CASE WHEN reason='approvalRequired' THEN NULL ELSE reason END WHERE id=?",
+								)
 								.run(
 									result.status,
 									redactTool(result.result),
@@ -803,10 +979,27 @@ export function createServer(
 						name === "apply_patch" ||
 						name === "read_file"
 					) {
-						if (runTool && (name === "read_file" || name === "apply_patch"))
-							return runTool(name, args, roots, signal);
 						try {
 							const value = JSON.parse(args);
+							if (runTool && (name === "read_file" || name === "apply_patch")) {
+								const requested = await requestedPermissions(
+									value?.extra_permissions,
+									value?.reason,
+								);
+								if (needsApproval(requested))
+									await authorize(
+										activeToolId,
+										id,
+										agentId,
+										name,
+										args,
+										value.cwd ?? scratch,
+										requested,
+										value.reason,
+										state.controller.signal,
+									);
+								return runTool(name, args, roots, signal);
+							}
 							if (!value || typeof value !== "object" || Array.isArray(value))
 								throw new InputError("invalidInput");
 							if (name === "read_tool_output") {
@@ -846,7 +1039,14 @@ export function createServer(
 									limit = value.limit ?? 51200;
 								if (
 									Object.keys(value).some(
-										(key) => !["path", "offset", "limit"].includes(key),
+										(key) =>
+											![
+												"path",
+												"offset",
+												"limit",
+												"extra_permissions",
+												"reason",
+											].includes(key),
 									) ||
 									typeof value.path !== "string" ||
 									!isAbsolute(value.path) ||
@@ -859,7 +1059,23 @@ export function createServer(
 									!Number.isSafeInteger(offset + limit)
 								)
 									throw new InputError("invalidInput");
+								const requested = await requestedPermissions(
+									value.extra_permissions,
+									value.reason,
+								);
+								const extraPermissions = await authorize(
+									activeToolId,
+									id,
+									agentId,
+									name,
+									args,
+									scratch,
+									requested,
+									value.reason,
+									state.controller.signal,
+								);
 								const result = await commands.read({
+									extraPermissions,
 									path: value.path,
 									offset,
 									limit,
@@ -878,6 +1094,8 @@ export function createServer(
 											name === "apply_patch" ? "patch" : "command",
 											"cwd",
 											"timeout_ms",
+											"extra_permissions",
+											"reason",
 										].includes(key),
 								) ||
 								typeof value[name === "apply_patch" ? "patch" : "command"] !==
@@ -891,8 +1109,24 @@ export function createServer(
 							)
 								throw new InputError("invalidInput");
 							const toolId = activeToolId;
+							const requested = await requestedPermissions(
+								value.extra_permissions,
+								value.reason,
+							);
+							const extraPermissions = await authorize(
+								toolId,
+								id,
+								agentId,
+								name,
+								args,
+								value.cwd,
+								requested,
+								value.reason,
+								state.controller.signal,
+							);
 							let ordinal = 0;
 							const result = await commands.execute({
+								extraPermissions,
 								command: name === "apply_patch" ? "apply_patch" : value.command,
 								...(name === "apply_patch" ? { patch: value.patch } : {}),
 								cwd: value.cwd,
@@ -1146,7 +1380,7 @@ export function createServer(
 		}
 	};
 
-	return createHttpServer(async (request, response) => {
+	const server = createHttpServer(async (request, response) => {
 		const host = request.headers.host;
 		// Only canonical loopback aliases and this listener's actual port are valid.
 		const match = host?.match(
@@ -1181,6 +1415,68 @@ export function createServer(
 			return;
 		}
 		const path = url.pathname;
+		if (
+			path.startsWith("/api/") &&
+			!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "")
+		) {
+			const token = request.headers["x-tyler-management-token"];
+			if (
+				typeof token !== "string" ||
+				!/^[a-f0-9]{64}$/.test(token) ||
+				!timingSafeEqual(Buffer.from(token), Buffer.from(managementToken))
+			) {
+				request.resume();
+				json(response, 403, {
+					code: "managementAuthorizationRequired",
+					error: "Reopen the management URL printed at service startup",
+				});
+				return;
+			}
+		}
+		if (path === "/api/approvals" && request.method === "GET") {
+			json(response, 200, {
+				approvals: [...approvals.values()].map((pending) => pending.view),
+			});
+			return;
+		}
+		const approvalRoute = path.match(/^\/api\/approvals\/(\d+)$/);
+		if (approvalRoute && request.method === "POST") {
+			try {
+				const input = await readJson(request);
+				if (
+					Object.keys(input).some(
+						(key) => !["requestId", "decision"].includes(key),
+					) ||
+					typeof input.requestId !== "string" ||
+					!["deny", "once"].includes(String(input.decision))
+				)
+					throw new InputError("invalidInput");
+				const pending = approvals.get(Number(approvalRoute[1]));
+				if (
+					!pending ||
+					pending.signal.aborted ||
+					pending.view.requestId !== input.requestId ||
+					database
+						.prepare("SELECT status FROM tool_calls WHERE id=?")
+						.get(pending.view.toolCallId)?.status !== "waiting"
+				) {
+					json(response, 409, {
+						error: "Approval is stale or no longer pending",
+					});
+					return;
+				}
+				pending.settle(input.decision === "deny" ? "denied" : "once");
+				await recheckApprovals();
+				json(response, 200, { decision: input.decision });
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "toolWriteFailed"),
+				);
+			}
+			return;
+		}
 		if (request.method === "GET" && path === "/") {
 			try {
 				response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -1617,6 +1913,7 @@ export function createServer(
 					200,
 					listProjects(database).find((item) => item.id === id),
 				);
+				await recheckApprovals();
 				notifyChange();
 			} catch (error) {
 				json(
@@ -2033,9 +2330,19 @@ export function createServer(
 		}
 		json(response, 404, errorBody("notFound"));
 	}).on("close", () => {
+		for (const pending of [...approvals.values()])
+			pending.settle("interrupted");
 		closed = true;
-		void commands.close().finally(() => database.close());
+		const agents = [...running.values()];
+		for (const agent of agents) {
+			agent.controller.abort(new ExecutionInterruptedError("Service stopped"));
+			agent.wake?.();
+		}
+		void Promise.all(agents.map((agent) => agent.done))
+			.then(() => commands.close())
+			.finally(() => database.close());
 	});
+	return Object.assign(server, { managementToken });
 }
 if (import.meta.main) {
 	const { values } = parseArgs({
@@ -2053,7 +2360,10 @@ if (import.meta.main) {
 	)
 		throw new Error("--port must be an integer between 1 and 65535");
 	await releasePort(port);
-	createServer(fetch, values.db).listen(port, "127.0.0.1", () =>
-		console.log(`Open http://127.0.0.1:${port}`),
+	const server = createServer(fetch, values.db);
+	server.listen(port, "127.0.0.1", () =>
+		console.log(
+			`Open http://127.0.0.1:${port}/#management=${server.managementToken}`,
+		),
 	);
 }

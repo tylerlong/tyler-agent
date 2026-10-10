@@ -55,6 +55,7 @@ test("local Host and exact Origin protect all mutations and bodyless cancellatio
 				{
 					method,
 					headers: {
+						"x-tyler-management-token": server.managementToken,
 						...headers,
 						...(body === undefined
 							? {}

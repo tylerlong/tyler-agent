@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
 import type { ReaderItem } from "./agent-output.tsx";
 import { ApiError, api, appError } from "./api.ts";
+import { type Approval, ApprovalInbox } from "./approvals.tsx";
 import {
 	ChatOptionPicker,
 	type ChatOptions,
@@ -709,6 +710,21 @@ function App() {
 		}
 	};
 	const [dialogChange, setDialogChange] = useState(0);
+	const [approvals, setApprovals] = useState<Approval[]>([]);
+	const [approvalsError, setApprovalsError] = useState("");
+	const approvalsRead = useRef(0);
+	const refreshApprovals = useCallback(async () => {
+		const read = ++approvalsRead.current;
+		try {
+			const data = await api("/api/approvals");
+			if (read !== approvalsRead.current) return;
+			setApprovals(data.approvals);
+			setApprovalsError("");
+		} catch (cause) {
+			if (read === approvalsRead.current)
+				setApprovalsError(appError(cause).code);
+		}
+	}, []);
 	const refreshRevision = useRef(0);
 	const refresh = useCallback(async () => {
 		const settingsReads = Promise.all([
@@ -749,6 +765,7 @@ function App() {
 	useEffect(() => {
 		const sync = () => {
 			void refresh();
+			void refreshApprovals();
 			const ids = new Set(Object.keys(cacheRef.current).map(Number));
 			if (selectedRef.current !== null) ids.add(selectedRef.current);
 			for (const id of ids) void refreshChat(id);
@@ -761,6 +778,7 @@ function App() {
 		events.onopen = sync;
 		events.onmessage = sync;
 		events.addEventListener("agent", (event) => {
+			void refreshApprovals();
 			const { chatId, agentId, parentAgentId } = JSON.parse(event.data);
 			if (parentAgentId != null) {
 				if (
@@ -782,14 +800,16 @@ function App() {
 				}));
 			}
 		};
+		window.addEventListener("approvals-changed", sync);
 		window.addEventListener("focus", sync);
 		document.addEventListener("visibilitychange", visible);
 		return () => {
 			events.close();
+			window.removeEventListener("approvals-changed", sync);
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", visible);
 		};
-	}, [refresh, refreshChat, refreshAgent]);
+	}, [refresh, refreshChat, refreshAgent, refreshApprovals]);
 	const [editorRequest, setEditorRequest] = useState<EditorTarget | null>(null);
 	const [editorOpen, setEditorOpen] = useState(false);
 	const [savingTarget, setSavingTarget] = useState<EditorTarget | null>(null);
@@ -1207,6 +1227,11 @@ function App() {
 			>
 				<header className="shrink-0">
 					<h1 className="mb-3 px-2 text-lg font-semibold">Tyler Agent</h1>
+					<ApprovalInbox
+						approvals={approvals}
+						error={approvalsError}
+						refresh={() => void refreshApprovals()}
+					/>
 					<button
 						type="button"
 						className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-neutral-100 disabled:opacity-50"
