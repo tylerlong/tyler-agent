@@ -11,6 +11,7 @@ import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
+import { CommandExecutor } from "../src/command-executor.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { configureDatabase, createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
@@ -293,6 +294,50 @@ test("native subtree cancellation preserves sibling work and exact different-mod
 		if (rootId) await request(`/api/agents/${rootId}/cancel`, {});
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("cancellation during native initialization interrupts commands and patches before dispatch", {
+	skip: platform() !== "darwin",
+}, async () => {
+	const directory = await realpath(
+		await mkdtemp(join(tmpdir(), "command-prepare-cancel-")),
+	);
+	try {
+		for (const patch of [
+			undefined,
+			"*** Begin Patch\n*** Add File: escaped\n+escaped\n*** End Patch",
+		]) {
+			const executor = new CommandExecutor();
+			const controller = new AbortController();
+			const output: string[] = [];
+			try {
+				const pending = executor.execute({
+					command: "printf escaped > escaped",
+					...(patch === undefined ? {} : { patch }),
+					cwd: directory,
+					targetFolders: [directory],
+					agentId: `prepare-${process.pid}`,
+					timeoutMs: 10000,
+					signal: controller.signal,
+					onOutput: (_stream, text) => output.push(text),
+				});
+				// execute has entered asynchronous native initialization, before dispatch.
+				controller.abort();
+				const result = await pending;
+				assert.equal(result.cancelled, true, JSON.stringify(result));
+				assert.equal(result.exitCode, null);
+				assert.match(result.error ?? "", /AbortError/);
+				assert.deepEqual(output, []);
+				await assert.rejects(readFile(join(directory, "escaped")), {
+					code: "ENOENT",
+				});
+			} finally {
+				await executor.close();
+			}
+		}
+	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
 });

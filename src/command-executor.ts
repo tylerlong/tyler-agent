@@ -567,6 +567,7 @@ export class CommandExecutor {
 			return {
 				exitCode: proc?.exitCode ?? null,
 				error: String(error),
+				...(options.signal.aborted && !proc?.closed ? { cancelled: true } : {}),
 				...(this.failure ? { interrupted: true } : {}),
 			};
 		} finally {
