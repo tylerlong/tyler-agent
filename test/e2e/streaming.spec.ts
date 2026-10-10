@@ -103,7 +103,12 @@ test("a live agent arriving before initial history preserves load-earlier pagina
 		await held;
 		await route.fulfill({ response });
 	});
+	const connected = page.waitForResponse(
+		(response) =>
+			response.url() === `${app.url}/api/events` && response.status() === 200,
+	);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await connected;
 	await started;
 	const stream = app.streamModel();
 	const submitted = page.request.post(`${app.url}/api/chats/${chat.id}`, {
