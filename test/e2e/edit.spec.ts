@@ -338,4 +338,13 @@ test("Project permissions edit paths, domains and native network independently a
 	expect(saved.grants).toEqual({ paths: [], domains: [], localNetwork: false });
 	expect(saved.name).toBe("Grants");
 	expect(saved.folders).toEqual([]);
+	await page.request.put(`${app.url}/api/language`, {
+		data: { language: "zh-CN" },
+	});
+	await expect(
+		page.getByRole("button", { name: "保存权限", exact: true }),
+	).toBeVisible();
+	await expect(
+		other.getByRole("button", { name: "添加授权路径", exact: true }),
+	).toBeVisible();
 });
