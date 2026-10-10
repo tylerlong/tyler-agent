@@ -42,6 +42,7 @@ jobs:
       - run: sw_vers && uname -m && node --version
       - run: pnpm install --frozen-lockfile
       - name: Real pinned macOS backend acceptance (no platform skips)
+        timeout-minutes: 5
         run: |
           set -o pipefail
           pnpm build
