@@ -28,7 +28,7 @@ jobs:
             test-results/
           retention-days: 7
   native:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
