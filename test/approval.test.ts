@@ -1094,3 +1094,74 @@ test(
 		}
 	},
 );
+
+test(
+	"Project always reuses exact localhost domain and native listener capability on subsequent real commands",
+	native,
+	async () => {
+		const { createServer } = await import("node:http");
+		const http = createServer((_req, res) => res.end("project-domain"));
+		http.listen(0, "127.0.0.1");
+		await new Promise<void>((resolve) => http.once("listening", resolve));
+		const address = http.address();
+		assert(address && typeof address !== "string");
+		try {
+			for (const capability of ["domains", "localNetwork"] as const) {
+				let root = "";
+				let call = 0;
+				const f = await fixture(
+					() => ({
+						name: "exec_command",
+						args: {
+							cwd: root,
+							command:
+								capability === "domains"
+									? `curl --fail --silent http://localhost:${address.port}`
+									: `${quote(process.execPath)} -e ${quote("const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{console.log('project-listener');s.close()})")}`,
+							timeout_ms: 10000,
+							...(++call === 1
+								? {
+										reason: "Project test capability",
+										extra_permissions:
+											capability === "domains"
+												? { domains: ["localhost"] }
+												: { localNetwork: true },
+									}
+								: {}),
+						},
+					}),
+					true,
+				);
+				root = f.root;
+				try {
+					const agent = await f.ask();
+					const pending = await f.pending();
+					await f.request(`/api/approvals/${pending.toolCallId}`, {
+						requestId: pending.requestId,
+						decision: "always",
+					});
+					await waitForAgent(f.base, agent);
+					const tools = (await f.request(`/api/agents/${agent}/tools`))
+						.toolCalls;
+					assert.equal(tools.length, 2);
+					for (const tool of tools) {
+						const result = JSON.parse(tool.result);
+						assert.equal(result.exitCode, 0, tool.result);
+						assert.match(
+							result.output.chunks
+								.map((chunk: { text: string }) => chunk.text)
+								.join(""),
+							capability === "domains" ? /project-domain/ : /project-listener/,
+						);
+					}
+					assert.equal(tools[1].approval, null);
+				} finally {
+					await f.close();
+				}
+			}
+		} finally {
+			http.closeAllConnections();
+			await new Promise<void>((resolve) => http.close(() => resolve()));
+		}
+	},
+);
