@@ -1191,7 +1191,7 @@ test(
 				const f = await fixture(() => ({
 					name: "exec_command",
 					args: {
-						cwd: f.root,
+						cwd: fileAccess === "full" ? f.directory : f.root,
 						timeout_ms: 5000,
 						command: `node -e ${quote(`const fs=require("node:fs"),http=require("node:http");try{console.log("file:"+fs.readFileSync(${JSON.stringify(outside)},"utf8"))}catch{console.log("file:denied")}const s=http.createServer((q,r)=>r.end("ok"));s.on("error",()=>console.log("network:denied"));s.listen(0,"127.0.0.1",()=>http.get("http://127.0.0.1:"+s.address().port,r=>{r.resume();r.on("end",()=>{console.log("network:ok");s.close()})}).on("error",()=>{console.log("network:denied");s.close()}));`)}`,
 					},
@@ -1316,6 +1316,60 @@ test(
 			assert.match(JSON.stringify(f.results), /covered once/);
 			assert.equal((await f.request("/api/approvals")).approvals.length, 0);
 			assert.equal(f.results.length, 1);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+test(
+	"running native full-network snapshot retains localhost listening after Chat restriction",
+	native,
+	async () => {
+		let number = 0;
+		const f = await fixture(
+			() => ({
+				name: "exec_command",
+				args: {
+					cwd: f.root,
+					timeout_ms: 5000,
+					command: `${++number === 1 ? "echo started > network-started; sleep 1; " : ""}node -e ${quote('const http=require("node:http");const s=http.createServer((q,r)=>r.end("ok"));s.on("error",()=>console.log("network:denied"));s.listen(0,"127.0.0.1",()=>{console.log("network:allowed");s.close()});')}`,
+				},
+			}),
+			true,
+		);
+		try {
+			assert.equal(
+				(
+					await localFetch(`${f.base}/api/chats/${f.chat.id}`, {
+						method: "PUT",
+						body: JSON.stringify({ networkAccess: "full" }),
+					})
+				).status,
+				200,
+			);
+			const id = await f.ask();
+			for (let n = 0; n < 1000; n++) {
+				try {
+					await readFile(join(f.root, "network-started"));
+					break;
+				} catch {
+					await setTimeout(10);
+					if (n === 999) assert.fail("command did not start");
+				}
+			}
+			assert.equal(
+				(
+					await localFetch(`${f.base}/api/chats/${f.chat.id}`, {
+						method: "PUT",
+						body: JSON.stringify({ networkAccess: "restricted" }),
+					})
+				).status,
+				200,
+			);
+			await waitForAgent(f.base, id);
+			assert.match(JSON.stringify(f.results[0]), /network:allowed/);
+			assert.match(JSON.stringify(f.results[1]), /network:denied/);
 		} finally {
 			await f.close();
 		}

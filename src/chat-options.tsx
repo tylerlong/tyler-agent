@@ -124,14 +124,9 @@ export function ChatOptionPicker({
 		values: { value: string | null; label: string }[],
 		selected: string | null,
 		select: (value: string | null) => void,
-		scrolling = false,
 	) {
 		return (
-			<div
-				role="radiogroup"
-				aria-label={label}
-				className={scrolling ? "min-h-0 overflow-y-auto" : "shrink-0"}
-			>
+			<div role="radiogroup" aria-label={label} className="shrink-0">
 				{values.map((item) => (
 					<label
 						key={item.value ?? "default"}
@@ -192,7 +187,7 @@ export function ChatOptionPicker({
 						role="dialog"
 						aria-label={t("model")}
 						style={position}
-						className="picker-popup fixed z-50 flex flex-col p-2"
+						className="picker-popup fixed z-50 flex flex-col overflow-y-auto p-2"
 						onKeyDown={(event) => {
 							if (event.key === "Escape") {
 								event.preventDefault();
@@ -219,7 +214,6 @@ export function ChatOptionPicker({
 										models,
 									),
 								),
-							true,
 						)}
 						{efforts.length > 0 && (
 							<>
