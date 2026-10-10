@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
+import { AccessDefaults } from "./access-defaults.tsx";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
 import type { ReaderItem } from "./agent-output.tsx";
 import { ApiError, api, appError } from "./api.ts";
@@ -766,6 +767,7 @@ function App() {
 		const sync = () => {
 			void refresh();
 			void refreshApprovals();
+			window.dispatchEvent(new Event("settings-changed"));
 			const ids = new Set(Object.keys(cacheRef.current).map(Number));
 			if (selectedRef.current !== null) ids.add(selectedRef.current);
 			for (const id of ids) void refreshChat(id);
@@ -1118,7 +1120,13 @@ function App() {
 		setSavingOptions(new Set(optionRequests.current));
 		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
-			const saved = await api(`/api/chats/${id}`, "PUT", value);
+			const previous = chatOptions[id];
+			const changed = Object.fromEntries(
+				Object.entries(value).filter(
+					([key, next]) => next !== previous?.[key as keyof ChatOptions],
+				),
+			);
+			const saved = await api(`/api/chats/${id}`, "PUT", changed);
 			setChatOptions((current) => ({ ...current, [id]: saved.chatOptions }));
 		} catch (cause) {
 			setChatErrors((current) => ({ ...current, [id]: appError(cause) }));
@@ -1143,7 +1151,11 @@ function App() {
 			return;
 		let next = normalizeChatOptions(options, modelSettings.models);
 		if (next.modelId === null && modelSettings.defaultModelId)
-			next = { modelId: modelSettings.defaultModelId, reasoningEffort: null };
+			next = {
+				...options,
+				modelId: modelSettings.defaultModelId,
+				reasoningEffort: null,
+			};
 		const attempt = JSON.stringify([selected, options, next]);
 		if (JSON.stringify(next) === JSON.stringify(options)) {
 			normalizationAttempt.current = "";
@@ -1900,6 +1912,7 @@ function App() {
 					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
 				>
 					<fieldset disabled={settingsClosing} className="min-w-0">
+						<AccessDefaults open={settingsOpen} />
 						<ExecutionLimits open={settingsOpen} commitRef={executionCommit} />
 					</fieldset>
 				</div>

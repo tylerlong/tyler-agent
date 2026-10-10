@@ -447,9 +447,14 @@ export function createServer(
 	const chatOptions = (id: number) =>
 		database
 			.prepare(
-				"SELECT model_id AS modelId,reasoning_effort AS reasoningEffort FROM chats WHERE id=?",
+				"SELECT model_id AS modelId,reasoning_effort AS reasoningEffort,file_access AS fileAccess,network_access AS networkAccess FROM chats WHERE id=?",
 			)
-			.get(id) as { modelId: string | null; reasoningEffort: string | null };
+			.get(id) as {
+			modelId: string | null;
+			reasoningEffort: string | null;
+			fileAccess: "restricted" | "full";
+			networkAccess: "restricted" | "full";
+		};
 	const currentFolders = (id: number) =>
 		database
 			.prepare(
@@ -485,6 +490,7 @@ export function createServer(
 			if (value.model_id !== undefined) {
 				const model = models.find((model) => model.id === value.model_id);
 				options = {
+					...options,
 					modelId: value.model_id as string,
 					reasoningEffort:
 						options.reasoningEffort !== null &&
@@ -511,6 +517,8 @@ export function createServer(
 			model: model.id,
 			reasoningEffort: options.reasoningEffort,
 			targetFolders: currentFolders(id),
+			fileAccess: options.fileAccess,
+			networkAccess: options.networkAccess,
 			models: models.map((model) => ({
 				id: model.id,
 				name: model.name,
@@ -618,6 +626,8 @@ export function createServer(
 		const grants = projectGrants(chatId);
 		return {
 			...grants,
+			fullFile: chatOptions(chatId).fileAccess === "full",
+			fullNetwork: chatOptions(chatId).networkAccess === "full",
 			paths: [
 				...folders
 					.concat(agentScratch(String(agentId)))
@@ -753,6 +763,8 @@ export function createServer(
 		return () => {
 			const grants = projectGrants(chatId);
 			return {
+				fullFile: chatOptions(chatId).fileAccess === "full",
+				fullNetwork: chatOptions(chatId).networkAccess === "full",
 				paths: [...grants.paths, ...extra.paths],
 				domains: [...new Set([...grants.domains, ...extra.domains])],
 				localNetwork: grants.localNetwork || extra.localNetwork,
@@ -1644,6 +1656,53 @@ export function createServer(
 		}
 
 		if (
+			path === "/api/access-defaults" &&
+			(request.method === "GET" || request.method === "PATCH")
+		) {
+			try {
+				if (request.method === "PATCH") {
+					const input = await readJson(request);
+					if (
+						!Object.keys(input).length ||
+						Object.entries(input).some(
+							([key, value]) =>
+								!["fileAccess", "networkAccess"].includes(key) ||
+								(value !== "restricted" && value !== "full"),
+						)
+					)
+						throw new InputError("invalidAccessMode");
+					database
+						.prepare(
+							"UPDATE settings SET default_file_access=COALESCE(?,default_file_access),default_network_access=COALESCE(?,default_network_access) WHERE id=1",
+						)
+						.run(
+							input.fileAccess === undefined ? null : String(input.fileAccess),
+							input.networkAccess === undefined
+								? null
+								: String(input.networkAccess),
+						);
+				}
+				json(
+					response,
+					200,
+					database
+						.prepare(
+							"SELECT default_file_access AS fileAccess,default_network_access AS networkAccess FROM settings WHERE id=1",
+						)
+						.get(),
+				);
+				if (request.method === "PATCH") notifyChange();
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "chatWriteFailed"),
+				);
+			}
+			return;
+		}
+
+		if (
 			path === "/api/execution-limits" &&
 			(request.method === "GET" || request.method === "PATCH")
 		) {
@@ -2259,6 +2318,16 @@ export function createServer(
 				try {
 					const input = await readJson(request);
 					const options = chatOptions(id);
+					const fileAccess = input.fileAccess ?? options.fileAccess;
+					const networkAccess = input.networkAccess ?? options.networkAccess;
+					if (
+						![fileAccess, networkAccess].every(
+							(value) => value === "restricted" || value === "full",
+						) ||
+						input.fileAccess === null ||
+						input.networkAccess === null
+					)
+						throw new InputError("invalidAccessMode");
 					const modelId =
 						input.modelId === undefined ? options.modelId : input.modelId;
 					if (modelId !== null && typeof modelId !== "string")
@@ -2297,9 +2366,17 @@ export function createServer(
 							: name(input);
 					database
 						.prepare(
-							"UPDATE chats SET name=?,model_id=?,reasoning_effort=? WHERE id=?",
+							"UPDATE chats SET name=?,model_id=?,reasoning_effort=?,file_access=?,network_access=? WHERE id=?",
 						)
-						.run(chatName, modelId, effort, id);
+						.run(
+							chatName,
+							modelId,
+							effort,
+							String(fileAccess),
+							String(networkAccess),
+							id,
+						);
+					await recheckApprovals();
 					json(response, 200, {
 						id,
 						name: chatName,
@@ -2397,7 +2474,7 @@ export function createServer(
 				const id = Number(
 					database
 						.prepare(
-							"INSERT INTO chats(project_id,name,created_at,model_id) VALUES (?,?,?,?)",
+							"INSERT INTO chats(project_id,name,created_at,model_id,file_access,network_access) VALUES (?,?,?,?,(SELECT default_file_access FROM settings WHERE id=1),(SELECT default_network_access FROM settings WHERE id=1))",
 						)
 						.run(
 							projectId,

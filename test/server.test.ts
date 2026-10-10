@@ -205,7 +205,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		server.emit("close");
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 18);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 19);
 		assert.deepEqual(
 			db
 				.prepare(
@@ -258,6 +258,8 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				enter_behavior: "send",
 				model_call_limit: 16,
 				sub_agent_limit: 32,
+				default_file_access: "restricted",
+				default_network_access: "restricted",
 			},
 		);
 		assert.equal(
@@ -342,6 +344,8 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				enter_behavior: "send",
 				model_call_limit: 16,
 				sub_agent_limit: 32,
+				default_file_access: "restricted",
+				default_network_access: "restricted",
 			},
 		);
 		saved.close();
@@ -493,6 +497,8 @@ test("sidebar width validates bounds and preserves language across restart", asy
 				enter_behavior: "send",
 				model_call_limit: 16,
 				sub_agent_limit: 32,
+				default_file_access: "restricted",
+				default_network_access: "restricted",
 			},
 		);
 		db.close();

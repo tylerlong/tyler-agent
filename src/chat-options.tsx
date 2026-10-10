@@ -7,6 +7,8 @@ import type { ManagedModel } from "./model-settings.ts";
 export type ChatOptions = {
 	modelId: string | null;
 	reasoningEffort: string | null;
+	fileAccess: "restricted" | "full";
+	networkAccess: "restricted" | "full";
 };
 function reasoningEfforts(model: ManagedModel | undefined) {
 	return model ? (supportedReasoningEfforts(model) ?? []) : [];
@@ -19,7 +21,7 @@ export function normalizeChatOptions(
 	if (!model)
 		return options.modelId === null && options.reasoningEffort === null
 			? options
-			: { modelId: null, reasoningEffort: null };
+			: { ...options, modelId: null, reasoningEffort: null };
 	return options.reasoningEffort === null ||
 		reasoningEfforts(model).includes(options.reasoningEffort)
 		? options
@@ -164,7 +166,7 @@ export function ChatOptionPicker({
 				aria-haspopup="dialog"
 				aria-expanded={open}
 				aria-controls={open ? id : undefined}
-				disabled={disabled || models.length === 0}
+				disabled={disabled}
 				className="flex min-w-0 max-w-full items-center gap-1 rounded-md px-2 py-1 text-sm focus-visible:outline-2 focus-visible:outline-blue-600"
 				onClick={() => (open ? close(true) : setOpen(true))}
 			>
@@ -209,7 +211,11 @@ export function ChatOptionPicker({
 							(modelId) =>
 								change(
 									normalizeChatOptions(
-										{ modelId, reasoningEffort: options.reasoningEffort },
+										{
+											...options,
+											modelId,
+											reasoningEffort: options.reasoningEffort,
+										},
 										models,
 									),
 								),
@@ -234,6 +240,23 @@ export function ChatOptionPicker({
 								)}
 							</>
 						)}
+						{(["fileAccess", "networkAccess"] as const).map((key) => (
+							<div
+								key={key}
+								className="mt-2 shrink-0 border-t border-gray-200 pt-2"
+							>
+								<div className="px-3 text-sm font-semibold">{t(key)}</div>
+								{group(
+									t(key),
+									[
+										{ value: "restricted", label: t("accessRestricted") },
+										{ value: "full", label: t("accessFull") },
+									],
+									options[key],
+									(value) => change({ ...options, [key]: value }),
+								)}
+							</div>
+						))}
 					</div>,
 					document.body,
 				)}

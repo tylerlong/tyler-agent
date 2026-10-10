@@ -2,6 +2,8 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
 
 export type ExecutionPermissions = {
+	fullFile?: boolean;
+	fullNetwork?: boolean;
 	paths: { path: string; access: "read" | "write" }[];
 	domains: string[];
 	localNetwork: boolean;
@@ -81,6 +83,7 @@ export function unmetPermissions(
 	return {
 		paths: request.paths.filter(
 			(scope) =>
+				!granted.fullFile &&
 				!granted.paths.some((grant) => {
 					const within = relative(grant.path, scope.path);
 					return (
@@ -93,9 +96,10 @@ export function unmetPermissions(
 				}),
 		),
 		domains: request.domains.filter(
-			(domain) => !granted.domains.includes(domain),
+			(domain) => !granted.fullNetwork && !granted.domains.includes(domain),
 		),
-		localNetwork: request.localNetwork && !granted.localNetwork,
+		localNetwork:
+			request.localNetwork && !granted.fullNetwork && !granted.localNetwork,
 	};
 }
 export const needsApproval = (permissions: ExecutionPermissions) =>

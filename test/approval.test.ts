@@ -1165,3 +1165,144 @@ test(
 		}
 	},
 );
+
+test(
+	"all four Chat access combinations enforce native file and localhost permissions independently",
+	native,
+	async () => {
+		for (const fileAccess of ["restricted", "full"])
+			for (const networkAccess of ["restricted", "full"]) {
+				let outside = "";
+				const f = await fixture(() => ({
+					name: "exec_command",
+					args: {
+						cwd: f.root,
+						timeout_ms: 5000,
+						command: `node -e ${quote(`const fs=require("node:fs"),http=require("node:http");try{console.log("file:"+fs.readFileSync(${JSON.stringify(outside)},"utf8"))}catch{console.log("file:denied")}const s=http.createServer((q,r)=>r.end("ok"));s.on("error",()=>console.log("network:denied"));s.listen(0,"127.0.0.1",()=>http.get("http://127.0.0.1:"+s.address().port,r=>{r.resume();r.on("end",()=>{console.log("network:ok");s.close()})}).on("error",()=>{console.log("network:denied");s.close()}));`)}`,
+					},
+				}));
+				try {
+					outside = join(f.directory, "outside.txt");
+					await writeFile(outside, "allowed");
+					const res = await localFetch(`${f.base}/api/chats/${f.chat.id}`, {
+						method: "PUT",
+						body: JSON.stringify({ fileAccess, networkAccess }),
+					});
+					assert.equal(res.status, 200);
+					const id = await f.ask();
+					await waitForAgent(f.base, id);
+					const result = JSON.stringify(f.results);
+					assert.match(
+						result,
+						fileAccess === "full" ? /file:allowed/ : /file:denied/,
+					);
+					assert.match(
+						result,
+						networkAccess === "full" ? /network:ok/ : /network:denied/,
+					);
+				} finally {
+					await f.close();
+				}
+			}
+	},
+);
+
+test(
+	"busy Chat mode edits leave running native snapshots fixed and subsequent calls use the new modes",
+	native,
+	async () => {
+		let count = 0;
+		let outside = "";
+		const f = await fixture(
+			() => ({
+				name: "exec_command",
+				args: {
+					cwd: f.root,
+					timeout_ms: 5000,
+					command:
+						++count === 1
+							? `echo started > started; sleep 1; cat ${quote(outside)}`
+							: `cat ${quote(outside)}`,
+				},
+			}),
+			true,
+		);
+		try {
+			outside = join(f.directory, "outside.txt");
+			await writeFile(outside, "new-full-access");
+			const id = await f.ask();
+			for (let n = 0; n < 1000; n++) {
+				try {
+					await readFile(join(f.root, "started"));
+					break;
+				} catch {
+					await setTimeout(10);
+					if (n === 999) assert.fail("command did not start");
+				}
+			}
+			assert.equal(
+				(
+					await localFetch(`${f.base}/api/chats/${f.chat.id}`, {
+						method: "PUT",
+						body: JSON.stringify({ fileAccess: "full" }),
+					})
+				).status,
+				200,
+			);
+			await waitForAgent(f.base, id);
+			assert.match(
+				JSON.stringify(f.results[0]),
+				/Operation not permitted|Permission denied/,
+			);
+			assert.match(JSON.stringify(f.results[1]), /new-full-access/);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+test(
+	"mode edits recheck pending original calls and expose only outstanding categories",
+	native,
+	async () => {
+		let outside = "";
+		const f = await fixture(() => ({
+			name: "read_file",
+			args: {
+				path: outside,
+				extra_permissions: {
+					paths: [{ path: outside, access: "read" }],
+					domains: ["example.com"],
+				},
+				reason: "file and domain",
+			},
+		}));
+		try {
+			outside = join(f.directory, "outside.txt");
+			await writeFile(outside, "covered once");
+			const id = await f.ask();
+			await f.pending();
+			const edit = async (body: unknown) =>
+				assert.equal(
+					(
+						await localFetch(`${f.base}/api/chats/${f.chat.id}`, {
+							method: "PUT",
+							body: JSON.stringify(body),
+						})
+					).status,
+					200,
+				);
+			await edit({ fileAccess: "full" });
+			const pending = await f.pending();
+			assert.deepEqual(pending.permissions.paths, []);
+			assert.deepEqual(pending.permissions.domains, ["example.com"]);
+			await edit({ networkAccess: "full" });
+			await waitForAgent(f.base, id);
+			assert.match(JSON.stringify(f.results), /covered once/);
+			assert.equal((await f.request("/api/approvals")).approvals.length, 0);
+			assert.equal(f.results.length, 1);
+		} finally {
+			await f.close();
+		}
+	},
+);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -68,6 +68,8 @@ async function fixture(fake: typeof fetch, execute?: ToolExecutor) {
 			base = `http://127.0.0.1:${address.port}`;
 		},
 		chat,
+		put: (route: string, body: unknown) =>
+			fetch(base + route, { method: "PUT", body: JSON.stringify(body) }),
 		get,
 		post,
 		ask: async (prompt: string) => {
@@ -1821,6 +1823,63 @@ test("a failed child leaves its sibling running until the model explicitly cance
 		fail.release();
 		cancel.release();
 		cleanup.release();
+		await f.close();
+	}
+});
+
+test("an already-created sub-agent uses owning Chat modes at its later native tool start", {
+	skip: platform() !== "darwin",
+}, async () => {
+	const entered = gate(),
+		release = gate();
+	let outside = "";
+	let rootCalls = 0,
+		childCalls = 0;
+	const f = await fixture(async (_url, init) => {
+		const request = JSON.parse(String(init?.body));
+		if (userPrompt(request.input) === "child-modes") {
+			if (++childCalls === 1) {
+				entered.release();
+				await release.promise;
+				return completedResponse({
+					output: [
+						{
+							...childTool({ path: outside }, "read-outside"),
+							name: "read_file",
+						},
+					],
+				});
+			}
+			assert.match(request.input.at(-1).output, /child full files/);
+			assert.equal(request.networkAccess, undefined);
+			return completedResponse({ output: [message("child complete")] });
+		}
+		return completedResponse({
+			output:
+				++rootCalls === 1
+					? [childTool({ prompt: "child-modes" })]
+					: [message("root complete")],
+		});
+	});
+	try {
+		outside = join(f.path, "..", "outside.txt");
+		await writeFile(outside, "child full files");
+		const root = await f.ask("root-modes");
+		await entered.promise;
+		assert.equal(
+			(
+				await f.put(`/api/chats/${f.chat.id}`, {
+					fileAccess: "full",
+					networkAccess: "full",
+				})
+			).status,
+			200,
+		);
+		release.release();
+		assert.equal((await f.wait(root)).status, "succeeded");
+		assert.equal(childCalls, 2);
+	} finally {
+		release.release();
 		await f.close();
 	}
 });

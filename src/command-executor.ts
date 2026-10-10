@@ -311,6 +311,7 @@ export class CommandExecutor {
 		);
 		const cwd = await realpath(options.cwd);
 		if (
+			!options.extraPermissions?.fullFile &&
 			![...writes, ...extraPaths.map((scope) => scope.path)].some((root) => {
 				const within = relative(root, cwd);
 				return (
@@ -327,29 +328,33 @@ export class CommandExecutor {
 		return {
 			permissions: {
 				type: "managed",
-				file_system: {
-					type: "restricted",
-					entries: [
-						{
-							path: { type: "special", value: { kind: "minimal" } },
-							access: "read",
+				file_system: options.extraPermissions?.fullFile
+					? { type: "unrestricted" }
+					: {
+							type: "restricted",
+							entries: [
+								{
+									path: { type: "special", value: { kind: "minimal" } },
+									access: "read",
+								},
+								entry("/private/tmp", "deny"),
+								entry("/private/var/tmp", "deny"),
+								...this.toolPaths.map((path) => entry(path, "read")),
+								...extraPaths
+									.filter((scope) => scope.access === "read")
+									.map((scope) => entry(scope.path, "read")),
+								...writes.flatMap((path) => [
+									entry(path, "write"),
+									...(writeDirectories.has(path)
+										? [".git", ".agents", ".codex", ".aws"]
+										: []
+									).map((name) => entry(join(path, name), "write")),
+								]),
+							],
 						},
-						entry("/private/tmp", "deny"),
-						entry("/private/var/tmp", "deny"),
-						...this.toolPaths.map((path) => entry(path, "read")),
-						...extraPaths
-							.filter((scope) => scope.access === "read")
-							.map((scope) => entry(scope.path, "read")),
-						...writes.flatMap((path) => [
-							entry(path, "write"),
-							...(writeDirectories.has(path)
-								? [".git", ".agents", ".codex", ".aws"]
-								: []
-							).map((name) => entry(join(path, name), "write")),
-						]),
-					],
-				},
-				network: "restricted",
+				network: options.extraPermissions?.fullNetwork
+					? "enabled"
+					: "restricted",
 			},
 			cwd: uri(cwd),
 			workspaceRoots: targets.map(uri),
@@ -501,8 +506,9 @@ export class CommandExecutor {
 				pipeStdin: false,
 				arg0: null,
 				sandbox,
-				...(options.extraPermissions?.domains.length ||
-				options.extraPermissions?.localNetwork
+				...(!options.extraPermissions?.fullNetwork &&
+				(options.extraPermissions?.domains.length ||
+					options.extraPermissions?.localNetwork)
 					? {
 							enforceManagedNetwork: true,
 							networkProxy: {
