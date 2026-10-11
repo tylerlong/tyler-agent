@@ -14,11 +14,9 @@ test("ten-agent pages retain history and drafts across chats and reset on refres
 			data: { name: "Alpha" },
 		})
 	).json();
-	const _other = await (
-		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
-			data: { name: "Beta" },
-		})
-	).json();
+	await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+		data: { name: "Beta" },
+	});
 	for (let i = 1; i <= 25; i++)
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
 			data: { modelId: "test", prompt: `Question ${i}.` },

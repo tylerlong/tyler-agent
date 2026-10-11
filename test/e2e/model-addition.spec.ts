@@ -35,7 +35,6 @@ test("first addition fills saved Chat choices in all windows even with history",
 	await page.goto(`${app.url}/?chat=${id}`);
 	const peer = await page.context().newPage();
 	await peer.goto(`${app.url}/?chat=${id}`);
-	const _model = chatPicker(page);
 	const peerModel = chatPicker(peer);
 	await expectModel(page, "");
 	await expectModel(peer, "");

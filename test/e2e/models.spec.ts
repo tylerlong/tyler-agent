@@ -1,9 +1,4 @@
-import {
-	chatPicker,
-	expectEffort,
-	expectModel,
-	selectEffort,
-} from "./chat-picker.ts";
+import { expectEffort, expectModel, selectEffort } from "./chat-picker.ts";
 import { expect, test } from "./fixtures.ts";
 
 test("mandatory Settings explains reload recovery after an initial catalog failure", async ({
@@ -492,7 +487,6 @@ test("row removal failures preserve default and composer, successful removal rep
 	await page.request.post(`${app.url}/api/model-catalog`);
 	await page.request.post(`${app.url}/api/models`, { data: { id: "second" } });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
-	const _model = chatPicker(page);
 	await selectEffort(page, "high");
 	await page.getByLabel("Prompt", { exact: true }).fill("Keep draft");
 	await page.getByRole("button", { name: "Settings", exact: true }).click();

@@ -101,11 +101,9 @@ test("pending submission stays in original chat and does not clear later drafts 
 			data: { name: "Alpha" },
 		})
 	).json();
-	const _b = await (
-		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
-			data: { name: "Beta" },
-		})
-	).json();
+	await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+		data: { name: "Beta" },
+	});
 	await page.goto(`${app.url}/?chat=${a.id}`);
 	const other = await context.newPage();
 	await other.goto(`${app.url}/?chat=${a.id}`);
