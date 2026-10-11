@@ -1,13 +1,13 @@
-## Agent skills
+# Agent instructions
 
-### Issue tracker
+## Issue tracker
 
-Issues and specs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+Issues and specs live in this repository's GitHub Issues. Use `gh`, inferring the repository from the Git remote. Publishing means creating an issue; fetching a ticket means reading its issue. PRs are not the request or triage surface.
 
-### Triage labels
+Use native GitHub sub-issues and dependencies for parent/blocker relationships. Use `--body-file` for multiline issue bodies and comments.
 
-Use the five default triage labels. See `docs/agents/triage-labels.md`.
+Triage roles map directly to these labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
 
-### Domain docs
+## Domain docs
 
-Use a single-context layout. See `docs/agents/domain.md`.
+Before changing domain concepts, read relevant definitions in `CONTEXT.md` and decisions in `docs/adr/`. Use their vocabulary and explicitly surface conflicts with existing decisions. Add documentation only when a term or meaningful design tradeoff needs recording.
