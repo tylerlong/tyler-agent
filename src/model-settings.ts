@@ -77,14 +77,7 @@ export function createModelSettings(
 			)
 				throw new ModelSettingsError("modelCatalogFailed");
 			const next: ManagedModel[] = rows
-				.filter(
-					(row) =>
-						typeof row?.id === "string" &&
-						row.id.trim() &&
-						typeof row.name === "string" &&
-						Array.isArray(row.architecture?.output_modalities) &&
-						row.architecture.output_modalities.includes("text"),
-				)
+				.filter((row) => row.architecture?.output_modalities?.includes("text"))
 				.slice(0, 100)
 				.map((row) => ({
 					id: row.id,

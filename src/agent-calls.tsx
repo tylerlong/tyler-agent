@@ -20,7 +20,7 @@ export function AgentCalls({
 	status,
 	errorCode,
 	kind,
-	revision = 0,
+	revision,
 	onLayoutChange,
 }: {
 	agentId: number;
@@ -29,7 +29,7 @@ export function AgentCalls({
 	status: string;
 	errorCode?: string;
 	kind: "request" | "response";
-	revision?: number;
+	revision: number;
 	onLayoutChange: () => void;
 }) {
 	const { t } = useTranslation();
@@ -127,12 +127,7 @@ export function AgentCalls({
 			call.error !== t(call.errorCode, { defaultValue: call.error })
 				? [{ text: call.error, body: true }]
 				: []),
-			...(typeof body === "string"
-				? [pretty(body)].map((text) => ({
-						text,
-						body: true,
-					}))
-				: []),
+			...(typeof body === "string" ? [{ text: pretty(body), body: true }] : []),
 		];
 	});
 	const displayParts =

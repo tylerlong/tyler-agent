@@ -220,7 +220,6 @@ export function ChatOptionPicker({
 										{
 											...options,
 											modelId,
-											reasoningEffort: options.reasoningEffort,
 										},
 										models,
 									),

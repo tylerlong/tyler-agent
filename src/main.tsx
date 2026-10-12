@@ -1659,7 +1659,6 @@ function App() {
 										if (!event.repeat)
 											event.currentTarget.form?.requestSubmit();
 									}}
-									readOnly={readOnly}
 									disabled={submitting.has(chat.id)}
 									value={drafts[chat.id] ?? ""}
 									onChange={(event) => {
@@ -1680,7 +1679,7 @@ function App() {
 												models={modelSettings?.models ?? []}
 												change={changeChatOptions}
 												saving={savingOptions.has(chat.id)}
-												disabled={readOnly || modelSettingsError}
+												disabled={modelSettingsError}
 											/>
 										</div>
 									)}
@@ -1691,7 +1690,6 @@ function App() {
 										className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
 										disabled={
 											!(drafts[chat.id] ?? "").trim() ||
-											readOnly ||
 											modelSettingsError ||
 											!modelSettings?.apiKeyConfigured ||
 											!options ||
@@ -1718,7 +1716,7 @@ function App() {
 									</button>
 								</div>
 							</div>
-							{modelSettingsError && !readOnly && (
+							{modelSettingsError && (
 								<div role="alert" className="mt-4 text-red-700">
 									{t("configurationReadFailed")}{" "}
 									<button

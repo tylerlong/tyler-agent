@@ -79,7 +79,7 @@ export const test = base.extend<{
 			await client.dispose();
 		}
 	},
-	app: async ({ browserName: _browserName, context }, use) => {
+	app: async ({ context }, use) => {
 		const folder = await mkdtemp(join(tmpdir(), "agent-e2e-"));
 		const configured = openDatabase(join(folder, "db.sqlite"), false);
 		configured

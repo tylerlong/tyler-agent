@@ -82,11 +82,10 @@ export function TaskView({
 	);
 	const [expanded, setExpanded] = useState(new Set(expandedNodes));
 	const content = useRef<HTMLElement>(null);
-	const positions = useRef(taskPositions);
 	const restore = useCallback(() => {
 		const element = content.current;
 		if (!element) return;
-		const saved = positions.current[selected.current];
+		const saved = taskPositions[selected.current];
 		const anchor =
 			saved?.anchor &&
 			element.querySelector<HTMLElement>(
@@ -298,7 +297,7 @@ export function TaskView({
 						})
 						.at(-1) ??
 					anchors.find((anchor) => anchor.getBoundingClientRect().bottom > top);
-				positions.current[agentId] = {
+				taskPositions[agentId] = {
 					top: element.scrollTop,
 					...(anchor?.dataset.readingAnchor
 						? {

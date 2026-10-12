@@ -477,16 +477,8 @@ export function createServer(
 		const overrides: Record<string, unknown>[] = [];
 		while (agentId !== undefined) {
 			const source = agentSource(agentId);
-			if (source.createdByToolCallId === null) break;
-			overrides.unshift(
-				JSON.parse(
-					String(
-						database
-							.prepare("SELECT arguments FROM tool_calls WHERE id=?")
-							.get(source.createdByToolCallId)?.arguments,
-					),
-				),
-			);
+			if (source.creationArguments === null) break;
+			overrides.unshift(source.creationArguments);
 			agentId = source.parentAgentId ?? undefined;
 		}
 		if (override) overrides.push(override);
@@ -1305,12 +1297,7 @@ export function createServer(
 									},
 								}),
 							};
-						const toolId = savedToolIds.find(
-							(toolId) =>
-								database
-									.prepare("SELECT status FROM tool_calls WHERE id=?")
-									.get(toolId)?.status === "running",
-						);
+						const toolId = activeToolId;
 						if (!toolId) throw new Error("Missing creating Tool Call");
 						const childId = Number(
 							database

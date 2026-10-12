@@ -220,7 +220,6 @@ export class CommandExecutor {
 				}
 			} catch (error) {
 				this.fail(`Command executor protocol/output failure: ${String(error)}`);
-				server.stdin.end();
 			}
 		});
 		await this.rpc("initialize", { clientName: "tyler-agent" });
@@ -239,7 +238,6 @@ export class CommandExecutor {
 				this.pending.set(id, { resolve, reject });
 				timer = setTimeout(() => {
 					this.fail(`Command executor RPC timed out: ${method}`);
-					this.server?.stdin.end();
 				}, 30000);
 				this.server?.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
 			});
@@ -540,7 +538,6 @@ export class CommandExecutor {
 					await this.rpc("process/terminate", { processId });
 				} catch (error) {
 					this.fail(`Command termination failed: ${String(error)}`);
-					this.server?.stdin.end();
 				}
 			};
 			abort = () => {

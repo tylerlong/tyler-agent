@@ -151,12 +151,8 @@ export const resources = {
 			enlargeWindow: "Enlarge your window",
 			minimumViewport:
 				"This desktop workspace needs a browser viewport of at least 1280×720 CSS pixels. Enlarge your window to resume; your drafts and running work are preserved.",
-			modelDefault: "Model default",
 			invalidModel: "Choose an enabled model.",
 			invalidReasoning: "Choose a supported reasoning level.",
-			unsupportedReasoning: "{{effort}} (unsupported — choose a level)",
-			setupRequired:
-				"Save an API key and enable at least one model to continue. Select your chat model in the prompt composer.",
 			prompt: "Prompt",
 			submit: "Send",
 			name: "Name",
@@ -228,7 +224,6 @@ export const resources = {
 			noCalls: "No communication record is available.",
 			noResponse: "No response body was received.",
 			responseNotYetReceived: "No response body has been received yet.",
-			callCompleted: "Completed",
 			callFailed: "Failed",
 			settings: "Settings",
 			settingsGeneral: "General",
@@ -262,28 +257,20 @@ export const resources = {
 			setupModelsRequired: "Enable at least one model to use this chat.",
 			setupBothRequired:
 				"An API key and at least one enabled model are required to use this chat.",
-			defaultModel: "Default model",
 			enabledModels: "Enabled models",
 			setDefault: "Set default",
 			setDefaultModel: "Set {{name}} as default",
 			default: "Default",
-			disableModel: "Disable model",
-			noDefaultModel: "No default model",
 			removeModel: "Remove model {{name}}",
 			filterModels: "Search models by name or ID",
 			popularModels: "Popular models",
 			noMatchingModels:
 				"No matching models among the 100 most popular models. Enabled models are excluded.",
-			otherEnabledModels: "Other enabled models",
-
-			catalogMissing:
-				"Not found in latest catalog; last-known capabilities retained.",
 			catalogReadFailed:
 				"Unable to load popular models. Close and reopen Settings, or reload the page if Settings cannot close, to retry.",
 			configurationReadFailed: "Unable to read model settings. Please retry.",
 			configurationSaveFailed: "Unable to save model settings. Please retry.",
 			addModel: "Add model",
-			add: "Add",
 
 			executionLimits: "Execution limits",
 			modelCallLimitSetting: "Model Calls per Agent",
@@ -457,12 +444,8 @@ export const resources = {
 			enlargeWindow: "请扩大窗口",
 			minimumViewport:
 				"此桌面工作区需要至少 1280×720 CSS 像素的浏览器内容视口。扩大窗口即可继续；草稿和进行中的操作会保留。",
-			modelDefault: "模型默认",
 			invalidModel: "请选择已启用的模型。",
 			invalidReasoning: "请选择支持的思考强度。",
-			unsupportedReasoning: "{{effort}}（不支持，请重新选择）",
-			setupRequired:
-				"保存 API 密钥并启用至少一个模型后可关闭设置。在输入区选择当前对话的模型。",
 			prompt: "问题",
 			submit: "发送",
 			name: "名称",
@@ -533,7 +516,6 @@ export const resources = {
 			noCalls: "没有通信记录。",
 			noResponse: "未收到响应正文。",
 			responseNotYetReceived: "尚未收到响应正文。",
-			callCompleted: "已完成",
 			callFailed: "失败",
 			settings: "设置",
 			settingsGeneral: "常规",
@@ -564,27 +546,20 @@ export const resources = {
 			setupKeyRequired: "使用此对话需要配置 API 密钥。",
 			setupModelsRequired: "使用此对话需要至少启用一个模型。",
 			setupBothRequired: "使用此对话需要配置 API 密钥并至少启用一个模型。",
-			defaultModel: "默认模型",
 			enabledModels: "已启用模型",
 			setDefault: "设为默认",
 			setDefaultModel: "将 {{name}} 设为默认",
 			default: "默认",
-			disableModel: "停用模型",
-			noDefaultModel: "无默认模型",
 			removeModel: "移除模型 {{name}}",
 			filterModels: "按名称或 ID 搜索模型",
 			popularModels: "热门模型",
 			noMatchingModels:
 				"前 100 个热门模型中没有匹配模型。已启用的模型不在候选中。",
-			otherEnabledModels: "其他已启用模型",
-
-			catalogMissing: "最新目录中未找到，保留上次能力信息。",
 			catalogReadFailed:
 				"加载热门模型失败。请关闭并重新打开设置以重试；若设置无法关闭，请重新加载页面。",
 			configurationReadFailed: "读取模型配置失败，请重试。",
 			configurationSaveFailed: "保存模型配置失败，请重试。",
 			addModel: "添加模型",
-			add: "添加",
 
 			executionLimits: "执行上限",
 			modelCallLimitSetting: "每个 Agent 的模型调用上限",
