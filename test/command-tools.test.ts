@@ -1711,3 +1711,99 @@ for (const delivery of ["automatic", "cancel"] as const) {
 		},
 	);
 }
+commandTest(
+	"full file native read, command and patch ignore deleted restricted scopes and still validate actual paths",
+	async () => {
+		let root = "",
+			missing = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			if (++requests === 1)
+				return done([
+					call("read_file", { path: join(root, "input.txt") }, "read"),
+					call(
+						"exec_command",
+						{ cwd: root, command: "cat input.txt", timeout_ms: 10000 },
+						"command",
+					),
+					call(
+						"apply_patch",
+						{
+							cwd: root,
+							patch:
+								"*** Begin Patch\n*** Update File: input.txt\n@@\n-before\n+after\n*** End Patch",
+						},
+						"patch",
+					),
+					call(
+						"exec_command",
+						{ cwd: missing, command: "echo must-not-run", timeout_ms: 10000 },
+						"missing-cwd",
+					),
+					call(
+						"read_file",
+						{ path: join(missing, "input.txt") },
+						"missing-read",
+					),
+					call(
+						"apply_patch",
+						{
+							cwd: missing,
+							patch:
+								"*** Begin Patch\n*** Add File: unexpected\n+no\n*** End Patch",
+						},
+						"missing-patch",
+					),
+				]);
+			const results = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.map((item: { output: string }) => JSON.parse(item.output));
+			assert.equal(results[0].text, "before\n");
+			assert.equal(results[1].exitCode, 0);
+			assert.equal(text(results[1].output.chunks), "before\n");
+			assert.equal(results[2].exitCode, 0);
+			for (const result of results.slice(3))
+				assert.equal(typeof result.error, "string");
+			return done([answer]);
+		});
+		root = f.root;
+		missing = join(f.directory, "removed");
+		try {
+			await mkdir(missing);
+			await writeFile(join(root, "input.txt"), "before\n");
+			await f.request(
+				`/api/projects/${f.projectId}`,
+				{ name: "Full", folders: [root, missing] },
+				"PUT",
+			);
+			const chat = await f.request(`/api/projects/${f.projectId}/chats`, {
+				name: "Full",
+			});
+			await f.request(`/api/chats/${chat.id}`, { fileAccess: "full" }, "PUT");
+			// Synthetic persisted grants may outlive their paths, just like Target Folders.
+			const { DatabaseSync } = await import("node:sqlite");
+			const db = new DatabaseSync(join(f.directory, "db.sqlite"));
+			db.prepare("UPDATE projects SET grants=? WHERE id=?").run(
+				JSON.stringify({
+					paths: [{ path: missing, access: "write" }],
+					domains: [],
+					localNetwork: false,
+				}),
+				f.projectId,
+			);
+			db.close();
+			await rm(missing, { recursive: true });
+			const { agentId } = await f.request(`/api/chats/${chat.id}`, {
+				prompt: "full",
+			});
+			assert.equal((await f.wait(agentId)).status, "succeeded");
+			assert.equal(requests, 2);
+			assert.equal(await readFile(join(root, "input.txt"), "utf8"), "after\n");
+		} finally {
+			await f.close();
+		}
+	},
+);

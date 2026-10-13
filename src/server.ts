@@ -17,7 +17,11 @@ import {
 	ExecutionInterruptedError,
 } from "./command-executor.ts";
 import { outputPage } from "./command-tools.ts";
-import { listProjects, openDatabase } from "./database.ts";
+import {
+	acquireDatabaseOwnership,
+	listProjects,
+	openDatabase,
+} from "./database.ts";
 import {
 	type ExecutionPermissions,
 	emptyPermissions,
@@ -194,10 +198,24 @@ export function createServer(
 	fetchCatalog: typeof fetch = fetch,
 	runTool?: ToolExecutor,
 ) {
-	const database = openDatabase(
-		databasePath === undefined ? defaultDatabasePath : resolve(databasePath),
-		databasePath === undefined,
-	);
+	const path =
+		databasePath === undefined
+			? defaultDatabasePath
+			: databasePath === ":memory:"
+				? databasePath
+				: resolve(databasePath);
+	const ownership = acquireDatabaseOwnership(path, databasePath === undefined);
+	let database: ReturnType<typeof openDatabase>;
+	try {
+		database = openDatabase(path, databasePath === undefined);
+	} catch (error) {
+		ownership?.close();
+		throw error;
+	}
+	let finishShutdown!: () => void;
+	const shutdown = new Promise<void>((resolve) => {
+		finishShutdown = resolve;
+	});
 	const commands = new CommandExecutor();
 	// Agent IDs are database-local; separate services must not share retained scratch.
 	const scratchNamespace = randomUUID();
@@ -624,19 +642,20 @@ export function createServer(
 		chatId: number,
 		agentId: number,
 	): Promise<ExecutionPermissions> => {
-		const folders = await Promise.all(
-			currentFolders(chatId).map((path) => realpath(path)),
-		);
+		const fullFile = chatOptions(chatId).fileAccess === "full";
+		const folders = fullFile
+			? []
+			: await Promise.all(currentFolders(chatId).map((path) => realpath(path)));
 		const grants = projectGrants(chatId);
 		return {
 			...grants,
-			fullFile: chatOptions(chatId).fileAccess === "full",
+			fullFile,
 			fullNetwork: chatOptions(chatId).networkAccess === "full",
 			paths: [
 				...folders
 					.concat(agentScratch(scratchId(agentId)))
 					.map((path) => ({ path, access: "write" as const })),
-				...grants.paths,
+				...(fullFile ? [] : grants.paths),
 			],
 		};
 	};
@@ -2509,8 +2528,25 @@ export function createServer(
 		}
 		void Promise.all(agents.map((agent) => agent.done))
 			.then(() => commands.close())
-			.finally(() => database.close());
+			.finally(() => {
+				try {
+					database.close();
+				} finally {
+					ownership?.close();
+					finishShutdown();
+				}
+			});
 	});
+	// A close callback denotes completed execution/database cleanup, not just HTTP closure.
+	const close = server.close.bind(server);
+	server.close = (callback) =>
+		close(
+			callback
+				? (error) => {
+						void shutdown.then(() => callback(error));
+					}
+				: undefined,
+		);
 	return Object.assign(server, { managementToken });
 }
 if (import.meta.main) {

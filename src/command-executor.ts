@@ -279,14 +279,19 @@ export class CommandExecutor {
 	) {
 		const scratch = await agentScratch(options.agentId);
 		const targets = await Promise.all(
-			options.targetFolders.map(async (path) => {
-				if (!isAbsolute(path))
-					throw new Error("Target Folders must be absolute literal paths");
-				return realpath(path);
-			}),
+			(options.extraPermissions?.fullFile ? [] : options.targetFolders).map(
+				async (path) => {
+					if (!isAbsolute(path))
+						throw new Error("Target Folders must be absolute literal paths");
+					return realpath(path);
+				},
+			),
 		);
 		const extraPaths = await Promise.all(
-			(options.extraPermissions?.paths ?? []).map(async (scope) => {
+			(options.extraPermissions?.fullFile
+				? []
+				: (options.extraPermissions?.paths ?? [])
+			).map(async (scope) => {
 				if ((await realpath(scope.path)) !== scope.path)
 					throw new Error("Approved path changed before execution");
 				return scope;

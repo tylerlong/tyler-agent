@@ -1,8 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	realpathSync,
+	statSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-export function openDatabase(path: string, createDefaultDirectory: boolean) {
+function prepareDatabasePath(path: string, createDefaultDirectory: boolean) {
 	if (path !== ":memory:") {
 		if (createDefaultDirectory) {
 			mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -16,6 +22,35 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 	}
 	if (existsSync(path) && !(statSync(path).mode & 0o222))
 		throw new Error("Database is read-only");
+}
+
+export function acquireDatabaseOwnership(
+	path: string,
+	createDefaultDirectory: boolean,
+) {
+	prepareDatabasePath(path, createDefaultDirectory);
+	if (path === ":memory:") return undefined;
+	const canonical = existsSync(path)
+		? realpathSync(path)
+		: join(realpathSync(dirname(path)), basename(path));
+	// Keep the main database readable while the OS releases ownership on process death.
+	const ownership = new DatabaseSync(`${canonical}.owner.sqlite`);
+	try {
+		chmodSync(`${canonical}.owner.sqlite`, 0o600);
+		ownership.exec("BEGIN EXCLUSIVE");
+		return ownership;
+	} catch (error) {
+		ownership.close();
+		if (error instanceof Error && /database is locked/.test(error.message))
+			throw new Error(
+				`Database is already in use by another service: ${canonical}`,
+			);
+		throw error;
+	}
+}
+
+export function openDatabase(path: string, createDefaultDirectory: boolean) {
+	prepareDatabasePath(path, createDefaultDirectory);
 	const db = new DatabaseSync(path);
 	try {
 		db.exec("PRAGMA foreign_keys = ON");

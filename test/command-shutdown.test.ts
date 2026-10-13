@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { promisify } from "node:util";
+import { createServer } from "../src/server.ts";
 import { configureDatabase, createTestServer } from "./config-fixture.ts";
 import { localFetch, managementTokens } from "./local-fetch.ts";
 import { completedBody } from "./model-fixture.ts";
@@ -122,7 +123,14 @@ for (const unresponsive of [false, true])
 			pid = owned[0];
 			if (unresponsive) process.kill(pid, "SIGSTOP");
 			server.closeAllConnections();
-			await new Promise<void>((resolve) => server.close(() => resolve()));
+			const shutdown = new Promise<void>((resolve) =>
+				server.close(() => resolve()),
+			);
+			assert.throws(
+				() => createServer(undefined, join(directory, "db.sqlite")),
+				/Database is already in use/,
+			);
+			await shutdown;
 			closed = true;
 			const deadline = Date.now() + 40000;
 			while (Date.now() < deadline && (await executorPids()).includes(pid))

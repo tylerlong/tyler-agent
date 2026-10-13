@@ -48,9 +48,20 @@ export async function releasePort(port: number) {
 				throw error;
 		}
 	}
-	for (let attempt = 0; attempt < 40; attempt++) {
-		if (!listeners().size) return;
+	for (let attempt = 0; attempt < 800; attempt++) {
+		const alive = [...pids].some((pid) => {
+			try {
+				process.kill(pid, 0);
+				return true;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+				throw error;
+			}
+		});
+		if (!listeners().size && !alive) return;
 		await delay(50);
 	}
-	throw new Error(`Port ${port} is still occupied`);
+	throw new Error(
+		`Port ${port} has not finished releasing its previous service`,
+	);
 }
