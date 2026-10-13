@@ -34,10 +34,10 @@ export function AccessDefaults({
 				async () => {
 					try {
 						const value = await api("/api/access-defaults");
-						authorizationError.current = false;
+						if (!retryPatch.current) authorizationError.current = false;
 						return value;
 					} catch (cause) {
-						authorizationError.current =
+						authorizationError.current ||=
 							appError(cause).code === "managementAuthorizationRequired";
 						throw cause;
 					}
@@ -46,7 +46,7 @@ export function AccessDefaults({
 					try {
 						await api("/api/access-defaults", "PATCH", value);
 					} catch (cause) {
-						authorizationError.current =
+						authorizationError.current ||=
 							appError(cause).code === "managementAuthorizationRequired";
 						throw cause;
 					}
@@ -71,6 +71,7 @@ export function AccessDefaults({
 						}
 						if (!Object.keys(retryPatch.current ?? {}).length)
 							retryPatch.current = null;
+						if (!retryPatch.current) authorizationError.current = false;
 					}
 					const ok = result === "saved" && !retryPatch.current;
 					setFailed(!ok);

@@ -300,3 +300,43 @@ test("failed access choices survive other saves and page updates; Retry and Clos
 		networkAccess: "restricted",
 	});
 });
+
+test("rejected access saves retain actionable authorization feedback across successful reads and unrelated saves", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
+	const section = page.locator("section", {
+		has: page.getByRole("heading", { name: "New Chat access defaults" }),
+	});
+	await page.route("**/api/access-defaults", async (route) => {
+		if (
+			route.request().method() === "PATCH" &&
+			route.request().postDataJSON().fileAccess
+		)
+			await route.fulfill({
+				status: 403,
+				contentType: "application/json",
+				body: JSON.stringify({ code: "managementAuthorizationRequired" }),
+			});
+		else await route.continue();
+	});
+	await section.getByLabel("File access", { exact: true }).selectOption("full");
+	await expect(section.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	await section
+		.getByLabel("Network access", { exact: true })
+		.selectOption("full");
+	await expect(
+		section.getByLabel("Network access", { exact: true }),
+	).toBeEnabled();
+	await expect(section.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	await page.unroute("**/api/access-defaults");
+	await section.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(section.getByRole("alert")).toHaveCount(0);
+});
