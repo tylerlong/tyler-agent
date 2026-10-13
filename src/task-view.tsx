@@ -8,7 +8,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
-import { managementHeaders } from "./api.ts";
+import { api, appError } from "./api.ts";
+import { subscribeEvents } from "./api-events.ts";
 
 export const urlAgent = () => {
 	const value = new URL(location.href).searchParams.get("agent");
@@ -105,9 +106,7 @@ export function TaskView({
 		const read = (reads.current.get(id) ?? 0) + 1;
 		reads.current.set(id, read);
 		try {
-			const response = await fetch(`/api/agents/${id}`);
-			if (!response.ok) throw new Error("taskReadFailed");
-			const data = await response.json();
+			const data = await api(`/api/agents/${id}`);
 			if (!mounted.current || reads.current.get(id) !== read) return;
 			taskRecords[id] = { agent: data.agents[0], revision: read };
 			setCache((current) => ({
@@ -115,17 +114,19 @@ export function TaskView({
 				[id]: { agent: data.agents[0], revision: read },
 			}));
 			if (selected.current === id) setError(null);
-		} catch {
+		} catch (cause) {
 			if (reads.current.get(id) === read && selected.current === id)
-				setError("taskReadFailed");
+				setError(
+					appError(cause).code === "managementAuthorizationRequired"
+						? "managementAuthorizationRequired"
+						: "taskReadFailed",
+				);
 		}
 	}, []);
 	const refreshTree = useCallback(async (id: number) => {
 		const read = ++treeRead.current;
 		try {
-			const response = await fetch(`/api/agents/${id}/tree`);
-			if (!response.ok) throw new Error("taskReadFailed");
-			const data: TaskTree = await response.json();
+			const data: TaskTree = await api(`/api/agents/${id}/tree`);
 			if (read !== treeRead.current) return;
 			if (!initializedRoots.has(data.rootAgentId)) {
 				initializedRoots.add(data.rootAgentId);
@@ -143,8 +144,13 @@ export function TaskView({
 				setExpanded(new Set(expandedNodes));
 			}
 			setTree(data);
-		} catch {
-			if (read === treeRead.current) setError("taskReadFailed");
+		} catch (cause) {
+			if (read === treeRead.current)
+				setError(
+					appError(cause).code === "managementAuthorizationRequired"
+						? "managementAuthorizationRequired"
+						: "taskReadFailed",
+				);
 		}
 	}, []);
 	useEffect(() => {
@@ -153,26 +159,31 @@ export function TaskView({
 		void refreshTree(agentId);
 	}, [agentId, cancellation, refresh, refreshTree]);
 	useEffect(() => {
+		mounted.current = true;
 		const sync = () => {
 			void refresh(selected.current);
 			void refreshTree(selected.current);
 		};
-		const events = new EventSource("/api/events");
-		events.onopen = sync;
-		events.onmessage = sync;
-		events.addEventListener("agent", (event) => {
-			const {
-				agentId: changedId,
-				chatId,
-				parentAgentId,
-			} = JSON.parse(event.data);
-			if (changedId !== selected.current && chatId !== treeRef.current?.chatId)
-				return;
-			void refreshTree(selected.current);
-			if (changedId === selected.current || parentAgentId === selected.current)
-				void refresh(selected.current);
+		const unsubscribe = subscribeEvents({
+			onOpen: sync,
+			onEvent: (name, data) => {
+				if (name === "message") return sync();
+				if (name !== "agent") return;
+				const { agentId: changedId, chatId, parentAgentId } = JSON.parse(data);
+				if (
+					changedId !== selected.current &&
+					chatId !== treeRef.current?.chatId
+				)
+					return;
+				void refreshTree(selected.current);
+				if (
+					changedId === selected.current ||
+					parentAgentId === selected.current
+				)
+					void refresh(selected.current);
+			},
+			onError: (error) => setError(error.code),
 		});
-		events.onerror = () => setError("networkFailed");
 		const visible = () => {
 			if (document.visibilityState === "visible") sync();
 		};
@@ -180,7 +191,7 @@ export function TaskView({
 		document.addEventListener("visibilitychange", visible);
 		return () => {
 			mounted.current = false;
-			events.close();
+			unsubscribe();
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", visible);
 		};
@@ -200,13 +211,11 @@ export function TaskView({
 		notifyCancellation();
 		let failed = false;
 		try {
-			const response = await fetch(`/api/agents/${id}/cancel`, {
-				method: "POST",
-				headers: managementHeaders(),
-			});
-			if (!response.ok) throw new Error();
-		} catch {
+			await api(`/api/agents/${id}/cancel`, "POST");
+		} catch (cause) {
 			failed = true;
+			if (appError(cause).code === "managementAuthorizationRequired")
+				setError("managementAuthorizationRequired");
 		} finally {
 			if (failed) cancellations.set(id, "agentCancelFailed");
 			else cancellations.delete(id);

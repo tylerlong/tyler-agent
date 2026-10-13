@@ -6,7 +6,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { managementHeaders } from "./api.ts";
+import { api, appError } from "./api.ts";
 
 const keys = ["modelCallLimit", "subAgentLimit"] as const;
 type Key = (typeof keys)[number];
@@ -31,19 +31,17 @@ export function ExecutionLimits({
 	const loading = useRef<Promise<void> | null>(null);
 	const pending = useRef<Partial<Record<Key, Promise<boolean>>>>({});
 	const [ready, setReady] = useState(false);
-	const [readFailed, setReadFailed] = useState(false);
+	const [readFailed, setReadFailed] = useState("");
 	const [feedback, setFeedback] = useState<Partial<Record<Key, string>>>({});
 	const report = useCallback((key: Key, message: string) => {
 		setFeedback((current) => ({ ...current, [key]: message }));
 	}, []);
 	const refresh = useCallback(async () => {
-		setReadFailed(false);
+		setReadFailed("");
 		setReady(false);
 		saved.current = null;
 		try {
-			const response = await fetch("/api/execution-limits");
-			if (!response.ok) throw new Error();
-			const value: Limits = await response.json();
+			const value: Limits = await api("/api/execution-limits");
 			if (
 				!keys.every((key) => Number.isSafeInteger(value[key]) && value[key] > 0)
 			)
@@ -56,8 +54,12 @@ export function ExecutionLimits({
 			setDrafts(draftRef.current);
 			setFeedback({});
 			setReady(true);
-		} catch {
-			setReadFailed(true);
+		} catch (cause) {
+			setReadFailed(
+				appError(cause).code === "managementAuthorizationRequired"
+					? "managementAuthorizationRequired"
+					: "executionLimitsFailed",
+			);
 		}
 	}, []);
 	useEffect(() => {
@@ -79,20 +81,17 @@ export function ExecutionLimits({
 			report(key, "settingsSaving");
 			const operation = (async () => {
 				try {
-					const response = await fetch("/api/execution-limits", {
-						method: "PATCH",
-						headers: {
-							"content-type": "application/json",
-							...managementHeaders(),
-						},
-						body: JSON.stringify({ [key]: value }),
-					});
-					if (!response.ok) throw new Error();
+					await api("/api/execution-limits", "PATCH", { [key]: value });
 					if (saved.current) saved.current[key] = value;
 					report(key, draftRef.current[key] === draft ? "settingsSaved" : "");
 					return true;
-				} catch {
-					report(key, "executionLimitsFailed");
+				} catch (cause) {
+					report(
+						key,
+						appError(cause).code === "managementAuthorizationRequired"
+							? "managementAuthorizationRequired"
+							: "executionLimitsFailed",
+					);
 					return false;
 				} finally {
 					delete pending.current[key];
@@ -189,7 +188,7 @@ export function ExecutionLimits({
 			))}
 			{readFailed && (
 				<div role="alert" className="mt-2 text-red-700">
-					{t("executionLimitsFailed")}{" "}
+					{t(readFailed)}{" "}
 					<button
 						type="button"
 						className="rounded-md border border-neutral-300 px-3 py-2 hover:bg-neutral-100 disabled:opacity-50"

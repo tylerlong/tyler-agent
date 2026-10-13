@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { api } from "./api.ts";
 import type { ToolCall } from "./tool-calls.tsx";
 
 type Call = {
@@ -60,11 +61,7 @@ async function read<T>(
 		}
 	}
 }
-async function json(url: string) {
-	const response = await fetch(url);
-	if (!response.ok) throw new Error("Unable to read record");
-	return response.json();
-}
+const json = api;
 type Communication = ReadState & {
 	calls?: Call[];
 	status?: string;

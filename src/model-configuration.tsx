@@ -7,7 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { managementHeaders } from "./api.ts";
+import { appError, api as request } from "./api.ts";
 import type { ManagedModel, ModelSettings } from "./model-settings.ts";
 
 const input =
@@ -112,23 +112,7 @@ export function ModelConfiguration({
 	const [keyError, setKeyError] = useState("");
 	const [keySaving, setKeySaving] = useState(false);
 	const [keySaved, setKeySaved] = useState(false);
-	const [catalogError, setCatalogError] = useState(false);
-	async function request(path: string, method: string, body?: unknown) {
-		const response = await fetch(path, {
-			method,
-			headers: {
-				...(body === undefined ? {} : { "content-type": "application/json" }),
-				...(method !== "GET" ? managementHeaders() : {}),
-			},
-			...(body === undefined
-				? {}
-				: {
-						body: JSON.stringify(body),
-					}),
-		});
-		if (!response.ok) throw new Error("configurationSaveFailed");
-		return response.json();
-	}
+	const [catalogError, setCatalogError] = useState("");
 	function mutate(
 		path: string,
 		method: string,
@@ -154,12 +138,16 @@ export function ModelConfiguration({
 				}
 				await refresh();
 				return true;
-			} catch {
+			} catch (cause) {
 				modelRetries.current.set(path, {
 					retry: () => mutate(path, method, body),
 					defaultModelId: body?.defaultModelId,
 				});
-				setError("configurationSaveFailed");
+				setError(
+					appError(cause).code === "managementAuthorizationRequired"
+						? "managementAuthorizationRequired"
+						: "configurationSaveFailed",
+				);
 				return false;
 			} finally {
 				saving.current = false;
@@ -189,9 +177,12 @@ export function ModelConfiguration({
 				setKeySaved(credential.current.draft === value);
 				await refresh();
 				return true;
-			} catch {
-				credential.current.error = "credentialSaveFailed";
-				setKeyError("credentialSaveFailed");
+			} catch (cause) {
+				credential.current.error =
+					appError(cause).code === "managementAuthorizationRequired"
+						? "managementAuthorizationRequired"
+						: "credentialSaveFailed";
+				setKeyError(credential.current.error);
 				return false;
 			} finally {
 				setKeySaving(false);
@@ -250,7 +241,7 @@ export function ModelConfiguration({
 				if (
 					!state.loaded ||
 					(!keySave.current &&
-						state.error !== "credentialSaveFailed" &&
+						!state.error &&
 						state.saved === previousSaved &&
 						state.draft === state.saved)
 				) {
@@ -265,9 +256,12 @@ export function ModelConfiguration({
 				}
 				setKeyLoaded(true);
 				return true;
-			} catch {
-				credential.current.error = "credentialReadFailed";
-				setKeyError("credentialReadFailed");
+			} catch (cause) {
+				credential.current.error =
+					appError(cause).code === "managementAuthorizationRequired"
+						? "managementAuthorizationRequired"
+						: "credentialReadFailed";
+				setKeyError(credential.current.error);
 				return false;
 			} finally {
 				keyRead.current = null;
@@ -282,7 +276,7 @@ export function ModelConfiguration({
 			open &&
 			!keySave.current &&
 			credential.current.draft === credential.current.saved &&
-			credential.current.error !== "credentialSaveFailed"
+			!credential.current.error
 		)
 			void readCredential();
 	}, [open, settings]);
@@ -314,9 +308,13 @@ export function ModelConfiguration({
 				saving.current = false;
 				cancelAddition();
 				return true;
-			} catch {
+			} catch (cause) {
 				additionRetry.current = () => addModel(id);
-				setAdditionError("configurationSaveFailed");
+				setAdditionError(
+					appError(cause).code === "managementAuthorizationRequired"
+						? "managementAuthorizationRequired"
+						: "configurationSaveFailed",
+				);
 				return false;
 			} finally {
 				saving.current = false;
@@ -359,19 +357,19 @@ export function ModelConfiguration({
 		if (!open) return;
 		let current = true;
 		setCatalogLoading(true);
-		setCatalogError(false);
-		void fetch("/api/model-catalog", {
-			method: "POST",
-			headers: managementHeaders(),
-		})
-			.then(async (response) => {
-				if (!response.ok) throw new Error("catalogReadFailed");
-				const data = await response.json();
+		setCatalogError("");
+		void request("/api/model-catalog", "POST")
+			.then(async (data) => {
 				if (current) setCatalog(data.models);
 				await refresh();
 			})
-			.catch(() => {
-				if (current) setCatalogError(true);
+			.catch((cause) => {
+				if (current)
+					setCatalogError(
+						appError(cause).code === "managementAuthorizationRequired"
+							? "managementAuthorizationRequired"
+							: "catalogReadFailed",
+					);
 			})
 			.finally(() => {
 				if (current) setCatalogLoading(false);
@@ -634,7 +632,7 @@ export function ModelConfiguration({
 												)}
 												{catalogError && (
 													<p role="alert" className="px-3 py-2 text-red-700">
-														{t("catalogReadFailed")}
+														{t(catalogError || "catalogReadFailed")}
 													</p>
 												)}
 												{additionError && (
@@ -694,7 +692,7 @@ export function ModelConfiguration({
 								aria-hidden={adding}
 								className={`mt-2 text-red-700 ${adding ? "invisible" : ""}`}
 							>
-								{t("catalogReadFailed")}
+								{t(catalogError || "catalogReadFailed")}
 							</p>
 						)}
 						{error && (

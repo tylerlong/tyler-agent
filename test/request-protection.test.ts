@@ -271,3 +271,154 @@ test("local Host and exact Origin protect all mutations and bodyless cancellatio
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test("every API method and event stream requires the startup management token", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-token-"));
+	const server = createTestServer(
+		async () => {
+			throw new Error("unused");
+		},
+		join(directory, "db.sqlite"),
+	).listen(0, "127.0.0.1");
+	await once(server, "listening");
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const base = `http://127.0.0.1:${address.port}`;
+	try {
+		for (const path of [
+			"/api/projects",
+			"/api/settings/credential",
+			"/api/model-catalog",
+			"/api/events",
+			"/api/unknown",
+		]) {
+			for (const method of ["GET", "POST", "HEAD", "OPTIONS"]) {
+				for (const token of [undefined, "f".repeat(64)]) {
+					const response = await fetch(base + path, {
+						method,
+						headers: {
+							Origin: base,
+							...(token ? { "x-tyler-management-token": token } : {}),
+						},
+					});
+					assert.equal(response.status, 403, `${method} ${path}`);
+					if (method !== "HEAD")
+						assert.equal(
+							(await response.json()).code,
+							"managementAuthorizationRequired",
+						);
+				}
+			}
+		}
+		for (const method of ["GET", "HEAD", "OPTIONS", "POST"]) {
+			const response = await fetch(base + "/api/projects", {
+				method,
+				headers: {
+					Origin: base,
+					"x-tyler-management-token": server.managementToken,
+				},
+				...(method === "POST"
+					? { body: JSON.stringify({ name: "safe", folders: [] }) }
+					: {}),
+			});
+			assert.notEqual(response.status, 403);
+		}
+		const events = await fetch(base + "/api/events", {
+			headers: { "x-tyler-management-token": server.managementToken },
+		});
+		assert.equal(events.status, 200);
+		await events.body?.cancel();
+		assert.equal((await fetch(base + "/")).status, 200);
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("JSON bodies decode split UTF-8 without changing validation or character limits", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-utf8-"));
+	const server = createTestServer(
+		async () => {
+			throw new Error("unused");
+		},
+		join(directory, "db.sqlite"),
+	).listen(0, "127.0.0.1");
+	await once(server, "listening");
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const base = `http://127.0.0.1:${address.port}`;
+	const send = (body: string, split = -1) =>
+		new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+			const req = request(
+				base + "/api/projects",
+				{
+					method: "POST",
+					headers: {
+						Origin: base,
+						"x-tyler-management-token": server.managementToken,
+					},
+				},
+				(res) => {
+					let received = "";
+					res.setEncoding("utf8");
+					res.on("data", (chunk) => (received += chunk));
+					res.on("end", () =>
+						resolve({ status: res.statusCode!, body: JSON.parse(received) }),
+					);
+				},
+			);
+			req.on("error", reject);
+			const bytes = Buffer.from(body);
+			if (split < 0) req.end(bytes);
+			else {
+				req.write(bytes.subarray(0, split));
+				setTimeout(() => req.end(bytes.subarray(split)), 10);
+			}
+		});
+	try {
+		const name = "中🙂文";
+		const body = JSON.stringify({ name, folders: [] });
+		for (const offset of [1, 2, 4, 5, 6]) {
+			assert.equal(
+				(
+					await send(
+						body,
+						Buffer.from(body).indexOf(Buffer.from(name)) + offset,
+					)
+				).status,
+				201,
+			);
+		}
+		const projects = await (
+			await fetch(base + "/api/projects", {
+				headers: { "x-tyler-management-token": server.managementToken },
+			})
+		).json();
+		assert.deepEqual(
+			projects.projects.map((p: { name: string }) => p.name),
+			Array(5).fill(name),
+		);
+		assert.equal(
+			(await send(JSON.stringify({ name: "中".repeat(8150), folders: [] }), 12))
+				.status,
+			201,
+		);
+		for (const [body, code] of [
+			[
+				JSON.stringify({ name: "中".repeat(8192), folders: [] }),
+				"requestTooLarge",
+			],
+			["{", "invalidInput"],
+			["[]", "invalidInput"],
+		]) {
+			const result = await send(body);
+			assert.equal(result.status, 400);
+			assert.equal((result.body as { code: string }).code, code);
+		}
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});

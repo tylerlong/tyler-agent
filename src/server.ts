@@ -8,6 +8,7 @@ import {
 } from "node:http";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
@@ -130,10 +131,13 @@ async function readJson(
 	request: IncomingMessage,
 ): Promise<Record<string, unknown>> {
 	let body = "";
+	const decoder = new StringDecoder("utf8");
 	for await (const chunk of request) {
-		body += chunk;
+		body += decoder.write(chunk);
 		if (body.length > 8192) throw new InputError("requestTooLarge");
 	}
+	body += decoder.end();
+	if (body.length > 8192) throw new InputError("requestTooLarge");
 	try {
 		const input: unknown = JSON.parse(body);
 		if (!input || typeof input !== "object" || Array.isArray(input))
@@ -1442,20 +1446,8 @@ export function createServer(
 			json(response, 403, { error: "Invalid request target" });
 			return;
 		}
-		if (
-			url.pathname.startsWith("/api/") &&
-			!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "") &&
-			request.headers.origin !== origin
-		) {
-			request.resume();
-			json(response, 403, { error: "Matching Origin required" });
-			return;
-		}
 		const path = url.pathname;
-		if (
-			path.startsWith("/api/") &&
-			!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "")
-		) {
+		if (path.startsWith("/api/")) {
 			const token = request.headers["x-tyler-management-token"];
 			if (
 				typeof token !== "string" ||
@@ -1469,6 +1461,15 @@ export function createServer(
 				});
 				return;
 			}
+		}
+		if (
+			url.pathname.startsWith("/api/") &&
+			!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "") &&
+			request.headers.origin !== origin
+		) {
+			request.resume();
+			json(response, 403, { error: "Matching Origin required" });
+			return;
 		}
 		if (path === "/api/approvals" && request.method === "GET") {
 			json(response, 200, {

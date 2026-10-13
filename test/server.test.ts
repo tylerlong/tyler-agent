@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { localFetch as fetch } from "./local-fetch.ts";
+import { localFetch as fetch, managementTokens } from "./local-fetch.ts";
 import { createServer } from "./server-fixture.ts";
 
 // CLI startup releases its selected port, so never use the user's default.
@@ -81,6 +81,9 @@ test("CLI replaces an occupied port, uses --port independently of environment an
 				}),
 			]);
 			assert.match(output, /Releasing port/);
+			const token = output.match(/#management=([a-f0-9]{64})/)?.[1];
+			assert(token);
+			managementTokens.set(`http://127.0.0.1:${port}`, token);
 			await oldExited;
 			assert.equal(
 				(await fetch(`http://127.0.0.1:${port}/api/projects`)).status,

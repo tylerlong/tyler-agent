@@ -164,7 +164,7 @@ test("management writes reject native forged Origin and cannot bootstrap a token
 			"/api/token",
 		]) {
 			const res = await fetch(f.base + route);
-			assert.equal(res.status, 404);
+			assert.equal(res.status, 403);
 			assert(!(await res.text()).includes(f.server.managementToken));
 		}
 		const html = await (await fetch(f.base)).text();
@@ -441,7 +441,7 @@ test(
 			assert.equal((await waitForAgent(base, id)).status, "succeeded");
 			const output = JSON.stringify(f.results);
 			assert.match(output, /forged:403/);
-			assert.match(output, /bootstrap:404/);
+			assert.match(output, /bootstrap:403/);
 			assert(!output.includes(f.server.managementToken));
 			assert.equal((await f.request("/api/projects")).projects.length, 1);
 		} finally {

@@ -12,7 +12,8 @@ import { useTranslation } from "react-i18next";
 import { AccessDefaults } from "./access-defaults.tsx";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
 import type { ReaderItem } from "./agent-output.tsx";
-import { ApiError, api, appError } from "./api.ts";
+import { type ApiError, api, appError } from "./api.ts";
+import { subscribeEvents } from "./api-events.ts";
 import { type Approval, ApprovalInbox } from "./approvals.tsx";
 import {
 	ChatOptionPicker,
@@ -777,37 +778,41 @@ function App() {
 			if (document.visibilityState === "visible") sync();
 		};
 		sync();
-		const events = new EventSource("/api/events");
-		events.onopen = sync;
-		events.onmessage = sync;
-		events.addEventListener("agent", (event) => {
-			void refreshApprovals();
-			const { chatId, agentId, parentAgentId } = JSON.parse(event.data);
-			if (parentAgentId != null) {
-				if (
-					cacheRef.current[chatId]?.agents.some(
-						(agent) => agent.id === parentAgentId,
+		const unsubscribe = subscribeEvents({
+			onOpen: sync,
+			onEvent: (name, data) => {
+				if (name === "message") return sync();
+				if (name !== "agent") return;
+				void refreshApprovals();
+				const { chatId, agentId, parentAgentId } = JSON.parse(data);
+				if (parentAgentId != null) {
+					if (
+						cacheRef.current[chatId]?.agents.some(
+							(agent) => agent.id === parentAgentId,
+						)
 					)
-				)
-					void refreshAgent(chatId, parentAgentId);
-				return;
-			}
-			void refreshAgent(chatId, agentId);
+						void refreshAgent(chatId, parentAgentId);
+					return;
+				}
+				void refreshAgent(chatId, agentId);
+			},
+			onError: (error) => {
+				if (error.code === "managementAuthorizationRequired")
+					setProjectsError(error);
+				for (const id of Object.keys(cacheRef.current).map(Number)) {
+					chatRevisions.current[id] = (chatRevisions.current[id] ?? 0) + 1;
+					setHistoryErrors((errors) => ({
+						...errors,
+						[id]: error,
+					}));
+				}
+			},
 		});
-		events.onerror = () => {
-			for (const id of Object.keys(cacheRef.current).map(Number)) {
-				chatRevisions.current[id] = (chatRevisions.current[id] ?? 0) + 1;
-				setHistoryErrors((errors) => ({
-					...errors,
-					[id]: new ApiError("networkFailed"),
-				}));
-			}
-		};
 		window.addEventListener("approvals-changed", sync);
 		window.addEventListener("focus", sync);
 		document.addEventListener("visibilitychange", visible);
 		return () => {
-			events.close();
+			unsubscribe();
 			window.removeEventListener("approvals-changed", sync);
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", visible);
@@ -1212,7 +1217,11 @@ function App() {
 				{languageError ? (
 					<>
 						<p role="alert" className="text-red-700">
-							{t(languageError)}
+							{t(
+								projectsError?.code === "managementAuthorizationRequired"
+									? projectsError.code
+									: languageError,
+							)}
 						</p>
 						<button
 							type="button"
@@ -1837,7 +1846,11 @@ function App() {
 									role="alert"
 									className="whitespace-pre-wrap break-words text-red-700"
 								>
-									{t(languageError)}
+									{t(
+										projectsError?.code === "managementAuthorizationRequired"
+											? projectsError.code
+											: languageError,
+									)}
 								</p>
 								<button
 									type="button"
@@ -1887,7 +1900,11 @@ function App() {
 						{enterError && (
 							<div className="mt-4">
 								<p role="alert" className="text-red-700">
-									{t(enterError)}
+									{t(
+										projectsError?.code === "managementAuthorizationRequired"
+											? projectsError.code
+											: enterError,
+									)}
 								</p>
 								<button
 									type="button"

@@ -12,11 +12,12 @@ if (typeof window !== "undefined") {
 	}
 }
 export class ApiError extends Error {
-	constructor(
-		public code: string,
-		public details?: string,
-	) {
+	code: string;
+	details?: string;
+	constructor(code: string, details?: string) {
 		super(code);
+		this.code = code;
+		this.details = details;
 	}
 }
 export function appError(cause: unknown) {
@@ -31,34 +32,48 @@ export function managementHeaders(): Record<string, string> {
 			: sessionStorage.getItem(managementKey);
 	return token ? { "x-tyler-management-token": token } : {};
 }
-export async function api(path: string, method = "GET", input?: unknown) {
+export async function apiFetch(path: string, init?: RequestInit) {
+	if (
+		!path.startsWith("/api/") ||
+		!new URL(path, "http://localhost").pathname.startsWith("/api/")
+	)
+		throw new ApiError("invalidRequest");
+	const headers = new Headers(init?.headers);
+	for (const [name, value] of Object.entries(managementHeaders()))
+		headers.set(name, value);
 	let response: Response;
 	try {
-		response = await fetch(path, {
-			method,
-			headers: {
-				...(input === undefined ? {} : { "content-type": "application/json" }),
-				...(method !== "GET" ? managementHeaders() : {}),
-			},
-			...(input === undefined
-				? {}
-				: {
-						body: JSON.stringify(input),
-					}),
-		});
+		response = await fetch(path, { ...init, headers, redirect: "error" });
 	} catch (cause) {
 		throw new ApiError("networkFailed", String(cause));
 	}
-	let data: Awaited<ReturnType<Response["json"]>>;
-	try {
-		data = await response.json();
-	} catch (cause) {
-		throw new ApiError("invalidResponse", String(cause));
-	}
-	if (!response.ok)
+	if (!response.ok) {
+		let data: Awaited<ReturnType<Response["json"]>>;
+		try {
+			data = await response.json();
+		} catch (cause) {
+			throw new ApiError("invalidResponse", String(cause));
+		}
 		throw new ApiError(
 			data.code ?? "requestFailed",
 			data.details ?? (data.code ? undefined : data.error),
 		);
-	return data;
+	}
+	return response;
+}
+export async function api(path: string, method = "GET", input?: unknown) {
+	const response = await apiFetch(path, {
+		method,
+		...(input === undefined
+			? {}
+			: {
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(input),
+				}),
+	});
+	try {
+		return await response.json();
+	} catch (cause) {
+		throw new ApiError("invalidResponse", String(cause));
+	}
 }

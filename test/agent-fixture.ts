@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
+import { localFetch as fetch } from "./local-fetch.ts";
 
 export async function waitForIdle(base: string, id: number) {
 	for (let attempt = 0; attempt < 6000; attempt++) {
