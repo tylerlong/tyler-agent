@@ -1,11 +1,13 @@
 import {
 	chmodSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
+	readlinkSync,
 	realpathSync,
 	statSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 function prepareDatabasePath(path: string, createDefaultDirectory: boolean) {
@@ -30,9 +32,19 @@ export function acquireDatabaseOwnership(
 ) {
 	prepareDatabasePath(path, createDefaultDirectory);
 	if (path === ":memory:") return undefined;
-	const canonical = existsSync(path)
-		? realpathSync(path)
-		: join(realpathSync(dirname(path)), basename(path));
+	let canonical = path;
+	const aliases = new Set<string>();
+	for (;;) {
+		canonical = join(realpathSync(dirname(canonical)), basename(canonical));
+		if (!lstatSync(canonical, { throwIfNoEntry: false })?.isSymbolicLink())
+			break;
+		if (aliases.has(canonical) || aliases.size >= 40)
+			throw new Error(
+				"Database path contains a symbolic-link cycle or too many links",
+			);
+		aliases.add(canonical);
+		canonical = resolve(dirname(canonical), readlinkSync(canonical));
+	}
 	// Keep the main database readable while the OS releases ownership on process death.
 	const ownership = new DatabaseSync(`${canonical}.owner.sqlite`);
 	try {

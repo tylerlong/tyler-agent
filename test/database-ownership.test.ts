@@ -40,195 +40,239 @@ test("a live service owns its database across aliases until shutdown, while inde
 	await rm(directory, { recursive: true, force: true });
 });
 
-test("independent services reject concurrent owners before recovery, recover a killed owner without replay, and replace the same port", {
-	timeout: 30000,
-}, async () => {
-	const { spawn } = await import("node:child_process");
-	const { createServer: createHttpServer } = await import("node:http");
-	const { DatabaseSync } = await import("node:sqlite");
-	const { setTimeout: delay } = await import("node:timers/promises");
-	const { configureDatabase } = await import("./config-fixture.ts");
-	const directory = await mkdtemp(join(tmpdir(), "database-process-"));
-	const path = join(directory, "db.sqlite");
-	configureDatabase(path);
-	const children: ReturnType<typeof spawn>[] = [];
-	const freePort = async () => {
-		const probe = createHttpServer().listen(0, "127.0.0.1");
-		await once(probe, "listening");
-		const address = probe.address();
-		assert(address && typeof address !== "string");
-		await new Promise<void>((resolve) => probe.close(() => resolve()));
-		return address.port;
-	};
-	const start = (database: string, port: number) => {
-		const preload =
-			"globalThis.fetch=async (_url,init)=>{console.log('model-request');return new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}))}";
-		const child = spawn(
-			process.execPath,
-			[
-				"--import",
-				`data:text/javascript;base64,${Buffer.from(preload).toString("base64")}`,
-				new URL("../src/server.ts", import.meta.url).pathname,
-				"--db",
-				database,
-				"--port",
-				String(port),
-			],
-			{ stdio: ["ignore", "pipe", "pipe"] },
-		);
-		children.push(child);
-		let stdout = "",
-			stderr = "";
-		child.stdout?.on("data", (chunk) => {
-			stdout += String(chunk);
-		});
-		child.stderr?.on("data", (chunk) => {
-			stderr += String(chunk);
-		});
-		const exited = once(child, "exit");
-		return {
-			child,
-			exited,
-			get stdout() {
-				return stdout;
-			},
-			get stderr() {
-				return stderr;
-			},
-			async ready() {
-				for (let n = 0; n < 500; n++) {
-					const match = stdout.match(
-						/Open (http:\/\/127\.0\.0\.1:\d+)\/#management=([a-f0-9]+)/,
-					);
-					if (match) return { base: match[1], token: match[2] };
-					assert.equal(child.exitCode, null, stderr);
-					await delay(10);
-				}
-				throw new Error(`startup timeout: ${stderr}`);
-			},
+for (const initialPath of ["file", "dangling alias", "dangling chain"] as const)
+	test(`independent services started from ${initialPath} reject concurrent owners before recovery, recover a killed owner without replay, and replace the same port`, {
+		timeout: 30000,
+	}, async () => {
+		const { spawn } = await import("node:child_process");
+		const { createServer: createHttpServer } = await import("node:http");
+		const { DatabaseSync } = await import("node:sqlite");
+		const { setTimeout: delay } = await import("node:timers/promises");
+		const { configureDatabase } = await import("./config-fixture.ts");
+		const directory = await mkdtemp(join(tmpdir(), "database-process-"));
+		const path = join(directory, "db.sqlite");
+		const alias = join(directory, "alias.sqlite");
+		const chain = join(directory, "chain.sqlite");
+		if (initialPath === "file") configureDatabase(path);
+		else {
+			await symlink("db.sqlite", alias);
+			if (initialPath === "dangling chain") await symlink(alias, chain);
+		}
+		const children: ReturnType<typeof spawn>[] = [];
+		const freePort = async () => {
+			const probe = createHttpServer().listen(0, "127.0.0.1");
+			await once(probe, "listening");
+			const address = probe.address();
+			assert(address && typeof address !== "string");
+			await new Promise<void>((resolve) => probe.close(() => resolve()));
+			return address.port;
 		};
-	};
-	const request = async (
-		service: { base: string; token: string },
-		route: string,
-		body?: unknown,
-	) => {
-		const response = await fetch(service.base + route, {
-			headers: {
-				"x-tyler-management-token": service.token,
-				origin: service.base,
-			},
-			...(body === undefined
-				? {}
-				: { method: "POST", body: JSON.stringify(body) }),
-		});
-		assert(response.ok, `${route}: ${response.status}`);
-		return response.json();
-	};
-	try {
-		const port = await freePort();
-		const first = start(path, port);
-		const service = await first.ready();
-		const project = await request(service, "/api/projects", {
-			name: "Live",
-			folders: [],
-		});
-		const chat = await request(service, `/api/projects/${project.id}/chats`, {
-			name: "Live",
-		});
-		const { agentId } = await request(service, `/api/chats/${chat.id}`, {
-			prompt: "waiting",
-		});
-		const db = new DatabaseSync(path);
-		for (let n = 0; n < 500 && !first.stdout.includes("model-request"); n++)
-			await delay(10);
-		assert(first.stdout.includes("model-request"));
-		const callId = Number(
-			db.prepare("SELECT id FROM model_calls WHERE agent_id=?").get(agentId)
-				?.id,
-		);
-		assert(callId);
-		db.prepare(
-			"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status) VALUES(?,?,?,?,0,'running')",
-		).run(
-			callId,
-			"synthetic-active",
-			"exec_command",
-			JSON.stringify({ command: "must-not-replay" }),
-		);
-		await symlink(path, join(directory, "alias.sqlite"));
-		for (const alias of [
-			path,
-			relative(process.cwd(), path),
-			join(directory, "alias.sqlite"),
-		]) {
-			const second = start(alias, await freePort());
-			const [code] = await second.exited;
-			assert.equal(code, 1);
-			assert.match(second.stderr, /Database is already in use/);
+		const start = (database: string, port: number) => {
+			const preload =
+				"globalThis.fetch=async (_url,init)=>{console.log('model-request');return new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}))}";
+			const child = spawn(
+				process.execPath,
+				[
+					"--import",
+					`data:text/javascript;base64,${Buffer.from(preload).toString("base64")}`,
+					new URL("../src/server.ts", import.meta.url).pathname,
+					"--db",
+					database,
+					"--port",
+					String(port),
+				],
+				{ stdio: ["ignore", "pipe", "pipe"] },
+			);
+			children.push(child);
+			let stdout = "",
+				stderr = "";
+			child.stdout?.on("data", (chunk) => {
+				stdout += String(chunk);
+			});
+			child.stderr?.on("data", (chunk) => {
+				stderr += String(chunk);
+			});
+			const exited = once(child, "exit");
+			return {
+				child,
+				exited,
+				get stdout() {
+					return stdout;
+				},
+				get stderr() {
+					return stderr;
+				},
+				async ready() {
+					for (let n = 0; n < 500; n++) {
+						const match = stdout.match(
+							/Open (http:\/\/127\.0\.0\.1:\d+)\/#management=([a-f0-9]+)/,
+						);
+						if (match) return { base: match[1], token: match[2] };
+						assert.equal(child.exitCode, null, stderr);
+						await delay(10);
+					}
+					throw new Error(`startup timeout: ${stderr}`);
+				},
+			};
+		};
+		const request = async (
+			service: { base: string; token: string },
+			route: string,
+			body?: unknown,
+		) => {
+			const response = await fetch(service.base + route, {
+				headers: {
+					"x-tyler-management-token": service.token,
+					origin: service.base,
+				},
+				...(body === undefined
+					? {}
+					: { method: "POST", body: JSON.stringify(body) }),
+			});
+			assert(response.ok, `${route}: ${response.status}`);
+			return response.json();
+		};
+		try {
+			const port = await freePort();
+			const first = start(
+				initialPath === "file"
+					? path
+					: initialPath === "dangling alias"
+						? alias
+						: chain,
+				port,
+			);
+			const service = await first.ready();
+			if (initialPath !== "file") configureDatabase(path);
+			const project = await request(service, "/api/projects", {
+				name: "Live",
+				folders: [],
+			});
+			const chat = await request(service, `/api/projects/${project.id}/chats`, {
+				name: "Live",
+			});
+			const { agentId } = await request(service, `/api/chats/${chat.id}`, {
+				prompt: "waiting",
+			});
+			const db = new DatabaseSync(path);
+			for (let n = 0; n < 500 && !first.stdout.includes("model-request"); n++)
+				await delay(10);
+			assert(first.stdout.includes("model-request"));
+			const callId = Number(
+				db.prepare("SELECT id FROM model_calls WHERE agent_id=?").get(agentId)
+					?.id,
+			);
+			assert(callId);
+			db.prepare(
+				"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status) VALUES(?,?,?,?,0,'running')",
+			).run(
+				callId,
+				"synthetic-active",
+				"exec_command",
+				JSON.stringify({ command: "must-not-replay" }),
+			);
+			if (initialPath === "file") await symlink(path, alias);
+			for (const competingPath of [
+				path,
+				relative(process.cwd(), path),
+				alias,
+				...(initialPath === "dangling chain" ? [chain] : []),
+			]) {
+				const second = start(competingPath, await freePort());
+				const [code] = await Promise.race([
+					second.exited,
+					second.ready().then(() => {
+						throw new Error("Concurrent service unexpectedly started");
+					}),
+				]);
+				assert.equal(code, 1);
+				assert.match(second.stderr, /Database is already in use/);
+				assert.equal(
+					db.prepare("SELECT status FROM agents WHERE id=?").get(agentId)
+						?.status,
+					"pending",
+				);
+				assert.equal(
+					db.prepare("SELECT status FROM model_calls WHERE id=?").get(callId)
+						?.status,
+					"pending",
+				);
+				assert.equal(
+					db
+						.prepare("SELECT status FROM tool_calls WHERE model_call_id=?")
+						.get(callId)?.status,
+					"running",
+				);
+				assert((await request(service, "/api/projects")).projects);
+			}
+			const independent = start(
+				join(directory, "independent.sqlite"),
+				await freePort(),
+			);
+			await independent.ready();
+			independent.child.kill("SIGTERM");
+			assert.equal((await independent.exited)[0], 0);
+			first.child.kill("SIGKILL");
+			assert.equal((await first.exited)[1], "SIGKILL");
+			const restarted = start(path, port);
+			await restarted.ready();
 			assert.equal(
 				db.prepare("SELECT status FROM agents WHERE id=?").get(agentId)?.status,
-				"pending",
+				"failed",
 			);
 			assert.equal(
-				db.prepare("SELECT status FROM model_calls WHERE id=?").get(callId)
-					?.status,
-				"pending",
+				db.prepare("SELECT error_code FROM model_calls WHERE id=?").get(callId)
+					?.error_code,
+				"modelInterrupted",
 			);
 			assert.equal(
 				db
 					.prepare("SELECT status FROM tool_calls WHERE model_call_id=?")
 					.get(callId)?.status,
-				"running",
+				"interrupted",
 			);
-			assert((await request(service, "/api/projects")).projects);
+			assert(!restarted.stdout.includes("model-request"));
+			const replacement = start(path, port);
+			const replacementService = await replacement.ready();
+			assert.equal((await restarted.exited)[0], 0);
+			assert((await request(replacementService, "/api/projects")).projects);
+			assert(!replacement.stdout.includes("model-request"));
+			replacement.child.kill("SIGTERM");
+			assert.equal((await replacement.exited)[0], 0);
+			const normalRestart = start(path, port);
+			await normalRestart.ready();
+			normalRestart.child.kill("SIGTERM");
+			assert.equal((await normalRestart.exited)[0], 0);
+			db.close();
+		} finally {
+			for (const child of children)
+				if (child.exitCode === null && child.signalCode === null) {
+					const exited = once(child, "exit");
+					child.kill("SIGKILL");
+					await exited;
+				}
+			await rm(directory, { recursive: true, force: true });
 		}
-		const independent = start(
-			join(directory, "independent.sqlite"),
-			await freePort(),
-		);
-		await independent.ready();
-		independent.child.kill("SIGTERM");
-		assert.equal((await independent.exited)[0], 0);
-		first.child.kill("SIGKILL");
-		assert.equal((await first.exited)[1], "SIGKILL");
-		const restarted = start(path, port);
-		await restarted.ready();
-		assert.equal(
-			db.prepare("SELECT status FROM agents WHERE id=?").get(agentId)?.status,
-			"failed",
-		);
-		assert.equal(
-			db.prepare("SELECT error_code FROM model_calls WHERE id=?").get(callId)
-				?.error_code,
-			"modelInterrupted",
-		);
-		assert.equal(
-			db
-				.prepare("SELECT status FROM tool_calls WHERE model_call_id=?")
-				.get(callId)?.status,
-			"interrupted",
-		);
-		assert(!restarted.stdout.includes("model-request"));
-		const replacement = start(path, port);
-		const replacementService = await replacement.ready();
-		assert.equal((await restarted.exited)[0], 0);
-		assert((await request(replacementService, "/api/projects")).projects);
-		assert(!replacement.stdout.includes("model-request"));
-		replacement.child.kill("SIGTERM");
-		assert.equal((await replacement.exited)[0], 0);
-		const normalRestart = start(path, port);
-		await normalRestart.ready();
-		normalRestart.child.kill("SIGTERM");
-		assert.equal((await normalRestart.exited)[0], 0);
-		db.close();
+	});
+
+test("database symlink cycles and missing target parents fail without creating a database", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "database-alias-error-"));
+	try {
+		const first = join(directory, "first.sqlite");
+		const second = join(directory, "second.sqlite");
+		await symlink("second.sqlite", first);
+		await symlink("first.sqlite", second);
+		assert.throws(() => createServer(undefined, first), /symbolic-link cycle/);
+		const missing = join(directory, "missing.sqlite");
+		await symlink("missing-parent/db.sqlite", missing);
+		assert.throws(() => createServer(undefined, missing), { code: "ENOENT" });
+		const { readdir } = await import("node:fs/promises");
+		assert.deepEqual((await readdir(directory)).sort(), [
+			"first.sqlite",
+			"missing.sqlite",
+			"second.sqlite",
+		]);
 	} finally {
-		for (const child of children)
-			if (child.exitCode === null && child.signalCode === null) {
-				const exited = once(child, "exit");
-				child.kill("SIGKILL");
-				await exited;
-			}
 		await rm(directory, { recursive: true, force: true });
 	}
 });
