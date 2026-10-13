@@ -230,3 +230,73 @@ test("Settings Close waits for an access-default save and failed saves remain re
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).not.toBeVisible();
 });
+
+test("failed access choices survive other saves and page updates; Retry and Close retain them", async ({
+	page,
+	context,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	const section = dialog.locator("section", {
+		has: page.getByRole("heading", { name: "New Chat access defaults" }),
+	});
+	const file = section.getByLabel("File access", { exact: true });
+	const network = section.getByLabel("Network access", { exact: true });
+	let fail = true;
+	const patches: unknown[] = [];
+	await page.route("**/api/access-defaults", async (route) => {
+		const request = route.request();
+		if (request.method() === "PATCH") {
+			const patch = request.postDataJSON();
+			patches.push(patch);
+			if (fail && patch.fileAccess !== undefined) {
+				await route.fulfill({ status: 500, body: "{}" });
+				return;
+			}
+		}
+		await route.continue();
+	});
+	await file.selectOption("full");
+	await expect(section.getByRole("alert")).toBeVisible();
+	await network.selectOption("full");
+	await expect(network).toBeEnabled();
+	await expect(file).toHaveValue("full");
+	await expect(section.getByRole("alert")).toBeVisible();
+	expect(patches).toEqual([{ fileAccess: "full" }, { networkAccess: "full" }]);
+	const peer = await context.newPage();
+	await peer.goto(app.url);
+	await peer.getByRole("button", { name: "Settings", exact: true }).click();
+	await peer.getByRole("tab", { name: "Execution", exact: true }).click();
+	await peer
+		.getByLabel("Network access", { exact: true })
+		.selectOption("restricted");
+	await expect(network).toHaveValue("restricted");
+	await expect(file).toHaveValue("full");
+	await expect(section.getByRole("alert")).toBeVisible();
+	await section.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(
+		section.getByRole("button", { name: "Retry", exact: true }),
+	).toBeEnabled();
+	expect(patches.at(-1)).toEqual({ fileAccess: "full" });
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	expect(patches.at(-1)).toEqual({ fileAccess: "full" });
+	// A new choice replaces the old failed intent, even if its save also fails.
+	await file.selectOption("restricted");
+	await expect(file).toBeEnabled();
+	await expect(section.getByRole("alert")).toBeVisible();
+	fail = false;
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).not.toBeVisible();
+	expect(patches.at(-1)).toEqual({ fileAccess: "restricted" });
+	const saved = await (
+		await page.request.get(`${app.url}/api/access-defaults`)
+	).json();
+	expect(saved).toEqual({
+		fileAccess: "restricted",
+		networkAccess: "restricted",
+	});
+});

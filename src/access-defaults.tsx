@@ -1,6 +1,13 @@
-import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { managementHeaders } from "./api.ts";
+import { api, appError } from "./api.ts";
 import type { ChatOptions } from "./chat-options.tsx";
 import { createSettingState } from "./setting-state.ts";
 
@@ -20,36 +27,67 @@ export function AccessDefaults({
 	const pending = useRef<Promise<boolean>>(Promise.resolve(true));
 	const reading = useRef<Promise<boolean>>(Promise.resolve(true));
 	const retryPatch = useRef<Defaults | null>(null);
-	const writeFailed = useRef(false);
+	const authorizationError = useRef(false);
 	const state = useMemo(
 		() =>
 			createSettingState<Defaults>(
 				async () => {
-					const response = await fetch("/api/access-defaults");
-					if (!response.ok) throw new Error();
-					return response.json();
+					try {
+						const value = await api("/api/access-defaults");
+						authorizationError.current = false;
+						return value;
+					} catch (cause) {
+						authorizationError.current =
+							appError(cause).code === "managementAuthorizationRequired";
+						throw cause;
+					}
 				},
 				async (value) => {
-					const response = await fetch("/api/access-defaults", {
-						method: "PATCH",
-						headers: {
-							"content-type": "application/json",
-							...managementHeaders(),
-						},
-						body: JSON.stringify(value),
-					});
-					if (!response.ok) throw new Error();
+					try {
+						await api("/api/access-defaults", "PATCH", value);
+					} catch (cause) {
+						authorizationError.current =
+							appError(cause).code === "managementAuthorizationRequired";
+						throw cause;
+					}
 				},
 				setValue,
 			),
 		[],
+	);
+	const save = useCallback(
+		(patch: Defaults) => {
+			setSaving(true);
+			const operation = state
+				.save(patch)
+				.then((result) => {
+					if (result === "saved") {
+						for (const key of ["fileAccess", "networkAccess"] as const) {
+							if (
+								patch[key] !== undefined &&
+								retryPatch.current?.[key] === patch[key]
+							)
+								delete retryPatch.current[key];
+						}
+						if (!Object.keys(retryPatch.current ?? {}).length)
+							retryPatch.current = null;
+					}
+					const ok = result === "saved" && !retryPatch.current;
+					setFailed(!ok);
+					return ok;
+				})
+				.finally(() => setSaving(false));
+			pending.current = operation;
+			return operation;
+		},
+		[state],
 	);
 	useEffect(() => {
 		if (!open) return;
 		const refresh = () => {
 			reading.current = state.refresh().then((ok) => {
 				setLoading(false);
-				setFailed(!ok || writeFailed.current);
+				setFailed(!ok || !!retryPatch.current);
 				return ok;
 			});
 		};
@@ -59,13 +97,14 @@ export function AccessDefaults({
 	}, [open, state]);
 	useEffect(() => {
 		commitRef.current = async () => {
-			const saved = await pending.current;
-			return (await reading.current) && saved;
+			await pending.current;
+			if (retryPatch.current) return save({ ...retryPatch.current });
+			return reading.current;
 		};
 		return () => {
 			commitRef.current = null;
 		};
-	}, [commitRef]);
+	}, [commitRef, save]);
 	return (
 		<section className="mb-6" aria-labelledby="access-defaults-title">
 			<h3 id="access-defaults-title" className="font-semibold">
@@ -79,30 +118,12 @@ export function AccessDefaults({
 						aria-label={t(key)}
 						className="mt-2 block w-full rounded-md border border-neutral-300 bg-white px-3 py-2"
 						disabled={!value || saving}
-						value={value?.[key] ?? "restricted"}
-						onChange={async (event) => {
+						value={retryPatch.current?.[key] ?? value?.[key] ?? "restricted"}
+						onChange={(event) => {
 							const chosen = event.target.value as Defaults[typeof key];
-							setSaving(true);
-							setFailed(false);
+							retryPatch.current = { ...retryPatch.current, [key]: chosen };
 							// Only the changed field is sent, preserving choices saved on another page.
-							try {
-								retryPatch.current = { [key]: chosen };
-								const operation = state
-									.save(retryPatch.current)
-									.then((result) => {
-										const ok = result === "saved";
-										if (ok) retryPatch.current = null;
-										writeFailed.current = !ok;
-										setFailed(!ok);
-										return ok;
-									});
-								pending.current = operation;
-								await operation;
-							} catch {
-								setFailed(true);
-							} finally {
-								setSaving(false);
-							}
+							void save({ [key]: chosen });
 						}}
 					>
 						<option value="restricted">{t("accessRestricted")}</option>
@@ -112,28 +133,28 @@ export function AccessDefaults({
 			))}
 			{(failed || (!loading && !value)) && (
 				<div role="alert">
-					{t("accessDefaultsFailed")}{" "}
+					{t(
+						authorizationError.current
+							? "managementAuthorizationRequired"
+							: "accessDefaultsFailed",
+					)}{" "}
 					<button
 						type="button"
 						disabled={saving}
 						onClick={() => {
-							setSaving(true);
-							setLoading(true);
-							const retry = retryPatch.current
-								? state
-										.save(retryPatch.current)
-										.then((result) => result === "saved")
-								: state.refresh();
-							reading.current = retry;
-							pending.current = retry
-								.then((ok) => {
-									writeFailed.current = !ok;
-									if (ok) retryPatch.current = null;
-									setLoading(false);
-									setFailed(!ok);
-									return ok;
-								})
-								.finally(() => setSaving(false));
+							if (retryPatch.current) void save({ ...retryPatch.current });
+							else {
+								setSaving(true);
+								setLoading(true);
+								reading.current = state
+									.refresh()
+									.then((ok) => {
+										setLoading(false);
+										setFailed(!ok);
+										return ok;
+									})
+									.finally(() => setSaving(false));
+							}
 						}}
 					>
 						{t("retry")}
