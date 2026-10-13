@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { managementTokens } from "../local-fetch.ts";
 import { expect, test } from "./fixtures.ts";
 
 const sidebar = (page: Page) =>
@@ -139,7 +140,9 @@ test("drag saves once after release; fixed limits, double click and server resta
 	const fresh = await browser.newContext();
 	try {
 		const reopened = await fresh.newPage();
-		await reopened.goto(app.url);
+		await reopened.goto(
+			`${app.url}/#management=${managementTokens.get(app.url)}`,
+		);
 		await expect(sidebar(reopened)).toHaveCSS("width", "420px");
 	} finally {
 		await fresh.close();
