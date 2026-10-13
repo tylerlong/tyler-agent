@@ -16,8 +16,13 @@ test("HTTP submission acknowledges its durable pending agent before the held mod
 	const path = join(directory, "db.sqlite");
 	let release: (() => void) | undefined;
 	let calls = 0;
-	const server = createTestServer(async () => {
+	const server = createTestServer(async (_url, init) => {
 		calls++;
+		assert.equal(
+			new Headers(init?.headers).has("x-tyler-management-token"),
+			false,
+		);
+		assert(!String(init?.body).includes(server.managementToken));
 		await new Promise<void>((resolve) => {
 			release = resolve;
 		});
@@ -84,6 +89,10 @@ test("HTTP submission acknowledges its durable pending agent before the held mod
 		const agent = await waitForAgent(base, accepted.agentId);
 		assert.equal(agent.status, "succeeded");
 		assert.equal(calls, 1);
+		const records = await (
+			await fetch(`${base}/api/agents/${accepted.agentId}/calls?kind=request`)
+		).json();
+		assert(!JSON.stringify(records).includes(server.managementToken));
 	} finally {
 		release?.();
 		server.closeAllConnections();
