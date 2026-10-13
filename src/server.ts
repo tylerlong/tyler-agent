@@ -197,6 +197,7 @@ export function createServer(
 	databasePath?: string,
 	fetchCatalog: typeof fetch = fetch,
 	runTool?: ToolExecutor,
+	managementToken = randomBytes(32).toString("hex"),
 ) {
 	const path =
 		databasePath === undefined
@@ -220,7 +221,6 @@ export function createServer(
 	// Agent IDs are database-local; separate services must not share retained scratch.
 	const scratchNamespace = randomUUID();
 	const scratchId = (agentId: number) => `${scratchNamespace}-${agentId}`;
-	const managementToken = randomBytes(32).toString("hex");
 	const savedOutput = (toolId: number) =>
 		database
 			.prepare(
@@ -2550,6 +2550,10 @@ export function createServer(
 	return Object.assign(server, { managementToken });
 }
 if (import.meta.main) {
+	const managementToken = process.env.TYLER_MANAGEMENT_TOKEN;
+	delete process.env.TYLER_MANAGEMENT_TOKEN;
+	if (managementToken !== undefined && !/^[a-f0-9]{64}$/.test(managementToken))
+		throw new Error("Invalid TYLER_MANAGEMENT_TOKEN");
 	const { values } = parseArgs({
 		args: process.argv.slice(2),
 		options: { db: { type: "string" }, port: { type: "string" } },
@@ -2565,7 +2569,13 @@ if (import.meta.main) {
 	)
 		throw new Error("--port must be an integer between 1 and 65535");
 	await releasePort(port);
-	const server = createServer(fetch, values.db);
+	const server = createServer(
+		fetch,
+		values.db,
+		fetch,
+		undefined,
+		managementToken,
+	);
 	let stopping = false;
 	const stop = () => {
 		if (stopping) return;
