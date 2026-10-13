@@ -148,3 +148,37 @@ test("missing startup token shows management authorization and SSE does not retr
 		await context.close();
 	}
 });
+
+test("expired authorization remains actionable in lazy communication records", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Records", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Records" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await page.getByLabel("Prompt", { exact: true }).fill("question");
+	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
+	await expect(page.getByText("Test answer", { exact: true })).toBeVisible();
+	await page.evaluate(() =>
+		sessionStorage.setItem("tyler-management-token", "f".repeat(64)),
+	);
+	const response = page
+		.locator("details")
+		.filter({ has: page.locator("summary", { hasText: /^Response \d+/ }) });
+	await response.locator("summary").click();
+	await expect(response.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	await response.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(response.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+});
