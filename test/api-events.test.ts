@@ -106,3 +106,18 @@ test("SSE authorization failure is actionable and never reconnects", async (t) =
 	assert.deepEqual(errors, ["managementAuthorizationRequired"]);
 	stop();
 });
+
+test("authenticated transport rejects URLs outside the local API before sending headers", async (t) => {
+	const { apiFetch } = await import("../src/api.ts");
+	const client = t.mock.method(globalThis, "fetch", async () => new Response());
+	for (const path of [
+		"https://provider.example/api/models",
+		"//provider.example/api/models",
+		"/assets/index.js",
+		"/api/../outside",
+		"/api/%2e%2e/outside",
+	]) {
+		await assert.rejects(apiFetch(path), { code: "invalidRequest" });
+	}
+	assert.equal(client.mock.callCount(), 0);
+});
