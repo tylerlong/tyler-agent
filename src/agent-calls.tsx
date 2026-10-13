@@ -3,16 +3,11 @@ import { useTranslation } from "react-i18next";
 
 import { useCommunicationReader } from "./reader-lifetime.ts";
 
+import { prettyToolContent } from "./tool-calls.tsx";
+
 type ReadingChoice = { open: boolean; scrollTop: number };
 // Page lifetime only: explicit reading choices remain with the display.
 const records = new Map<string, ReadingChoice>();
-function pretty(body: string) {
-	try {
-		return JSON.stringify(JSON.parse(body), null, 2);
-	} catch {
-		return body;
-	}
-}
 export function AgentCalls({
 	agentId,
 	callId,
@@ -127,7 +122,9 @@ export function AgentCalls({
 			call.error !== t(call.errorCode, { defaultValue: call.error })
 				? [{ text: call.error, body: true }]
 				: []),
-			...(typeof body === "string" ? [{ text: pretty(body), body: true }] : []),
+			...(typeof body === "string"
+				? [{ text: prettyToolContent(body), body: true }]
+				: []),
 		];
 	});
 	const displayParts =

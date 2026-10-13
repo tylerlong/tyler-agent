@@ -1564,3 +1564,150 @@ commandTest(
 		}
 	},
 );
+
+for (const delivery of ["automatic", "cancel"] as const) {
+	commandTest(
+		`child ${delivery} results retain actual Tool Results without complete command-log attachments`,
+		async () => {
+			let root = "",
+				childId = 0,
+				childCalls = 0,
+				parentCalls = 0;
+			let releaseParent!: () => void;
+			const parentReady = new Promise<void>((resolve) => {
+				releaseParent = resolve;
+			});
+			const fullLog = "command-log-".repeat(100000);
+			const captures: unknown[][] = [];
+			const f = await fixture(async (_url, init) => {
+				const request = JSON.parse(String(init?.body));
+				const prompt = request.input.find(
+					(item: { role?: string }) => item.role === "user",
+				)?.content;
+				if (prompt === "child-log") {
+					if (++childCalls === 1)
+						return done([
+							call("exec_command", {
+								command: "node large.cjs",
+								cwd: root,
+								timeout_ms: 10000,
+							}),
+						]);
+					const actual = JSON.parse(request.input.at(-1).output);
+					if (childCalls === 2) {
+						assert.equal(actual.exitCode, 7);
+						assert.equal(actual.output.total_chars, fullLog.length);
+						assert.equal(actual.output.next_offset, 16000);
+						return done([
+							call(
+								"read_tool_output",
+								{
+									tool_call_id: actual.tool_call_id,
+									offset: fullLog.length - 20,
+									limit: 20,
+								},
+								"continuation",
+							),
+						]);
+					}
+					assert.equal(
+						actual.chunks.map((chunk: { text: string }) => chunk.text).join(""),
+						fullLog.slice(-20),
+					);
+					return new Response("child provider failed", { status: 503 });
+				}
+				captures.push(request.input);
+				if (++parentCalls === 1)
+					return done([
+						call("create_sub_agent", { prompt: "child-log" }, "create"),
+					]);
+				if (parentCalls === 2) {
+					await parentReady;
+					return done(
+						delivery === "cancel"
+							? [call("cancel_sub_agent", { agent_id: childId }, "cancel")]
+							: [answer],
+					);
+				}
+				const notifications = request.input.filter(
+					(item: { content?: string }) =>
+						typeof item.content === "string" &&
+						item.content.startsWith("[Runtime service:"),
+				);
+				assert.equal(notifications.length, delivery === "automatic" ? 1 : 0);
+				const terminal =
+					delivery === "automatic"
+						? JSON.parse(
+								notifications[0].content.slice(
+									notifications[0].content.indexOf("{"),
+								),
+							)
+						: JSON.parse(request.input.at(-1).output);
+				assert.equal(terminal.agent_id, childId);
+				assert.equal(terminal.status, "failed");
+				assert.equal(terminal.errors[0].message, "OpenRouter request failed");
+				assert.equal(terminal.errors[0].code, "modelRequestFailed");
+				assert.equal(terminal.tool_calls.length, 2);
+				for (const tool of terminal.tool_calls)
+					assert(
+						!("output" in tool),
+						"Separately saved Command Output must not be attached",
+					);
+				const command = terminal.tool_calls[0];
+				assert.equal(command.status, "failed");
+				assert.equal(JSON.parse(command.arguments).cwd, root);
+				assert.equal(JSON.parse(command.result).exitCode, 7);
+				assert.equal(JSON.parse(command.result).output.next_offset, 16000);
+				assert.equal(
+					text(JSON.parse(terminal.tool_calls[1].result).chunks),
+					fullLog.slice(-20),
+				);
+				assert(
+					String(init?.body).length < 100000,
+					"Complete raw/base64 log copies must stay out of parent inputs",
+				);
+				return done([answer]);
+			});
+			root = f.root;
+			try {
+				await writeFile(
+					join(root, "large.cjs"),
+					`process.stdout.write(${JSON.stringify(fullLog)}, () => process.exit(7))`,
+				);
+				const id = await f.ask("parent-log");
+				for (let attempt = 0; attempt < 500; attempt++) {
+					const tools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
+					if (tools[0]?.result) {
+						childId = JSON.parse(tools[0].result).agent_id;
+						break;
+					}
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				}
+				assert(childId);
+				for (let attempt = 0; attempt < 500; attempt++) {
+					if (
+						(await f.request(`/api/agents/${childId}`)).agents[0].status ===
+						"failed"
+					)
+						break;
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				}
+				assert.equal(
+					(await f.request(`/api/agents/${childId}`)).agents[0].status,
+					"failed",
+				);
+				const tools = (await f.request(`/api/agents/${childId}/tools`))
+					.toolCalls;
+				assert.equal(stdout(tools[0].output), fullLog);
+				releaseParent();
+				const parent = await f.wait(id);
+				assert.equal(parent.status, "succeeded", JSON.stringify(parent));
+				assert.equal(parentCalls, 3);
+				assert.equal(captures.length, 3);
+			} finally {
+				releaseParent();
+				await f.close();
+			}
+		},
+	);
+}

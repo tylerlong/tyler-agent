@@ -9,9 +9,6 @@ export type AgentDetail = {
 	context: string;
 	status: string;
 	parentAgentId: number | null;
-	rootAgentId: number;
-	chatId: number;
-	projectId: number;
 	createdByToolCallId: number | null;
 	creationArguments: Record<string, unknown> | null;
 	answer?: string | null;

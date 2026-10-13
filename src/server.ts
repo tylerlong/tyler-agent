@@ -248,17 +248,21 @@ export function createServer(
 				...callPersistenceError(call.id),
 				ordinal: index + 1,
 			}));
-	const toolCalls = (agentId: number, content = false) =>
+	const toolCalls = (
+		agentId: number,
+		content: boolean | "result" = false,
+		toolId?: number,
+	) =>
 		database
 			.prepare(
-				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason,approval${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=? ORDER BY model_call_id,ordinal`,
+				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason,approval${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=?${toolId === undefined ? "" : " AND tool_calls.id=?"} ORDER BY model_call_id,ordinal`,
 			)
-			.all(agentId)
+			.all(...(toolId === undefined ? [agentId] : [agentId, toolId]))
 			.map((call) => ({
 				...call,
 				approval: call.approval ? JSON.parse(String(call.approval)) : null,
 				id: call.id,
-				...(content &&
+				...(content === true &&
 					["exec_command", "apply_patch"].includes(String(call.name)) && {
 						output: savedOutput(Number(call.id)),
 					}),
@@ -364,7 +368,7 @@ export function createServer(
 		return {
 			agent_id: agentId,
 			status: result.status,
-			tool_calls: toolCalls(agentId, true),
+			tool_calls: toolCalls(agentId, "result"),
 			output: agentOutput(agentId).map((item) => ({
 				...item,
 				content: readableParts(item),
@@ -2185,8 +2189,10 @@ export function createServer(
 				json(response, 404, errorBody("notFound"));
 				return;
 			}
-			const calls = toolCalls(agentId, true).filter(
-				(call) => toolId === null || call.id === Number(toolId),
+			const calls = toolCalls(
+				agentId,
+				true,
+				toolId === null ? undefined : Number(toolId),
 			);
 			if (toolId !== null && !calls.length) {
 				json(response, 404, errorBody("notFound"));

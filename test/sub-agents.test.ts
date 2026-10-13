@@ -1883,3 +1883,89 @@ test("an already-created sub-agent uses owning Chat modes at its later native to
 		await f.close();
 	}
 });
+
+test("selected Tool Call loads only its own Command Output and rejects wrong ownership", async (t) => {
+	const f = await fixture(async () => {
+		assert.fail("Record reads must not call the provider");
+	});
+	try {
+		const db = new DatabaseSync(f.path);
+		const agent = () =>
+			Number(
+				db
+					.prepare(
+						"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,'read','succeeded',1)",
+					)
+					.run(f.chat.id).lastInsertRowid,
+			);
+		const owner = agent(),
+			other = agent();
+		const model = Number(
+			db
+				.prepare(
+					"INSERT INTO model_calls(agent_id,url,method,requested_at,request_body,status) VALUES (?,'https://example.test','POST','now','request','failed')",
+				)
+				.run(owner).lastInsertRowid,
+		);
+		const tool = (ordinal: number, log: string) => {
+			const id = Number(
+				db
+					.prepare(
+						"INSERT INTO tool_calls(model_call_id,call_id,name,arguments,ordinal,status,result) VALUES (?,'call','exec_command','{}',?,'succeeded','actual')",
+					)
+					.run(model, ordinal).lastInsertRowid,
+			);
+			db.prepare(
+				"INSERT INTO tool_output(tool_call_id,ordinal,stream,text) VALUES (?,1,'stdout',?)",
+			).run(id, log);
+			return id;
+		};
+		const selected = tool(1, "selected"),
+			unrelated = tool(2, "unrelated".repeat(100000));
+		db.close();
+		const reads: unknown[] = [];
+		const prepare = DatabaseSync.prototype.prepare;
+		const observation = t.mock.method(
+			DatabaseSync.prototype,
+			"prepare",
+			function (this: DatabaseSync, sql: string) {
+				const statement = prepare.call(this, sql);
+				if (!sql.includes("FROM tool_output")) return statement;
+				return new Proxy(statement, {
+					get(target, key) {
+						if (key === "all")
+							return (...args: Parameters<typeof statement.all>) => {
+								reads.push(args[0]);
+								return target.all(...args);
+							};
+						const value = Reflect.get(target, key);
+						return typeof value === "function" ? value.bind(target) : value;
+					},
+				});
+			},
+		);
+		const detail = await f.get(`/api/agents/${owner}/tools?toolId=${selected}`);
+		assert.equal(detail.toolCalls.length, 1);
+		assert.equal(detail.toolCalls[0].result, "actual");
+		assert.equal(detail.toolCalls[0].output[0].text, "selected");
+		assert.deepEqual(reads, [selected]);
+		reads.length = 0;
+		assert.equal(
+			(await f.get(`/api/agents/${other}/tools?toolId=${selected}`)).code,
+			"notFound",
+		);
+		assert.equal(
+			(await f.get(`/api/agents/${owner}/tools?toolId=999999`)).code,
+			"notFound",
+		);
+		assert.deepEqual(reads, []);
+		assert.equal(
+			(await f.get(`/api/agents/${owner}/tools`)).toolCalls.length,
+			2,
+		);
+		assert.deepEqual(reads, [selected, unrelated]);
+		observation.mock.restore();
+	} finally {
+		await f.close();
+	}
+});

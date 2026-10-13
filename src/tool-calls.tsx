@@ -7,9 +7,7 @@ export type ToolCall = {
 	id: number;
 	agentId: number;
 	modelCallId: number;
-	callId: string;
 	name: string;
-	ordinal: number;
 	status:
 		| "waiting"
 		| "running"

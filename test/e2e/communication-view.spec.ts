@@ -387,3 +387,68 @@ test("ended unread communications stay lazy during downloads and clipboard feedb
 	).toHaveAttribute("title", "复制");
 	expect(reads).toBe(1);
 });
+
+for (const body of [
+	'{"large":9007199254740993,"same":1,"same":2}',
+	"plain text 9007199254740993",
+	'{"malformed":9007199254740993,',
+]) {
+	test(`communication display, search and Copy preserve original tokens: ${body}`, async ({
+		page,
+		context,
+		app,
+	}) => {
+		await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+		const project = await (
+			await page.request.post(`${app.url}/api/projects`, {
+				data: { name: "Faithful", folders: [] },
+			})
+		).json();
+		const chat = await (
+			await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+				data: { name: "Tokens" },
+			})
+		).json();
+		app.failModel("http", body);
+		const submitted = await (
+			await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+				data: { prompt: "Inspect" },
+			})
+		).json();
+		await expect
+			.poll(
+				async () =>
+					(
+						await (
+							await page.request.get(
+								`${app.url}/api/agents/${submitted.agentId}`,
+							)
+						).json()
+					).agents[0].status,
+			)
+			.toBe("failed");
+		await page.goto(`${app.url}/?chat=${chat.id}`);
+		const response = page
+			.locator("details")
+			.filter({ has: page.locator("summary", { hasText: /^Response 1/ }) });
+		await response.locator("summary").click();
+		const expected = body.startsWith('{"large"')
+			? '{\n  "large": 9007199254740993,\n  "same": 1,\n  "same": 2\n}'
+			: body;
+		await expect(response.locator("pre").last()).toHaveText(expected);
+		await response.getByRole("searchbox").fill("9007199254740993");
+		await expect(response.locator("pre").last().locator("mark")).toHaveText(
+			"9007199254740993",
+		);
+		await response.getByRole("button", { name: "Copy", exact: true }).click();
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.toBe(await response.locator(".communication-text").textContent());
+		const raw = await (
+			await page.request.get(
+				`${app.url}/api/agents/${submitted.agentId}/calls?kind=response`,
+			)
+		).json();
+		expect(raw.calls[0].responseBody).toBe(body);
+	});
+}
