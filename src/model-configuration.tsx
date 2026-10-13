@@ -7,7 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { appError, api as request } from "./api.ts";
+import { type ApiError, appError, api as request } from "./api.ts";
 import type { ManagedModel, ModelSettings } from "./model-settings.ts";
 
 const input =
@@ -17,7 +17,7 @@ const button =
 
 export function ModelConfiguration({
 	settings,
-	readFailed,
+	readError,
 	refresh,
 	open,
 	active,
@@ -26,7 +26,7 @@ export function ModelConfiguration({
 	open: boolean;
 	active: boolean;
 	settings: ModelSettings | null;
-	readFailed: boolean;
+	readError: ApiError | null;
 	refresh: () => Promise<void>;
 	commitRef: RefObject<(() => Promise<boolean>) | null>;
 }) {
@@ -224,7 +224,7 @@ export function ModelConfiguration({
 				keyOk &&
 				modelRetries.current.size === 0 &&
 				!additionRetry.current &&
-				!readFailed
+				!readError
 			);
 		};
 		return () => {
@@ -386,9 +386,13 @@ export function ModelConfiguration({
 	);
 	return (
 		<div ref={section}>
-			{readFailed && (
+			{readError && (
 				<div role="alert" className="text-red-700">
-					{t("configurationReadFailed")}{" "}
+					{t(
+						readError.code === "managementAuthorizationRequired"
+							? readError.code
+							: "configurationReadFailed",
+					)}{" "}
 					<button
 						type="button"
 						className={button}
@@ -399,7 +403,7 @@ export function ModelConfiguration({
 				</div>
 			)}
 			{!settings ? (
-				!readFailed && <p>{t("loading")}</p>
+				!readError && <p>{t("loading")}</p>
 			) : (
 				<>
 					<section aria-label={t("credentials")}>

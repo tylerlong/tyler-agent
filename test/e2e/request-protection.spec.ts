@@ -182,3 +182,83 @@ test("expired authorization remains actionable in lazy communication records", a
 		"Reopen the startup URL",
 	);
 });
+
+test("initial model-settings authorization failure stays actionable through Models Retry", async ({
+	page,
+	app,
+}) => {
+	let reads = 0;
+	await page.route("**/api/model-settings", async (route) => {
+		reads++;
+		await route.fulfill({
+			status: 403,
+			json: { code: "managementAuthorizationRequired" },
+		});
+	});
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Configuration", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Configuration" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await expect(page.getByRole("alert")).toContainText("Reopen the startup URL");
+	await page
+		.getByLabel("Prompt", { exact: true })
+		.fill("retained configuration draft");
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const alert = dialog.getByRole("alert");
+	await expect(alert).toContainText("Reopen the startup URL");
+	const previous = reads;
+	await alert.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect.poll(() => reads).toBeGreaterThan(previous);
+	await expect(alert).toContainText("Reopen the startup URL");
+	await page.unroute("**/api/model-settings");
+	await alert.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(
+		dialog.getByLabel("OpenRouter API key", { exact: true }),
+	).toHaveValue("zkey");
+	await expect(alert).toHaveCount(0);
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(page.getByLabel("Prompt", { exact: true })).toHaveValue(
+		"retained configuration draft",
+	);
+});
+
+test("Settings Close retains model-settings authorization failure and retries", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const key = dialog.getByLabel("OpenRouter API key", { exact: true });
+	await expect(key).toHaveValue("zkey");
+	await page.route("**/api/model-settings", (route) =>
+		route.fulfill({
+			status: 403,
+			json: { code: "managementAuthorizationRequired" },
+		}),
+	);
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	await expect(key).toHaveValue("zkey");
+	await page.unroute("**/api/model-settings");
+	await dialog
+		.getByRole("alert")
+		.getByRole("button", { name: "Retry", exact: true })
+		.click();
+	await expect(dialog.getByRole("alert")).toHaveCount(0);
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
+});

@@ -224,7 +224,9 @@ function App() {
 	const [modelSettings, setModelSettings] = useState<ModelSettings | null>(
 		null,
 	);
-	const [modelSettingsError, setModelSettingsError] = useState(false);
+	const [modelSettingsError, setModelSettingsError] = useState<ApiError | null>(
+		null,
+	);
 	const modelSettingsRead = useRef(0);
 	const modelSettingsApplied = useRef(0);
 	const modelSettingsRefresh = useRef<Promise<void> | null>(null);
@@ -239,9 +241,10 @@ function App() {
 				}
 				modelSettingsApplied.current = version;
 				setModelSettings(value);
-				setModelSettingsError(false);
-			} catch {
-				if (version === modelSettingsRead.current) setModelSettingsError(true);
+				setModelSettingsError(null);
+			} catch (cause) {
+				if (version === modelSettingsRead.current)
+					setModelSettingsError(appError(cause));
 			}
 		})();
 		modelSettingsRefresh.current = operation;
@@ -643,7 +646,7 @@ function App() {
 			optionRequests.current.has(id) ||
 			!(drafts[id] ?? "").trim() ||
 			!modelSettings?.apiKeyConfigured ||
-			modelSettingsError ||
+			modelSettingsError !== null ||
 			!chatOptions[id] ||
 			!validChatOptions(chatOptions[id], modelSettings.models)
 		)
@@ -1108,8 +1111,8 @@ function App() {
 				return;
 			}
 			settingsDialog.current?.close();
-		} catch {
-			setModelSettingsError(true);
+		} catch (cause) {
+			setModelSettingsError(appError(cause));
 			setSettingsTab("models");
 		} finally {
 			closingSettings.current = false;
@@ -1683,7 +1686,7 @@ function App() {
 												models={modelSettings?.models ?? []}
 												change={changeChatOptions}
 												saving={savingOptions.has(chat.id)}
-												disabled={modelSettingsError}
+												disabled={modelSettingsError !== null}
 											/>
 										</div>
 									)}
@@ -1694,7 +1697,7 @@ function App() {
 										className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
 										disabled={
 											!(drafts[chat.id] ?? "").trim() ||
-											modelSettingsError ||
+											modelSettingsError !== null ||
 											!modelSettings?.apiKeyConfigured ||
 											!options ||
 											!validChatOptions(options, modelSettings.models) ||
@@ -1722,7 +1725,12 @@ function App() {
 							</div>
 							{modelSettingsError && (
 								<div role="alert" className="mt-4 text-red-700">
-									{t("configurationReadFailed")}{" "}
+									{t(
+										modelSettingsError.code ===
+											"managementAuthorizationRequired"
+											? modelSettingsError.code
+											: "configurationReadFailed",
+									)}{" "}
 									<button
 										type="button"
 										className={button}
@@ -1945,7 +1953,7 @@ function App() {
 							active={settingsTab === "models" && !settingsClosing}
 							open={settingsOpen}
 							settings={modelSettings}
-							readFailed={modelSettingsError}
+							readError={modelSettingsError}
 							refresh={refreshModelSettings}
 						/>
 					</fieldset>
