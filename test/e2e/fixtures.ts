@@ -251,11 +251,19 @@ export const test = base.extend<{
 							architecture: { output_modalities: ["text"] },
 						})),
 					}),
-				async (name, args, roots) => {
+				async (name, args, roots, signal) => {
 					const next = toolQueue.shift();
 					if (!next) return executeTool(name, args, roots);
 					next.entered();
-					await next.wait;
+					await new Promise<void>((resolve, reject) => {
+						const abort = () => reject(signal?.reason);
+						signal?.addEventListener("abort", abort, { once: true });
+						void next.wait.then(() => {
+							signal?.removeEventListener("abort", abort);
+							resolve();
+						});
+						if (signal?.aborted) abort();
+					});
 					return next.result;
 				},
 			).listen(0, "127.0.0.1");

@@ -1755,6 +1755,17 @@ commandTest(
 						},
 						"missing-patch",
 					),
+					call(
+						"exec_command",
+						{
+							cwd: root,
+							command: "echo rechecked",
+							timeout_ms: 10000,
+							extra_permissions: { domains: ["example.com"] },
+							reason: "Synthetic network approval",
+						},
+						"network-approval",
+					),
 				]);
 			const results = body.input
 				.filter(
@@ -1765,8 +1776,10 @@ commandTest(
 			assert.equal(results[1].exitCode, 0);
 			assert.equal(text(results[1].output.chunks), "before\n");
 			assert.equal(results[2].exitCode, 0);
-			for (const result of results.slice(3))
+			for (const result of results.slice(3, 6))
 				assert.equal(typeof result.error, "string");
+			assert.equal(results[6].exitCode, 0);
+			assert.equal(text(results[6].output.chunks), "rechecked\n");
 			return done([answer]);
 		});
 		root = f.root;
@@ -1799,6 +1812,23 @@ commandTest(
 			const { agentId } = await f.request(`/api/chats/${chat.id}`, {
 				prompt: "full",
 			});
+			let pending = false;
+			for (let n = 0; n < 500; n++) {
+				if ((await f.request("/api/approvals")).approvals.length) {
+					pending = true;
+					break;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			assert(
+				pending,
+				"full file mode retains explicit network approval despite stale file scopes",
+			);
+			await f.request(
+				`/api/chats/${chat.id}`,
+				{ networkAccess: "full" },
+				"PUT",
+			);
 			assert.equal((await f.wait(agentId)).status, "succeeded");
 			assert.equal(requests, 2);
 			assert.equal(await readFile(join(root, "input.txt"), "utf8"), "after\n");

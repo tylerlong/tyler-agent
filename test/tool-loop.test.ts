@@ -1003,7 +1003,7 @@ test("tool execution failures are explicit, redact actual errors, and remain sav
 	}
 });
 
-test("restart interrupts waiting and running tools without replay and preserves prior results", async () => {
+test("graceful restart drains running tools without replay and preserves prior results", async () => {
 	let requests = 0;
 	let executions = 0;
 	let entered!: () => void;
@@ -1026,11 +1026,13 @@ test("restart interrupts waiting and running tools without replay and preserves 
 			);
 		},
 		[],
-		async () => {
+		async (_name, _args, _roots, signal) => {
 			executions++;
 			if (executions === 2) {
+				signal?.addEventListener("abort", release, { once: true });
 				entered();
 				await gate;
+				return { status: "interrupted", result: "shutdown result" };
 			}
 			return { status: "succeeded", result: "saved result" };
 		},
@@ -1045,11 +1047,11 @@ test("restart interrupts waiting and running tools without replay and preserves 
 			["succeeded", "interrupted", "interrupted"],
 		);
 		assert.equal(calls[0].result, "saved result");
-		for (const call of calls.slice(1)) {
-			assert.equal(call.result, null);
-			assert.equal(call.reason, "toolRestartInterrupted");
+		assert.equal(calls[1].result, "shutdown result");
+		assert.equal(calls[2].result, null);
+		assert.equal(calls[2].reason, "toolRestartInterrupted");
+		for (const call of calls.slice(1))
 			assert.equal(typeof call.arguments, "string");
-		}
 		assert.equal((await f.wait(agentId)).status, "failed");
 		assert.equal((await f.get(`/api/chats/${f.chat.id}`)).busy, false);
 		release();

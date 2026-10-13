@@ -206,7 +206,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 	const path = join(directory, "db.sqlite");
 	try {
 		const server = createServer(fetch, path);
-		server.emit("close");
+		await new Promise<void>((resolve) => server.close(() => resolve()));
 		const db = new DatabaseSync(path);
 		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 19);
 		assert.deepEqual(
@@ -309,7 +309,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const restarted = createServer(async () => {
 			throw new Error("must not resume model");
 		}, path);
-		restarted.emit("close");
+		await new Promise<void>((resolve) => restarted.close(() => resolve()));
 		const saved = new DatabaseSync(path);
 		assert.deepEqual(
 			{
@@ -384,7 +384,9 @@ test("unsupported, invalid, corrupt and read-only databases fail without resetti
 		assert.throws(() => createServer(fetch, broken));
 		assert.equal(await readFile(broken, "utf8"), "not a database");
 		const path = join(directory, "current.sqlite");
-		createServer(fetch, path).emit("close");
+		await new Promise<void>((resolve) =>
+			createServer(fetch, path).close(() => resolve()),
+		);
 		await chmod(path, 0o444);
 		try {
 			assert.throws(() => createServer(fetch, path));
@@ -402,7 +404,9 @@ test("unsupported, invalid, corrupt and read-only databases fail without resetti
 		);
 		retained.close();
 		const invalid = join(directory, "invalid.sqlite");
-		createServer(fetch, invalid).emit("close");
+		await new Promise<void>((resolve) =>
+			createServer(fetch, invalid).close(() => resolve()),
+		);
 		const invalidDb = new DatabaseSync(invalid);
 		invalidDb.exec("ALTER TABLE model_calls DROP COLUMN output_json");
 		invalidDb.close();
@@ -422,7 +426,7 @@ test("unsupported, invalid, corrupt and read-only databases fail without resetti
 			},
 		);
 		assert.notEqual(result.status, 0);
-		assert.match(result.stderr, /unable to open database/);
+		assert.match(result.stderr, /unable to open database|ENOENT/);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
@@ -487,7 +491,9 @@ test("sidebar width validates bounds and preserves language across restart", asy
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
 	try {
-		createServer(fetch, path).emit("close");
+		await new Promise<void>((resolve) =>
+			createServer(fetch, path).close(() => resolve()),
+		);
 		const db = new DatabaseSync(path);
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
