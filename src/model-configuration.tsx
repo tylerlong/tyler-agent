@@ -50,11 +50,17 @@ export function ModelConfiguration({
 			{
 				retry: () => Promise<boolean> | null;
 				defaultModelId?: string;
+				error: string;
 			}
 		>(),
 	);
 	const additionRetry = useRef<(() => Promise<boolean> | null) | null>(null);
-	const credential = useRef({ draft: "", saved: "", loaded: false, error: "" });
+	const credential = useRef({
+		draft: "",
+		saved: "",
+		loaded: false,
+		failedOperation: "",
+	});
 	const keyRead = useRef<Promise<boolean> | null>(null);
 	const keySave = useRef<Promise<boolean> | null>(null);
 	const [keyLoaded, setKeyLoaded] = useState(false);
@@ -113,6 +119,17 @@ export function ModelConfiguration({
 	const [keySaving, setKeySaving] = useState(false);
 	const [keySaved, setKeySaved] = useState(false);
 	const [catalogError, setCatalogError] = useState("");
+	function reportModelFailures() {
+		setError(
+			[...modelRetries.current.values()].some(
+				(failure) => failure.error === "managementAuthorizationRequired",
+			)
+				? "managementAuthorizationRequired"
+				: modelRetries.current.size
+					? "configurationSaveFailed"
+					: "",
+		);
+	}
 	function mutate(
 		path: string,
 		method: string,
@@ -122,7 +139,7 @@ export function ModelConfiguration({
 		saving.current = true;
 		setPending(true);
 		modelRetries.current.delete(path);
-		setError(modelRetries.current.size ? "configurationSaveFailed" : "");
+		reportModelFailures();
 		const operation = (async () => {
 			try {
 				await request(path, method, body);
@@ -134,7 +151,7 @@ export function ModelConfiguration({
 						`/api/models/${encodeURIComponent(failedDefault.defaultModelId)}`
 				) {
 					modelRetries.current.delete("/api/model-settings");
-					setError(modelRetries.current.size ? "configurationSaveFailed" : "");
+					reportModelFailures();
 				}
 				await refresh();
 				return true;
@@ -142,12 +159,12 @@ export function ModelConfiguration({
 				modelRetries.current.set(path, {
 					retry: () => mutate(path, method, body),
 					defaultModelId: body?.defaultModelId,
+					error:
+						appError(cause).code === "managementAuthorizationRequired"
+							? "managementAuthorizationRequired"
+							: "configurationSaveFailed",
 				});
-				setError(
-					appError(cause).code === "managementAuthorizationRequired"
-						? "managementAuthorizationRequired"
-						: "configurationSaveFailed",
-				);
+				reportModelFailures();
 				return false;
 			} finally {
 				saving.current = false;
@@ -165,8 +182,9 @@ export function ModelConfiguration({
 			if (!(await keySave.current)) return false;
 		}
 		const value = credential.current.draft;
-		if (value === credential.current.saved) return !credential.current.error;
-		credential.current.error = "";
+		if (value === credential.current.saved)
+			return !credential.current.failedOperation;
+		credential.current.failedOperation = "";
 		setKeyError("");
 		setKeySaved(false);
 		setKeySaving(true);
@@ -178,11 +196,12 @@ export function ModelConfiguration({
 				await refresh();
 				return true;
 			} catch (cause) {
-				credential.current.error =
+				credential.current.failedOperation = "save";
+				setKeyError(
 					appError(cause).code === "managementAuthorizationRequired"
 						? "managementAuthorizationRequired"
-						: "credentialSaveFailed";
-				setKeyError(credential.current.error);
+						: "credentialSaveFailed",
+				);
 				return false;
 			} finally {
 				setKeySaving(false);
@@ -241,7 +260,7 @@ export function ModelConfiguration({
 				if (
 					!state.loaded ||
 					(!keySave.current &&
-						!state.error &&
+						state.failedOperation !== "save" &&
 						state.saved === previousSaved &&
 						state.draft === state.saved)
 				) {
@@ -250,18 +269,21 @@ export function ModelConfiguration({
 					setKey(data.apiKey);
 				}
 				state.loaded = true;
-				if (state.error === "credentialReadFailed") {
-					state.error = "";
+				if (state.failedOperation === "read") {
+					state.failedOperation = "";
 					setKeyError("");
 				}
 				setKeyLoaded(true);
 				return true;
 			} catch (cause) {
-				credential.current.error =
-					appError(cause).code === "managementAuthorizationRequired"
-						? "managementAuthorizationRequired"
-						: "credentialReadFailed";
-				setKeyError(credential.current.error);
+				if (credential.current.failedOperation !== "save") {
+					credential.current.failedOperation = "read";
+					setKeyError(
+						appError(cause).code === "managementAuthorizationRequired"
+							? "managementAuthorizationRequired"
+							: "credentialReadFailed",
+					);
+				}
 				return false;
 			} finally {
 				keyRead.current = null;
@@ -276,7 +298,7 @@ export function ModelConfiguration({
 			open &&
 			!keySave.current &&
 			credential.current.draft === credential.current.saved &&
-			!credential.current.error
+			credential.current.failedOperation !== "save"
 		)
 			void readCredential();
 	}, [open, settings]);
@@ -434,7 +456,7 @@ export function ModelConfiguration({
 									disabled={!keyLoaded}
 									onChange={(event) => {
 										credential.current.draft = event.target.value;
-										credential.current.error = "";
+										credential.current.failedOperation = "";
 										setKey(event.target.value);
 										setKeyError("");
 										setKeySaved(false);
@@ -454,7 +476,7 @@ export function ModelConfiguration({
 								{keyError && (
 									<p role="alert" className="break-words text-red-700">
 										{t(keyError)}
-										{keyError === "credentialReadFailed" && (
+										{credential.current.failedOperation === "read" && (
 											<button
 												type="button"
 												className={button}

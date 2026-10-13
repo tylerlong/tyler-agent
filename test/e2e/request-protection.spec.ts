@@ -262,3 +262,139 @@ test("Settings Close retains model-settings authorization failure and retries", 
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).toBeHidden();
 });
+
+test("credential read authorization failure can Retry successfully and Close", async ({
+	page,
+	app,
+}) => {
+	let failed = true;
+	await page.route("**/api/settings/credential", (route) =>
+		failed
+			? route.fulfill({
+					status: 403,
+					json: { code: "managementAuthorizationRequired" },
+				})
+			: route.continue(),
+	);
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const credentials = dialog.getByRole("region", {
+		name: "Credentials",
+		exact: true,
+	});
+	const key = credentials.getByLabel("OpenRouter API key", { exact: true });
+	await expect(key).toBeDisabled();
+	await expect(credentials.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	failed = false;
+	await credentials.getByRole("button", { name: "Retry", exact: true }).click();
+	await expect(key).toHaveValue("zkey");
+	await expect(key).toBeEnabled();
+	await expect(credentials.getByRole("alert")).toHaveCount(0);
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
+});
+
+test("successful settings refresh preserves an unauthorized credential save and draft until Close retries", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const credentials = dialog.getByRole("region", {
+		name: "Credentials",
+		exact: true,
+	});
+	const key = credentials.getByLabel("OpenRouter API key", { exact: true });
+	await expect(key).toHaveValue("zkey");
+	await page.route("**/api/model-settings", (route) =>
+		route.request().method() === "PUT"
+			? route.fulfill({
+					status: 403,
+					json: { code: "managementAuthorizationRequired" },
+				})
+			: route.continue(),
+	);
+	await key.fill("retained unauthorized credential");
+	await key.blur();
+	await expect(credentials.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	const refreshed = page.waitForResponse(
+		(response) =>
+			response.url().endsWith("/api/model-settings") &&
+			response.request().method() === "GET",
+	);
+	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+	await refreshed;
+	await expect(key).toHaveValue("retained unauthorized credential");
+	await expect(credentials.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	await expect(
+		credentials.getByRole("button", { name: "Retry", exact: true }),
+	).toHaveCount(0);
+	await page.unroute("**/api/model-settings");
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
+	expect(
+		await (await page.request.get(`${app.url}/api/settings/credential`)).json(),
+	).toEqual({ apiKey: "retained unauthorized credential" });
+});
+
+test("an unrelated model removal preserves a retained default authorization error", async ({
+	page,
+	app,
+}) => {
+	app.setCatalog([
+		{ id: "second", name: "Second" },
+		{ id: "third", name: "Third" },
+	]);
+	await page.request.post(`${app.url}/api/model-catalog`);
+	for (const id of ["second", "third"])
+		await page.request.post(`${app.url}/api/models`, { data: { id } });
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+	await dialog.getByRole("tab", { name: "Models", exact: true }).click();
+	const list = dialog.getByRole("list", { name: "Enabled models" });
+	await page.route("**/api/model-settings", (route) =>
+		route.request().method() === "PUT"
+			? route.fulfill({
+					status: 403,
+					json: { code: "managementAuthorizationRequired" },
+				})
+			: route.continue(),
+	);
+	await list
+		.getByRole("listitem")
+		.filter({ hasText: "Second" })
+		.getByRole("button", { name: /Set .+ as default/ })
+		.click();
+	await expect(dialog.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	await list
+		.getByRole("listitem")
+		.filter({ hasText: "Third" })
+		.getByRole("button", { name: /Remove model/ })
+		.click();
+	await expect(
+		list.getByRole("listitem").filter({ hasText: "Third" }),
+	).toHaveCount(0);
+	await expect(dialog.getByRole("alert")).toContainText(
+		"Reopen the startup URL",
+	);
+	await page.unroute("**/api/model-settings");
+	await dialog.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(dialog).toBeHidden();
+	expect(
+		(await (await page.request.get(`${app.url}/api/model-settings`)).json())
+			.defaultModelId,
+	).toBe("second");
+});
