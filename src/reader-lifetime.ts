@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api.ts";
+import { api, appError } from "./api.ts";
 import type { ToolCall } from "./tool-calls.tsx";
 
 type Call = {
@@ -23,7 +23,11 @@ export type ReaderItem = {
 	type: string;
 	content: { index: number; type: string; text?: string }[];
 };
-type ReadState = { error: boolean; loading: boolean; revision: number };
+type ReadState = {
+	error: boolean | "managementAuthorizationRequired";
+	loading: boolean;
+	revision: number;
+};
 function initialRead(): ReadState {
 	return { error: false, loading: false, revision: 0 };
 }
@@ -52,8 +56,12 @@ async function read<T>(
 		if (reading !== record.revision) return;
 		accept(data);
 		record.error = false;
-	} catch {
-		if (reading === record.revision) record.error = true;
+	} catch (cause) {
+		if (reading === record.revision)
+			record.error =
+				appError(cause).code === "managementAuthorizationRequired"
+					? "managementAuthorizationRequired"
+					: true;
 	} finally {
 		if (reading === record.revision) {
 			record.loading = false;

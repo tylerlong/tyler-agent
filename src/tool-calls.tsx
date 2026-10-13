@@ -214,7 +214,11 @@ export function ToolCallCard({
 				{record.loading && <p role="status">{t("loading")}</p>}
 				{record.error && (
 					<p role="alert" className="text-red-700">
-						{t("toolReadFailed")}{" "}
+						{t(
+							typeof record.error === "string"
+								? record.error
+								: "toolReadFailed",
+						)}{" "}
 						<button
 							type="button"
 							className="underline"

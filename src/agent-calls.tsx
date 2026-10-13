@@ -220,7 +220,9 @@ export function AgentCalls({
 			{record.loading && <p role="status">{t("loading")}</p>}
 			{record.error && (
 				<div role="alert" className="text-red-700">
-					{t("callsReadFailed")}{" "}
+					{t(
+						typeof record.error === "string" ? record.error : "callsReadFailed",
+					)}{" "}
 					<button
 						type="button"
 						className="underline"

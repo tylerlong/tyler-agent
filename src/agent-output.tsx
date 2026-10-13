@@ -124,7 +124,7 @@ export function AgentOutput({
 						{!content && !error && <p role="status">{t("loading")}</p>}
 						{error && (
 							<p role="alert" className="text-red-700">
-								{t("reasoningReadFailed")}{" "}
+								{t(typeof error === "string" ? error : "reasoningReadFailed")}{" "}
 								<button type="button" className="underline" onClick={retry}>
 									{t("retry")}
 								</button>
