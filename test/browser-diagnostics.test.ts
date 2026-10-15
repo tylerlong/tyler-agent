@@ -104,10 +104,12 @@ const server = createServer((req, res) => {
 				assert.equal(result.exitCode, 0, text);
 			let name = "exec_command",
 				args: unknown;
+			// Finite CLI steps need complete output; the website uses a resumable session.
 			const command = (cmd: string) => ({
 				cmd,
 				workdir: target,
 				max_output_tokens: 8000,
+				timeout_ms: 30000,
 			});
 			switch (++step) {
 				case 1:
@@ -121,7 +123,9 @@ const server = createServer((req, res) => {
 						),
 					);
 					args = {
-						...command('printf "HOME:%s\\n" "$HOME"; exec node website.cjs'),
+						cmd: 'printf "HOME:%s\\n" "$HOME"; exec node website.cjs',
+						workdir: target,
+						max_output_tokens: 8000,
 						yield_time_ms: 1000,
 					};
 					break;
