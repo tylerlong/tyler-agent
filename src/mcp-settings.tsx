@@ -136,7 +136,7 @@ export function McpSettings({
 		<section aria-label={t("settingsMcp")}>
 			<p className="text-sm text-neutral-600">{t("mcpHelp")}</p>
 			<p className="mt-2 text-sm text-neutral-600">{t("mcpTrust")}</p>
-			{!ready && !error && <p>{t("loading")}</p>}
+			{open && !ready && !error && <p>{t("loading")}</p>}
 			{services.map((row, index) => (
 				<fieldset
 					key={row.id}
