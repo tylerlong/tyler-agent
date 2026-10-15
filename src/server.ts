@@ -34,8 +34,8 @@ import type { ToolExecutor } from "./file-tools.ts";
 import {
 	type InputImage,
 	MAX_IMAGE_BYTES,
-	redactImageSafe,
 	redactInputContent,
+	redactJsonText,
 	submittedImages,
 	userContent,
 } from "./image-content.ts";
@@ -978,7 +978,7 @@ export function createServer(
 		for (const service of readMcpServices())
 			for (const variable of service.env) rememberKey(variable.value);
 		const redactTool = (text: string, preserveKeys?: readonly string[]) =>
-			redactImageSafe(
+			redactJsonText(
 				text,
 				(text) =>
 					secrets.reduce(

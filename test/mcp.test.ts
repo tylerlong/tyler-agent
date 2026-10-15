@@ -629,7 +629,11 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 					...call(tool, "redacted-values"),
 					arguments: JSON.stringify({
 						mode: "mixed",
-						payload: { [keySecret]: { prompt: "value" } },
+						payload: {
+							[keySecret]: { prompt: "value" },
+							dataUrl: `data:image/png;base64,${keySecret}`,
+							pixelText: "data:image/png;base64,AA",
+						},
 					}),
 				},
 			];
@@ -643,6 +647,14 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		assert.equal(metadata.isError, false);
 		assert.equal(metadata.structuredContent.inherited, "false");
 		assert.equal(metadata.structuredContent.payload[keySecret].prompt, "value");
+		assert.equal(
+			metadata.structuredContent.payload.dataUrl,
+			`data:image/png;base64,${keySecret}`,
+		);
+		assert.equal(
+			metadata.structuredContent.payload.pixelText,
+			"data:image/png;base64,AA",
+		);
 		return [answer];
 	});
 	try {
@@ -693,9 +705,33 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		const finalResponse = JSON.parse(String(modelCalls[1].response_body));
 		assert.equal(finalResponse.output[0].content[0].text, "MCP complete");
 		const toolCall = db
-			.prepare("SELECT result FROM tool_calls WHERE call_id='redacted-values'")
+			.prepare(
+				"SELECT arguments,result FROM tool_calls WHERE call_id='redacted-values'",
+			)
 			.get();
 		db.close();
+		const savedArguments = JSON.parse(String(toolCall?.arguments));
+		assert.equal(
+			savedArguments.payload.dataUrl,
+			"data:[REDACTED]/png;base64,[REDACTED]",
+		);
+		assert.equal(
+			savedArguments.payload.pixelText,
+			"data:[REDACTED]/png;base64,[REDACTED]",
+		);
+		const savedInput = JSON.parse(String(modelCalls[1].request_body)).input;
+		const savedOutput = savedInput.find(
+			(part: { type?: string }) => part.type === "function_call_output",
+		).output;
+		assert.deepEqual(
+			savedOutput.find((part: { type: string }) => part.type === "input_image"),
+			expectedImage,
+		);
+		assert.equal(
+			JSON.parse(savedOutput.at(-1).text).mcpResult.structuredContent.payload
+				.dataUrl,
+			"data:[REDACTED]/png;base64,[REDACTED]",
+		);
 		const result = JSON.parse(String(toolCall?.result));
 		assert.deepEqual(
 			result.find((part: { type: string }) => part.type === "input_image"),
@@ -704,6 +740,14 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		const metadata = JSON.parse(result.at(-1).text).mcpResult;
 		assert.equal(metadata.isError, false);
 		assert.equal(metadata.structuredContent.inherited, "[REDACTED]");
+		assert.equal(
+			metadata.structuredContent.payload.dataUrl,
+			"data:[REDACTED]/png;base64,[REDACTED]",
+		);
+		assert.equal(
+			metadata.structuredContent.payload.pixelText,
+			"data:[REDACTED]/png;base64,[REDACTED]",
+		);
 		assert.equal(metadata.structuredContent.payload[keySecret], undefined);
 		assert.equal(
 			metadata.structuredContent.payload["[REDACTED]"]["[REDACTED]"],

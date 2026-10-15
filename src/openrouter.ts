@@ -8,8 +8,8 @@ import {
 import {
 	type InputContent,
 	type InputImage,
-	redactImageSafe,
 	redactInputContent,
+	redactJsonText,
 	userContent,
 } from "./image-content.ts";
 
@@ -282,7 +282,7 @@ async function requestOnce(
 		...new Set([...usedSecrets, apiKey, JSON.stringify(apiKey).slice(1, -1)]),
 	];
 	const redact = (text: string) =>
-		redactImageSafe(text, (text) =>
+		redactJsonText(text, (text) =>
 			secrets.reduce(
 				(text, secret) => text.replaceAll(secret, "[REDACTED]"),
 				text,

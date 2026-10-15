@@ -449,3 +449,72 @@ for (const secret of ["false", "1", '"'])
 		assert.equal(body.number, 1);
 		assert.equal(body.diagnostic, "Value [REDACTED]");
 	});
+
+test("unknown provider extensions mask image-like strings and keys as data", async () => {
+	const dataUrl = "data:image/png;base64,AA";
+	const saved: CallResult[] = [];
+	await request(
+		[],
+		"question",
+		async () =>
+			completedResponse({
+				output: [
+					{
+						type: "message",
+						content: [{ type: "output_text", text: "answer" }],
+					},
+				],
+				diagnostic: { [dataUrl]: dataUrl, image_url: dataUrl },
+			}),
+		{
+			request() {},
+			result(value) {
+				saved.push(value);
+			},
+		},
+		{
+			apiKey: "credential",
+			model: "test",
+			secrets: ["AA"],
+		},
+	);
+	const body = JSON.parse(saved.at(-1)?.responseBody ?? "null");
+	const masked = "data:image/png;base64,[REDACTED]";
+	assert.deepEqual(body.diagnostic, { [masked]: masked, image_url: masked });
+});
+
+for (const text of [
+	'{"image_url":"data:image/png;base64,AA"}',
+	'{"image_url":"data:image/png;base64,AA',
+	'plain "image_url":"data:image/png;base64,AA',
+])
+	test(`image-like generic stream text remains masked: ${text}`, async () => {
+		const saved: { result: CallResult; output: OutputItem[] }[] = [];
+		await assert.rejects(
+			request(
+				[],
+				"question",
+				async () =>
+					new Response(frame("response.output_text.delta", { delta: text }), {
+						headers: { "content-type": "text/event-stream" },
+					}),
+				{
+					request() {},
+					result(result, output) {
+						saved.push({ result, output });
+					},
+				},
+				{
+					apiKey: "credential",
+					model: "test",
+					secrets: ["AA"],
+				},
+			),
+		);
+		const last = saved.at(-1);
+		assert.equal(last?.result.status, "failed");
+		assert.equal(
+			last?.output[0]?.content[0]?.text,
+			text.replaceAll("AA", "[REDACTED]"),
+		);
+	});

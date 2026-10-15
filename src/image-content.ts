@@ -66,6 +66,7 @@ export const userContent = (
 	images: InputImage[] = [],
 ): string | InputContent[] =>
 	images.length ? [{ type: "input_text", text }, ...images] : text;
+// Encoded pixels are opaque only at the native image-content position.
 export const redactInputContent = (
 	content: InputContent[],
 	redact: (text: string) => string,
@@ -75,8 +76,7 @@ export const redactInputContent = (
 			? part
 			: { type: "input_text", text: redact(part.text) },
 	);
-// Encoded pixels are opaque data; textual credential replacement would corrupt them.
-export const redactImageSafe = (
+export const redactJsonText = (
 	text: string,
 	redact: (text: string) => string,
 	preserveKeys: readonly string[] = [],
@@ -92,18 +92,11 @@ export const redactImageSafe = (
 					/^\s*:/.test(text.slice(offset + token.length))
 				)
 					return token;
-				if (/^data:image\/(?:png|jpeg|gif|webp);base64,/.test(value))
-					return token;
-				return JSON.stringify(redactImageSafe(value, redact));
+				return JSON.stringify(redactJsonText(value, redact));
 			});
 		} catch {
 			/* Partial JSON and plain tool text use the streaming-safe path below. */
 		}
 	}
-	return text
-		.split(
-			/((?<="image_url":")data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+=*)/g,
-		)
-		.map((part, index) => (index % 2 ? part : redact(part)))
-		.join("");
+	return redact(text);
 };
