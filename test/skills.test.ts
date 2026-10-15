@@ -340,6 +340,7 @@ test("trusted skill links permit native file and command reads while rejecting w
 		await symlink(reference, join(installed, "reference.txt"));
 		await mkdir(join(f.home, ".agents/skills"), { recursive: true });
 		await symlink(installed, join(f.home, ".agents/skills/linked"));
+		source = join(f.home, ".agents/skills/linked/SKILL.md");
 		await skill(join(target, ".agents/skills/local"), "local", "Local skill");
 		projectFile = join(target, ".agents/skills/local/output.txt");
 		await f.ask();
