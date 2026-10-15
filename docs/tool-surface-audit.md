@@ -56,7 +56,7 @@ Codex 本身也提供 OneShot 模式；初次审查时 Weft 只接入这种行�
 | 接入 | 应保留的上游能力 | 接线边界 |
 | --- | --- | --- |
 | MCP Tools | 使用服务发现到的 description、inputSchema 和实际调用参数，不维护手写的 Jira 工具子集；保留结果内容、顺序、structuredContent 和 isError。 | 必要时做可逆工具名映射以区分服务；MCP 与 Responses 字段形状不同，按协议映射，不改参数含义。服务 metadata 与实际结果保留记录；不支持的内容明确报告，不能静默丢失。Resources/Prompts/OAuth 等延期仍按已同意范围。 |
-| Playwright CLI | 直接使用上游 CLI 与 skill，包括会话、profile、页面操作、console、网络详情、请求/响应 body、截图、trace、run-code。 | 不再另做只允许少数浏览器动作的包装或自行采集 console/network。本地安装的 Playwright 1.63.0 已包含 CLI 实现、帮助与 skill；能否在现有沙箱内完整使用尚需验证。 |
+| Playwright CLI | 直接使用上游 CLI 与 skill，包括会话、profile、页面操作、console、网络详情、请求/响应 body、截图、trace、run-code。 | 复用固定 Playwright 1.63.0 安装，仅给 `playwright cli` 完整参数提供可执行别名；官方 skill 与参考资料走现有发现／只读权限。macOS Chromium 需要按 ADR 0004 选择文件与网络均完全访问，其余模式保持沙箱限制；受控网站的实际诊断／截图／会话／关闭记录见[兼容性验证](browser-tools.md)。 |
 | 图片工具结果 | OpenRouter `function_call_output.output` 支持字符串或 `input_text`/`input_image`/`input_file` 数组。 | 扩展当前字符串结果约束，按原生多模态格式传输图片并保存实际内容；不伪装成用户消息或 base64 文本。模型不支持时明确报告。 |
 | Skills | 上游 SKILL.md 与随附脚本、参考资料按需使用；CLI 参数不重写成自己的操作列表。 | Skill 是指导，不是 function tool；发现、显式选择和来源读取仍按 ADR 0007，不能把 skill 的权限声明当作扩大系统权限的授权。 |
 

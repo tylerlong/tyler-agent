@@ -52,6 +52,18 @@ jobs:
           name: macos-tool-results
           path: native-tools.log
           retention-days: 7
+      - name: Native browser diagnostics and four access modes
+        timeout-minutes: 3
+        run: |
+          set -o pipefail
+          pnpm exec playwright install chromium
+          node --test --test-timeout=60000 test/browser-tools.test.ts test/browser-diagnostics.test.ts 2>&1 | tee native-browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-browser-results
+          path: native-browser.log
+          retention-days: 7
       - name: Native subtree cancellation and model records
         timeout-minutes: 2
         run: |

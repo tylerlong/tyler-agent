@@ -38,6 +38,16 @@ File and network access are restricted by default. Project folders and each agen
 
 Each chat can independently enable full file or full network access. **Settings → Execution** sets defaults for new chats only. Full file access remains subject to OS permissions. Temporary workspaces are disposable; save wanted results in project folders.
 
+When **both** file and network access are full, commands run without the native process sandbox, with your system user's permissions. If either dimension is restricted, the native sandbox remains. Scope validation, credential filtering, process ownership, cancellation and output records still apply. Failed commands never automatically gain permissions or retry.
+
+## Browser diagnostics
+
+The installation includes Playwright **1.63.0**'s official CLI and `playwright-cli` skill. Install its Chromium browser once from the Weft directory with `pnpm exec playwright install chromium`. Target repositories need no browser package. Select the skill with `/` or ask the model to use it; `playwright-cli` is available in command tools, forwarding every upstream argument. Installed Chromium can be selected with `playwright-cli open <url> --browser=chromium`.
+
+On macOS, Chromium needs both existing file and network modes set to full: the restricted native sandbox blocks browser Mach service registration even with localhost permission. The model starts and checks the website through ordinary command sessions, then chooses browser actions, console/network details and request/response bodies, trace, screenshots, `run-code`, and `read_image` as needed. Browser operations and full command output remain inspectable Tool Calls. Screenshots enter model context only when explicitly read.
+
+Sessions, profiles and connections retain upstream behavior, using the Agent's isolated HOME for daemon/cache communication. The model should close its browser with `playwright-cli close` (or `-s=<name> close` for a named session); upstream detached browsers may outlive the launching command and retain their normal idle timeout. No Chat lifetime policy or personal browser takeover is added. [Compatibility and validation](docs/browser-tools.md) records the actual tested boundary.
+
 ## Images
 
 Attach PNG, JPEG, GIF or WebP files with **Attach images**, or paste an image into the prompt. Preview and remove attachments before sending a text task. Up to ten images are accepted, each at most 10 MiB. A model known to lack image input is rejected without discarding the draft; unknown capabilities are left to the provider, whose failures are recorded without automatic retries or model changes.

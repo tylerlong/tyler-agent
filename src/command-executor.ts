@@ -626,7 +626,11 @@ export class CommandExecutor {
 				tty: options.tty ?? false,
 				pipeStdin: false,
 				arg0: null,
-				sandbox,
+				sandbox:
+					options.extraPermissions?.fullFile &&
+					options.extraPermissions.fullNetwork
+						? null
+						: sandbox,
 				...(!options.extraPermissions?.fullNetwork &&
 				(options.extraPermissions?.domains.length ||
 					options.extraPermissions?.localNetwork)
