@@ -1,4 +1,4 @@
-# Tyler Agent
+# Weft
 
 A local coding agent with a web interface. Ask it to explore projects, edit files, run commands, and delegate tasks.
 
