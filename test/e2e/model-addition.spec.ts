@@ -1,5 +1,5 @@
 import { chatPicker, expectModel, selectModel } from "./chat-picker.ts";
-import { expect, test } from "./fixtures.ts";
+import { completedQuestion, expect, test } from "./fixtures.ts";
 
 async function chats(page: import("@playwright/test").Page, url: string) {
 	const project = await (
@@ -28,9 +28,7 @@ test("first addition fills saved Chat choices in all windows even with history",
 	await page.request.put(`${app.url}/api/chats/${id}`, {
 		data: { modelId: "test", reasoningEffort: "high" },
 	});
-	await page.request.post(`${app.url}/api/chats/${id}`, {
-		data: { prompt: "History" },
-	});
+	await completedQuestion(page.request, app.url, id, "History");
 	await page.request.delete(`${app.url}/api/models/test`);
 	await page.goto(`${app.url}/?chat=${id}`);
 	const peer = await page.context().newPage();
@@ -69,9 +67,7 @@ test("first addition fills saved Chat after a delayed read and Settings close", 
 	await page.request.put(`${app.url}/api/chats/${id}`, {
 		data: { modelId: "test", reasoningEffort: "high" },
 	});
-	await page.request.post(`${app.url}/api/chats/${id}`, {
-		data: { prompt: "History" },
-	});
+	await completedQuestion(page.request, app.url, id, "History");
 	await page.request.delete(`${app.url}/api/models/test`);
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => {

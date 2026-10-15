@@ -52,9 +52,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 			data: { name: "Alpha" },
 		})
 	).json();
-	await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-		data: { modelId: "test", prompt: "First question" },
-	});
+	await completedQuestion(page.request, app.url, chat.id, "First question");
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const log = page.getByRole("log");
 	await expect(log).toContainText("First question");
