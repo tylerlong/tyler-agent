@@ -289,11 +289,25 @@ test("credential read authorization failure can Retry successfully and Close", a
 	await expect(credentials.getByRole("alert")).toContainText(
 		"Reopen the startup URL",
 	);
+	// Keep an unrelated settings refresh from recovering the read before the Retry click.
+	let releaseSettings: () => void = () => {};
+	const settingsGate = new Promise<void>((resolve) => {
+		releaseSettings = resolve;
+	});
+	await page.route("**/api/model-settings", async (route) => {
+		await settingsGate;
+		await route.continue();
+	});
+	await Promise.all([
+		page.waitForRequest("**/api/model-settings"),
+		page.evaluate(() => window.dispatchEvent(new Event("focus"))),
+	]);
 	failed = false;
 	await credentials.getByRole("button", { name: "Retry", exact: true }).click();
 	await expect(key).toHaveValue("zkey");
 	await expect(key).toBeEnabled();
 	await expect(credentials.getByRole("alert")).toHaveCount(0);
+	releaseSettings();
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();
 	await expect(dialog).toBeHidden();
 });
