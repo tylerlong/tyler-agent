@@ -44,7 +44,7 @@ test("long chat and project lists scroll independently with sidebar header and f
 	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${first}`);
 	const heading = page.getByRole("heading", {
-		name: "Tyler Agent",
+		name: "Weft",
 		exact: true,
 	});
 	const create = page.getByRole("button", { name: "New project", exact: true });

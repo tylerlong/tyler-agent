@@ -76,7 +76,7 @@ export const resources = {
 			refresh: "Refresh",
 			loadingProjects: "Loading projects…",
 			loadingHistory: "Loading chat history…",
-			welcome: "Welcome to Tyler Agent",
+			welcome: "Welcome to Weft",
 			createProjectGuidance:
 				"Create a project using New project in the sidebar to start a chat. Archived projects and chats remain available in Archived.",
 			chooseProjectChat:
@@ -385,7 +385,7 @@ export const resources = {
 			refresh: "刷新",
 			loadingProjects: "正在加载项目…",
 			loadingHistory: "正在加载对话历史…",
-			welcome: "欢迎使用 Tyler Agent",
+			welcome: "欢迎使用 Weft",
 			createProjectGuidance:
 				"点击侧栏的新建项目创建项目，然后在项目内开始对话。归档的项目与对话仍可在已归档中查看。",
 			chooseProjectChat:

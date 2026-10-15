@@ -35,7 +35,7 @@ test("project row toggles from its name and padding while action controls stay i
 	await expect(
 		region.getByRole("button", { name: "Edit project", exact: true }),
 	).toBeVisible();
-	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await page.getByRole("heading", { name: "Weft", exact: true }).click();
 	await region.getByRole("button", { name: "New chat", exact: true }).click();
 	await expect(chat).toBeVisible();
 	await expect(
@@ -65,7 +65,7 @@ test("sidebar menus dismiss outside, switch targets and close before editing", a
 	});
 	await trigger.click();
 	await expect(edit).toBeVisible();
-	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await page.getByRole("heading", { name: "Weft", exact: true }).click();
 	await expect(edit).toBeHidden();
 	await trigger.click();
 	await trigger.click();
@@ -146,7 +146,7 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 		await page.request.post(`${app.url}/api/projects/${p.id}/chats`, {
 			data: { name: `More ${i}` },
 		});
-	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await page.getByRole("heading", { name: "Weft", exact: true }).click();
 	await page.request.put(`${app.url}/api/projects/${p.id}/archive`, {
 		data: { archived: true },
 	});
@@ -177,7 +177,7 @@ test("lightweight controls and menus have hover feedback and fit at the viewport
 	expect(menu.x).toBeGreaterThanOrEqual(0);
 	expect(menu.x + menu.width).toBeLessThanOrEqual(1280);
 	await page.screenshot({ path: "/tmp/tyler-agent-46-archived-menu.png" });
-	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await page.getByRole("heading", { name: "Weft", exact: true }).click();
 	await archived
 		.getByRole("button", { name: "Project actions", exact: true })
 		.click();
@@ -223,7 +223,7 @@ test("normal and Archived project targets stay separate and actions close before
 	});
 	await expect(edit).toBeVisible();
 	// The open menu covers nearby rows; dismiss it before using that row's trigger.
-	await page.getByRole("heading", { name: "Tyler Agent", exact: true }).click();
+	await page.getByRole("heading", { name: "Weft", exact: true }).click();
 	await expect(edit).toBeHidden();
 	await archived
 		.getByRole("button", { name: "Project actions", exact: true })

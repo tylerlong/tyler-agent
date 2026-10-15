@@ -162,7 +162,7 @@ test("home and empty history guidance follow the saved Chinese language", async 
 }) => {
 	await request.put(`${app.url}/api/language`, { data: { language: "zh-CN" } });
 	await page.goto(app.url);
-	await expect(page.getByText("欢迎使用 Tyler Agent")).toBeVisible();
+	await expect(page.getByText("欢迎使用 Weft")).toBeVisible();
 	await expect(page.getByText(/点击侧栏的新建项目创建项目/)).toBeVisible();
 	await (
 		await request.post(`${app.url}/api/projects`, {

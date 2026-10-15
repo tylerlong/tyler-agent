@@ -1,6 +1,6 @@
 # 项目指令的初始加载与按需读取
 
-设计已确定，尚未实现。采用 [Codex 的指令发现约定](https://learn.chatgpt.com/docs/agent-configuration/agents-md)，用 Node 标准库实现加载；现有 Codex 执行后端未提供可单独调用的 loader，引入完整 Agent 框架仅复用文件发现会扩大依赖和接线范围。任务判断遵循 [ADR 0005](0005-local-execution-and-model-decisions.md)。
+已通过现有 Agent／Model Call 输入接入。采用 [Codex 的指令发现约定](https://learn.chatgpt.com/docs/agent-configuration/agents-md)，用 Node 标准库实现加载；现有 Codex 执行后端未提供可单独调用的 loader，引入完整 Agent 框架仅复用文件发现会扩大依赖和接线范围。任务判断遵循 [ADR 0005](0005-local-execution-and-model-decisions.md)。
 
 每个 Root Agent 与 Sub-agent 开始时，本地从宿主用户目录的 `~/.weft/` 加载用户级指令，再为每个 Target Folder 加载最近 Git 仓库根到 Target 的祖先指令链；无 Git 仓库时只检查 Target。多个 Target 保持独立路径范围，共用来源只加载一次；每段内容标明来源和适用范围。模型同时遵守适用的祖先和局部规则，冲突时局部规则优先，用户当前明确要求优先。
 

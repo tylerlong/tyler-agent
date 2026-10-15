@@ -1280,7 +1280,7 @@ function App() {
 				className="relative flex h-full shrink-0 flex-col bg-neutral-50 p-3"
 			>
 				<header className="shrink-0">
-					<h1 className="mb-3 px-2 text-lg font-semibold">Tyler Agent</h1>
+					<h1 className="mb-3 px-2 text-lg font-semibold">Weft</h1>
 					<ApprovalInbox
 						approvals={approvals}
 						error={approvalsError}

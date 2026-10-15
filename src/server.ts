@@ -47,6 +47,7 @@ import {
 	responseOutput,
 } from "./openrouter.ts";
 import { releasePort } from "./port.ts";
+import { loadProjectInstructions } from "./project-instructions.ts";
 
 const readableParts = (item: OutputItem) =>
 	item.content.filter(
@@ -209,6 +210,7 @@ export function createServer(
 	fetchCatalog: typeof fetch = fetch,
 	runTool?: ToolExecutor,
 	managementToken = randomBytes(32).toString("hex"),
+	userHome = homedir(),
 ) {
 	const path =
 		databasePath === undefined
@@ -934,6 +936,14 @@ export function createServer(
 			);
 		try {
 			const scratch = agentScratch(scratchId(agentId));
+			const instructions = await loadProjectInstructions(
+				currentFolders(id),
+				userHome,
+				{
+					...projectGrants(id),
+					fullFile: chatOptions(id).fileAccess === "full",
+				},
+			);
 			await requestModel(
 				agentSource(agentId).parentAgentId === null
 					? successfulMessages(id, agentId)
@@ -1065,7 +1075,7 @@ export function createServer(
 				() => {
 					const next = currentConfig(id, agentId);
 					rememberKey(next.apiKey);
-					return { ...next, scratch };
+					return { ...next, scratch, instructions };
 				},
 				async (name, args, roots, signal) => {
 					signal?.throwIfAborted();

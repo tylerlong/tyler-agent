@@ -38,6 +38,14 @@ The model can call `read_image` for local pictures and screenshots under the sam
 
 Automated checks use controlled model responses to verify the visual protocol and native file reading. They do not establish that a paid model interpreted an image.
 
+## User and project instructions
+
+Each new root task and sub-agent loads user instructions from the service user's `~/.weft/`, followed by each Project folder's nearest Git root through that folder. Outside Git, only the Project folder is checked. In a directory, `AGENTS.override.md` replaces `AGENTS.md`, including when empty; a read failure is reported without falling back. Shared sources load once with each applicable scope.
+
+The initial UTF-8 text budget is 32 KiB, shared in user-first, saved-folder and ancestor-first order. Actual model requests show source paths, scopes, truncated content, omissions and read errors. Running agents keep their initial contents; new agents reload. The model must discover and read deeper local instructions before working on files, and decide how to handle unavailable rules. References such as README, CONTEXT and ADRs are read only when needed.
+
+Only named initial instruction sources receive a read exception. Symlinks outside those sources require ordinary file authorization; referenced files, commands and writes retain their existing permissions. Command `HOME` points to scratch and does not change the user instruction directory.
+
 ## Local data
 
 `data/tyler-agent.sqlite` stores history, settings, and your **unencrypted API key**. Keep it private. To use another database, run `pnpm start --db /absolute/path/to/chat.sqlite`; its parent directory must already exist and be private to your user (for example, permissions `0700`).
