@@ -1,5 +1,21 @@
 import { permissionParameters } from "./execution-permissions.ts";
+import type { InputContent } from "./image-content.ts";
 export const fileTools = [
+	{
+		type: "function",
+		name: "read_image",
+		description:
+			"Read a complete local PNG, JPEG, GIF or WebP image as visual content (maximum 10 MiB). Uses current file permissions, including extra_permissions plus reason for approval. Read only when needed; images remain in this Agent context.",
+		parameters: {
+			type: "object",
+			properties: {
+				...permissionParameters,
+				path: { type: "string", description: "Absolute image path" },
+			},
+			required: ["path"],
+			additionalProperties: false,
+		},
+	},
 	{
 		type: "function",
 		name: "read_file",
@@ -37,7 +53,7 @@ export const fileTools = [
 ];
 export type ToolExecution = {
 	status: "succeeded" | "failed" | "interrupted";
-	result: string;
+	result: string | InputContent[];
 };
 export type ToolExecutor = (
 	name: string,

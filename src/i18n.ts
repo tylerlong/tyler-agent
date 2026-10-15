@@ -158,6 +158,10 @@ export const resources = {
 			removeImage: "Remove image {{index}}",
 			imageAttachmentFailed:
 				"Could not attach images. Use up to 10 PNG, JPEG, GIF, or WebP files, each no larger than 10 MiB.",
+			modelImageUnsupported:
+				"Selected model does not support image input. Choose a model with image support.",
+			invalidImages:
+				"Use up to 10 PNG, JPEG, GIF or WebP images, each at most 10 MiB.",
 			imageInputUnsupported:
 				"This model does not support image input. Choose a model that supports images or remove the attachments.",
 			prompt: "Prompt",
@@ -458,6 +462,9 @@ export const resources = {
 			removeImage: "移除图片 {{index}}",
 			imageAttachmentFailed:
 				"无法添加图片。最多添加 10 张 PNG、JPEG、GIF 或 WebP 图片，每张不超过 10 MiB。",
+			modelImageUnsupported: "所选模型不支持图片输入，请选择支持图片的模型。",
+			invalidImages:
+				"最多添加 10 张 PNG、JPEG、GIF 或 WebP 图片，每张不超过 10 MiB。",
 			imageInputUnsupported:
 				"此模型不支持图片输入。请选择支持图片的模型或移除附件。",
 			prompt: "问题",

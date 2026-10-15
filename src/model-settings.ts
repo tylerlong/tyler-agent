@@ -4,6 +4,7 @@ export type ManagedModel = {
 	id: string;
 	name: string;
 	supportedEfforts?: string[] | null;
+	inputModalities?: string[] | null;
 	reasoningRequired: boolean;
 	catalogMissing: boolean;
 };
@@ -63,7 +64,10 @@ export function createModelSettings(
 			const rows = body.data as {
 				id: string;
 				name: string;
-				architecture?: { output_modalities?: string[] };
+				architecture?: {
+					output_modalities?: string[];
+					input_modalities?: string[] | null;
+				};
 				reasoning?: { supported_efforts?: unknown; mandatory?: boolean };
 			}[];
 			if (
@@ -82,6 +86,12 @@ export function createModelSettings(
 				.map((row) => ({
 					id: row.id,
 					name: row.name,
+					...(Array.isArray(row.architecture?.input_modalities) &&
+					row.architecture.input_modalities.every(
+						(value) => typeof value === "string",
+					)
+						? { inputModalities: row.architecture.input_modalities }
+						: {}),
 					...(row.reasoning &&
 					Object.hasOwn(row.reasoning, "supported_efforts") &&
 					(row.reasoning.supported_efforts === null ||

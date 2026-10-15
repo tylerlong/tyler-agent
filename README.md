@@ -30,6 +30,14 @@ File and network access are restricted by default. Project folders and each agen
 
 Each chat can independently enable full file or full network access. **Settings → Execution** sets defaults for new chats only. Full file access remains subject to OS permissions. Temporary workspaces are disposable; save wanted results in project folders.
 
+## Images
+
+Attach PNG, JPEG, GIF or WebP files with **Attach images**, or paste an image into the prompt. Preview and remove attachments before sending a text task. Up to ten images are accepted, each at most 10 MiB. A model known to lack image input is rejected without discarding the draft; unknown capabilities are left to the provider, whose failures are recorded without automatic retries or model changes.
+
+The model can call `read_image` for local pictures and screenshots under the same file permissions as `read_file`. Actual image bytes are saved with the question or Tool Result, so changing or deleting the source does not change the record. Successful user questions retain their images in later Root Agent history; tool images stay within the Agent that read them. Images increase saved records and model input size. Model request details and Tool Call details retain the actual visual content; copying tool results includes the original data URL.
+
+Automated checks use controlled model responses to verify the visual protocol and native file reading. They do not establish that a paid model interpreted an image.
+
 ## Local data
 
 `data/tyler-agent.sqlite` stores history, settings, and your **unencrypted API key**. Keep it private. To use another database, run `pnpm start --db /absolute/path/to/chat.sqlite`; its parent directory must already exist and be private to your user (for example, permissions `0700`).

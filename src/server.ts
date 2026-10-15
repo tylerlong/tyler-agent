@@ -30,6 +30,13 @@ import {
 	unmetPermissions,
 } from "./execution-permissions.ts";
 import type { ToolExecutor } from "./file-tools.ts";
+import {
+	type InputImage,
+	MAX_IMAGE_BYTES,
+	redactImageSafe,
+	submittedImages,
+	userContent,
+} from "./image-content.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
 import { createModelSettings, ModelSettingsError } from "./model-settings.ts";
 import {
@@ -98,6 +105,9 @@ const errorMessages: Record<string, string> = {
 	chatArchived: "The chat is archived and read-only",
 	chatWriteFailed: "Could not save chat",
 	promptRequired: "Prompt must not be empty",
+	invalidImages:
+		"Use up to 10 PNG, JPEG, GIF or WebP images, each at most 10 MiB",
+	modelImageUnsupported: "Selected model does not support image input",
 	chatBusy: "The chat is processing a request",
 	answerWriteFailed: "Could not save the answer",
 	toolWriteFailed: "Could not save the Tool Call or Tool Result",
@@ -133,15 +143,16 @@ function caughtError(error: unknown, fallback: string) {
 }
 async function readJson(
 	request: IncomingMessage,
+	maxLength = 8192,
 ): Promise<Record<string, unknown>> {
 	let body = "";
 	const decoder = new StringDecoder("utf8");
 	for await (const chunk of request) {
 		body += decoder.write(chunk);
-		if (body.length > 8192) throw new InputError("requestTooLarge");
+		if (body.length > maxLength) throw new InputError("requestTooLarge");
 	}
 	body += decoder.end();
-	if (body.length > 8192) throw new InputError("requestTooLarge");
+	if (body.length > maxLength) throw new InputError("requestTooLarge");
 	try {
 		const input: unknown = JSON.parse(body);
 		if (!input || typeof input !== "object" || Array.isArray(input))
@@ -312,12 +323,13 @@ export function createServer(
 		parentAgentId: number | null;
 		createdByToolCallId: number | null;
 		question: string;
+		images: InputImage[];
 		context: string;
 		creationArguments: Record<string, unknown> | null;
 	} => {
 		const row = database
 			.prepare(
-				"SELECT chat_id,prompt,created_by_tool_call_id FROM agents WHERE id=?",
+				"SELECT chat_id,prompt,images,created_by_tool_call_id FROM agents WHERE id=?",
 			)
 			.get(agentId);
 		if (!row) throw new InputError("notFound");
@@ -333,6 +345,7 @@ export function createServer(
 				parentAgentId: null,
 				createdByToolCallId: null,
 				question: String(row.prompt),
+				images: JSON.parse(String(row.images)),
 				context: "",
 				creationArguments: null,
 			};
@@ -349,6 +362,7 @@ export function createServer(
 			parentAgentId: Number(creator.agent_id),
 			createdByToolCallId: Number(row.created_by_tool_call_id),
 			question: args.prompt,
+			images: [],
 			context: args.context ?? "",
 			creationArguments: args,
 		};
@@ -537,6 +551,7 @@ export function createServer(
 		return {
 			apiKey,
 			model: model.id,
+			inputModalities: model.inputModalities,
 			reasoningEffort: options.reasoningEffort,
 			targetFolders: currentFolders(id),
 			fileAccess: options.fileAccess,
@@ -552,11 +567,17 @@ export function createServer(
 	const successfulMessages = (chatId: number, beforeAgentId: number) =>
 		database
 			.prepare(
-				"SELECT id,prompt FROM agents WHERE chat_id=? AND id<? AND status='succeeded' ORDER BY id",
+				"SELECT id,prompt,images FROM agents WHERE chat_id=? AND id<? AND status='succeeded' ORDER BY id",
 			)
 			.all(chatId, beforeAgentId)
 			.flatMap((row) => [
-				{ role: "user" as const, content: String(row.prompt) },
+				{
+					role: "user" as const,
+					content: userContent(
+						String(row.prompt),
+						JSON.parse(String(row.images)),
+					),
+				},
 				{
 					role: "assistant" as const,
 					content: answerText(agentOutput(Number(row.id))),
@@ -566,6 +587,7 @@ export function createServer(
 		agents: {
 			id?: unknown;
 			question?: unknown;
+			images?: InputImage[];
 			answer?: unknown;
 			status?: unknown;
 			errorCode?: unknown;
@@ -574,7 +596,12 @@ export function createServer(
 		}[],
 	) =>
 		agents.flatMap((agent) => [
-			{ id: `${agent.id}-user`, role: "user", content: agent.question },
+			{
+				id: `${agent.id}-user`,
+				role: "user",
+				content: agent.question,
+				...(agent.images?.length ? { images: agent.images } : {}),
+			},
 			{
 				id: `${agent.id}-assistant`,
 				role: "assistant",
@@ -899,9 +926,11 @@ export function createServer(
 				if (secret && !secrets.includes(secret)) secrets.push(secret);
 		};
 		const redactTool = (text: string) =>
-			secrets.reduce(
-				(value, secret) => value.replaceAll(secret, "[REDACTED]"),
-				text,
+			redactImageSafe(text, (text) =>
+				secrets.reduce(
+					(value, secret) => value.replaceAll(secret, "[REDACTED]"),
+					text,
+				),
 			);
 		try {
 			const scratch = agentScratch(scratchId(agentId));
@@ -971,7 +1000,11 @@ export function createServer(
 								)
 								.run(
 									result.status,
-									redactTool(result.result),
+									redactTool(
+										typeof result.result === "string"
+											? result.result
+											: JSON.stringify(result.result),
+									),
 									savedToolIds[ordinal - 1],
 								);
 						} catch {
@@ -1040,11 +1073,23 @@ export function createServer(
 						name === "exec_command" ||
 						name === "read_tool_output" ||
 						name === "apply_patch" ||
-						name === "read_file"
+						name === "read_file" ||
+						name === "read_image"
 					) {
 						try {
 							const value = JSON.parse(args);
-							if (runTool && (name === "read_file" || name === "apply_patch")) {
+							if (
+								name === "read_image" &&
+								currentConfig(id, agentId).inputModalities &&
+								!currentConfig(id, agentId).inputModalities?.includes("image")
+							)
+								throw new InputError("modelImageUnsupported");
+							if (
+								runTool &&
+								(name === "read_file" ||
+									name === "read_image" ||
+									name === "apply_patch")
+							) {
 								const requested = await requestedPermissions(
 									value?.extra_permissions,
 									value?.reason,
@@ -1097,7 +1142,13 @@ export function createServer(
 									),
 								};
 							}
-							if (name === "read_file") {
+							if (name === "read_file" || name === "read_image") {
+								if (
+									name === "read_image" &&
+									(Object.hasOwn(value, "offset") ||
+										Object.hasOwn(value, "limit"))
+								)
+									throw new InputError("invalidInput");
 								const offset = value.offset ?? 0,
 									limit = value.limit ?? 51200;
 								if (
@@ -1137,7 +1188,9 @@ export function createServer(
 									redactTool(value.reason ?? ""),
 									state.controller.signal,
 								);
-								const result = await commands.read({
+								const result = await commands[
+									name === "read_image" ? "readImage" : "read"
+								]({
 									extraPermissions: extraPermissions(),
 									resolvePermissions: () => ({
 										targetFolders: currentFolders(id),
@@ -1150,7 +1203,13 @@ export function createServer(
 									agentId: scratchId(agentId),
 									signal: state.controller.signal,
 								});
-								return { status: "succeeded", result: JSON.stringify(result) };
+								return {
+									status: "succeeded",
+									result:
+										name === "read_image"
+											? (result as InputImage[])
+											: JSON.stringify(result),
+								};
 							}
 							if (name === "apply_patch") value.timeout_ms ??= 30000;
 
@@ -1381,6 +1440,7 @@ export function createServer(
 									state.wake = resolve;
 								}),
 				},
+				agentSource(agentId).images,
 			);
 		} catch (error) {
 			failure = error;
@@ -2411,7 +2471,16 @@ export function createServer(
 			let locked = false;
 			let acceptedAgentId: number | undefined;
 			try {
-				const input = await readJson(request);
+				const input = await readJson(
+					request,
+					Math.ceil(MAX_IMAGE_BYTES / 3) * 4 * 10 + 8192,
+				);
+				let images: InputImage[];
+				try {
+					images = submittedImages(input.images);
+				} catch {
+					throw new InputError("invalidImages");
+				}
 				if (typeof input.prompt !== "string" || !input.prompt.trim())
 					throw new InputError("promptRequired");
 				if (busy.has(id)) {
@@ -2419,6 +2488,15 @@ export function createServer(
 					return;
 				}
 				const config = currentConfig(id);
+				if (
+					(images.length ||
+						successfulMessages(id, Number.MAX_SAFE_INTEGER).some((message) =>
+							Array.isArray(message.content),
+						)) &&
+					config.inputModalities &&
+					!config.inputModalities.includes("image")
+				)
+					throw new InputError("modelImageUnsupported");
 				busy.add(id);
 				locked = true;
 				let agentId: number;
@@ -2432,9 +2510,10 @@ export function createServer(
 					agentId = Number(
 						database
 							.prepare(
-								"INSERT INTO agents(chat_id,prompt,status,created_at) VALUES (?,?,'pending',?)",
+								"INSERT INTO agents(chat_id,prompt,images,status,created_at) VALUES (?,?,?,'pending',?)",
 							)
-							.run(id, question, Date.now()).lastInsertRowid,
+							.run(id, question, JSON.stringify(images), Date.now())
+							.lastInsertRowid,
 					);
 					database.exec("COMMIT");
 				} catch (error) {

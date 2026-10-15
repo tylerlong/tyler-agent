@@ -5,8 +5,14 @@ import {
 	type ToolExecution,
 	type ToolExecutor,
 } from "./file-tools.ts";
+import {
+	type InputContent,
+	type InputImage,
+	redactImageSafe,
+	userContent,
+} from "./image-content.ts";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string | InputContent[] };
 export type OutputPart = { index: number; type: string; text: string };
 export type OutputItem = {
 	id: string;
@@ -95,6 +101,7 @@ export type ModelConfig = {
 	apiKey: string;
 	model: string;
 	reasoningEffort?: string | null;
+	inputModalities?: string[] | null;
 	targetFolders?: string[];
 	scratch?: string;
 	fileAccess?: "restricted" | "full";
@@ -162,8 +169,12 @@ export async function requestModel(
 	config?: ModelConfig | (() => ModelConfig),
 	execute: ToolExecutor = executeTool,
 	loop?: AgentLoop,
+	images: InputImage[] = [],
 ) {
-	const input: unknown[] = [...messages, { role: "user", content: prompt }];
+	const input: unknown[] = [
+		...messages,
+		{ role: "user", content: userContent(prompt, images) },
+	];
 	let previous: OutputItem[] = [];
 	const usedSecrets = new Set<string>();
 	for (let round = 0; ; round++) {
@@ -254,9 +265,11 @@ async function requestOnce(
 		...new Set([...usedSecrets, apiKey, JSON.stringify(apiKey).slice(1, -1)]),
 	];
 	const redact = (text: string) =>
-		secrets.reduce(
-			(text, secret) => text.replaceAll(secret, "[REDACTED]"),
-			text,
+		redactImageSafe(text, (text) =>
+			secrets.reduce(
+				(text, secret) => text.replaceAll(secret, "[REDACTED]"),
+				text,
+			),
 		);
 	// Hold only an unfinished credential prefix; it cannot be exposed before the next chunk.
 	const safe = (text: string, final = false) => {

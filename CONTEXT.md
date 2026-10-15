@@ -6,7 +6,7 @@
 
 保留自己的 Agent 和可观察的模型调用路径；在此底线之上，所有功能都可以与第三方实现公平比较并择优替换。设计取舍见 [docs/adr](docs/adr/)，实际接口以代码和测试为准。
 
-项目指令、Skills、MCP/Jira、浏览器与图片输入及工具能力恢复的实施规格见 [#159](https://github.com/tylerlong/tyler-agent/issues/159)；相关设计尚未实现。
+项目指令、Skills、MCP/Jira、浏览器与图片输入及工具能力恢复的实施规格见 [#159](https://github.com/tylerlong/tyler-agent/issues/159)；图片输入与本地读图已实现；其他能力按子票实施状态为准。
 
 设计优先采用成熟约定、现有实现和少量统一的默认规则；只有具体需求证明默认规则不足时，才增加配置、例外或依赖。
 
