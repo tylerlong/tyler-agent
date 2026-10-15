@@ -2,6 +2,7 @@ import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { parse } from "yaml";
+import { browserSkill } from "./browser-tools.ts";
 
 export type Skill = {
 	name: string;
@@ -27,7 +28,7 @@ export async function discoverSkills(
 	const skills: Skill[] = [];
 	const diagnostics: string[] = [];
 	const readPaths = new Set<string>();
-	const roots = new Set([join(userHome, ".agents", "skills")]);
+	const roots = new Set([browserSkill, join(userHome, ".agents", "skills")]);
 	for (const target of targetFolders) {
 		const chain = [target];
 		let directory: string;

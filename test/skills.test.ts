@@ -149,7 +149,7 @@ test("skill catalog preserves duplicate sources and explicit-only visibility, re
 			"policy:\n  allow_implicit_invocation: false\n",
 		);
 		const catalog = await f.request(`/api/chats/${f.chat.id}/skills`);
-		assert.equal(catalog.skills.length, 4);
+		assert.equal(catalog.skills.length, 5);
 		assert.deepEqual(
 			catalog.skills
 				.filter((s: { name: string }) => s.name === "shared")
@@ -385,9 +385,10 @@ test("project skills follow the nearest Git root through a saved Target alias an
 			name: "Alias",
 		});
 		const catalog = await f.request(`/api/chats/${chat.id}/skills`);
-		assert.equal(catalog.skills.length, 2);
+		assert.equal(catalog.skills.length, 3);
 		assert.deepEqual(
 			catalog.skills
+				.filter((entry: { name: string }) => entry.name !== "playwright-cli")
 				.map((entry: { description: string }) => entry.description)
 				.sort(),
 			["Repository root", "Target local"],

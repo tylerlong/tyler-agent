@@ -8,6 +8,12 @@ import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
+import {
+	browserCacheDirectory,
+	browserResourcePaths,
+	playwrightCoreRoot,
+	playwrightRoot,
+} from "./browser-tools.ts";
 import type { ExecutionPermissions } from "./execution-permissions.ts";
 import { imageFromBytes, MAX_IMAGE_BYTES } from "./image-content.ts";
 
@@ -178,6 +184,8 @@ export class CommandExecutor {
 			"/opt/homebrew/etc/openssl@4",
 			this.binary,
 			rgFolder,
+			dirname(playwrightRoot),
+			dirname(playwrightCoreRoot),
 		];
 		// The supported macOS installation uses Homebrew; no user PATH or config is inherited.
 		try {
@@ -187,8 +195,24 @@ export class CommandExecutor {
 		} catch {
 			// pnpm is optional; missing commands return their ordinary shell error.
 		}
-		this.commandPath = `${dirname(process.execPath)}:${rgFolder}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
 		const home = await realpath(await mkdtemp("/tmp/tyler-agent-executor-"));
+		const bin = join(home, "bin");
+		await mkdir(bin);
+		const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+		await writeFile(
+			join(bin, "playwright-cli"),
+			`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(playwrightRoot, "cli.js"))} cli "$@"\n`,
+			{ mode: 0o755 },
+		);
+		this.toolPaths.push(bin);
+		for (const path of browserResourcePaths) {
+			try {
+				this.toolPaths.push(await realpath(path));
+			} catch {
+				// Browser installation is optional; the CLI reports missing executables.
+			}
+		}
+		this.commandPath = `${bin}:${dirname(process.execPath)}:${rgFolder}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
 		await mkdir(join(home, "tmp"));
 		await writeFile(
 			join(home, "config.toml"),
@@ -594,6 +618,7 @@ export class CommandExecutor {
 					TMP: scratch,
 					TEMP: scratch,
 					XDG_CACHE_HOME: join(scratch, "cache"),
+					PLAYWRIGHT_BROWSERS_PATH: browserCacheDirectory,
 					LANG: "en_US.UTF-8",
 					GIT_CONFIG_NOSYSTEM: "1",
 					DEVELOPER_DIR: "/Library/Developer/CommandLineTools",
