@@ -9,6 +9,7 @@ import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
 import type { ExecutionPermissions } from "./execution-permissions.ts";
+import { imageFromBytes, MAX_IMAGE_BYTES } from "./image-content.ts";
 
 export class ExecutionInterruptedError extends Error {}
 
@@ -432,6 +433,19 @@ export class CommandExecutor {
 		} finally {
 			if (opened) await this.rpc("fs/close", { handleId });
 		}
+	}
+
+	async readImage(
+		options: Omit<Parameters<CommandExecutor["read"]>[0], "offset" | "limit">,
+	) {
+		const file = await this.read({
+			...options,
+			offset: 0,
+			limit: MAX_IMAGE_BYTES + 1,
+		});
+		if (!file.eof || file.bytes_read > MAX_IMAGE_BYTES)
+			throw new Error(`Image exceeds ${MAX_IMAGE_BYTES} bytes`);
+		return [imageFromBytes(Buffer.from(file.content, "base64"))];
 	}
 
 	async execute(options: Execution): Promise<ExecutionResult> {
