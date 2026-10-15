@@ -3,21 +3,6 @@ import type { InputContent } from "./image-content.ts";
 export const fileTools = [
 	{
 		type: "function",
-		name: "read_image",
-		description:
-			"Read a complete local PNG, JPEG, GIF or WebP image as visual content (maximum 10 MiB). Uses current file permissions, including extra_permissions plus reason for approval. Read only when needed; images remain in this Agent context.",
-		parameters: {
-			type: "object",
-			properties: {
-				...permissionParameters,
-				path: { type: "string", description: "Absolute image path" },
-			},
-			required: ["path"],
-			additionalProperties: false,
-		},
-	},
-	{
-		type: "function",
 		name: "read_file",
 		description:
 			"Read a bounded native file block under the same current scope as commands. Explicit extra_permissions plus reason wait for user deny/once/Project-always approval. Byte offsets; defaults offset 0, limit 51200, maximum 51200 bytes. Returns exact base64 content and decoded UTF-8 text (partial codepoints/invalid bytes may display replacement characters). Continue at next_offset until eof; each call opens and closes its own handle.",
@@ -47,6 +32,21 @@ export const fileTools = [
 				timeout_ms: { type: "integer", minimum: 1, maximum: 3600000 },
 			},
 			required: ["patch", "cwd"],
+			additionalProperties: false,
+		},
+	},
+	{
+		type: "function",
+		name: "read_image",
+		description:
+			"Read a complete local PNG, JPEG, GIF or WebP image as visual content (maximum 10 MiB). Uses current file permissions, including extra_permissions plus reason for approval. Read only when needed; images remain in this Agent context.",
+		parameters: {
+			type: "object",
+			properties: {
+				...permissionParameters,
+				path: { type: "string", description: "Absolute image path" },
+			},
+			required: ["path"],
 			additionalProperties: false,
 		},
 	},
