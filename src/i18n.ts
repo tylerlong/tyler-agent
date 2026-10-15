@@ -153,6 +153,13 @@ export const resources = {
 				"This desktop workspace needs a browser viewport of at least 1280×720 CSS pixels. Enlarge your window to resume; your drafts and running work are preserved.",
 			invalidModel: "Choose an enabled model.",
 			invalidReasoning: "Choose a supported reasoning level.",
+			attachImages: "Attach images",
+			attachedImage: "Attached image {{index}}",
+			removeImage: "Remove image {{index}}",
+			imageAttachmentFailed:
+				"Could not attach images. Use up to 10 PNG, JPEG, GIF, or WebP files, each no larger than 10 MiB.",
+			imageInputUnsupported:
+				"This model does not support image input. Choose a model that supports images or remove the attachments.",
 			prompt: "Prompt",
 			submit: "Send",
 			name: "Name",
@@ -446,6 +453,13 @@ export const resources = {
 				"此桌面工作区需要至少 1280×720 CSS 像素的浏览器内容视口。扩大窗口即可继续；草稿和进行中的操作会保留。",
 			invalidModel: "请选择已启用的模型。",
 			invalidReasoning: "请选择支持的思考强度。",
+			attachImages: "添加图片",
+			attachedImage: "附件图片 {{index}}",
+			removeImage: "移除图片 {{index}}",
+			imageAttachmentFailed:
+				"无法添加图片。最多添加 10 张 PNG、JPEG、GIF 或 WebP 图片，每张不超过 10 MiB。",
+			imageInputUnsupported:
+				"此模型不支持图片输入。请选择支持图片的模型或移除附件。",
 			prompt: "问题",
 			submit: "发送",
 			name: "名称",

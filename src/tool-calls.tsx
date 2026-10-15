@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-
 import { type Approval, ApprovalActions } from "./approvals.tsx";
+import { ImagePreviews, toolImages } from "./image-attachments.tsx";
 
 export type ToolCall = {
 	id: number;
@@ -246,6 +246,10 @@ export function ToolCallCard({
 							</Fragment>
 						))}
 					</div>
+					<ImagePreviews
+						images={toolImages(content?.result)}
+						onLoad={onLayoutChange}
+					/>
 					{call.status === "running" && loading}
 				</div>
 			</details>

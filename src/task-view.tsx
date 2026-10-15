@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
 import { api, appError } from "./api.ts";
 import { subscribeEvents } from "./api-events.ts";
+import { ImagePreviews } from "./image-attachments.tsx";
 
 export const urlAgent = () => {
 	const value = new URL(location.href).searchParams.get("agent");
@@ -403,6 +404,7 @@ export function TaskView({
 						)}
 						<h3 className="mt-4 font-medium">{t("prompt")}</h3>
 						<p>{value.agent.question}</p>
+						<ImagePreviews images={value.agent.images ?? []} onLoad={restore} />
 						{value.agent.createdByToolCallId !== null && (
 							<>
 								<h3 className="mt-4 font-medium">{t("taskContext")}</h3>
