@@ -765,7 +765,13 @@ export class CommandExecutor {
 		);
 		await Promise.all(
 			owned.map(async ([processId, proc]) => {
-				if (!proc.closed) await proc.stop();
+				if (!proc.closed) {
+					try {
+						await proc.stop();
+					} catch (error) {
+						this.fail(`Command termination failed: ${String(error)}`);
+					}
+				}
 				await proc.completed;
 				this.processes.delete(processId);
 			}),

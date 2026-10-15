@@ -31,7 +31,6 @@ export const commandTools = [
 				yield_time_ms: {
 					type: "integer",
 					minimum: 0,
-					maximum: 30000,
 					default: 10000,
 				},
 				max_output_tokens: { type: "integer", minimum: 0 },
@@ -50,7 +49,7 @@ export const commandTools = [
 			properties: {
 				session_id: { type: "integer", minimum: 1 },
 				chars: { type: "string" },
-				yield_time_ms: { type: "integer", minimum: 0, maximum: 300000 },
+				yield_time_ms: { type: "integer", minimum: 0 },
 				max_output_tokens: { type: "integer", minimum: 0 },
 			},
 			required: ["session_id"],

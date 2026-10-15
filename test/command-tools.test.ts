@@ -1945,7 +1945,7 @@ commandTest(
 						call("exec_command", {
 							cmd: "node -e \"process.stdout.write('x'.repeat(30000));setInterval(()=>{},1000)\"",
 							workdir: root,
-							yield_time_ms: 1000,
+							yield_time_ms: 600000,
 							max_output_tokens: 2,
 						}),
 					]);
@@ -2112,7 +2112,7 @@ commandTest(
 					return done([
 						call(
 							"exec_command",
-							{ cmd: "printf recovered", workdir: root, yield_time_ms: 1000 },
+							{ cmd: "printf recovered", workdir: root, yield_time_ms: 60000 },
 							"recover",
 						),
 					]);

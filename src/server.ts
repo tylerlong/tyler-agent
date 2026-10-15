@@ -1144,7 +1144,7 @@ export function createServer(
 									(value.yield_time_ms !== undefined &&
 										(!Number.isSafeInteger(value.yield_time_ms) ||
 											value.yield_time_ms < 0 ||
-											value.yield_time_ms > 300000)) ||
+											false)) ||
 									(value.max_output_tokens !== undefined &&
 										(!Number.isSafeInteger(value.max_output_tokens) ||
 											value.max_output_tokens < 0 ||
@@ -1331,8 +1331,7 @@ export function createServer(
 										value.timeout_ms > 3600000)) ||
 								(value.yield_time_ms !== undefined &&
 									(!Number.isSafeInteger(value.yield_time_ms) ||
-										value.yield_time_ms < 0 ||
-										value.yield_time_ms > 30000)) ||
+										value.yield_time_ms < 0)) ||
 								(value.tty !== undefined && typeof value.tty !== "boolean") ||
 								(value.login !== undefined &&
 									typeof value.login !== "boolean") ||
@@ -1378,7 +1377,7 @@ export function createServer(
 								yieldTimeMs:
 									value.yield_time_ms === undefined
 										? undefined
-										: Math.max(250, value.yield_time_ms),
+										: Math.min(30000, Math.max(250, value.yield_time_ms)),
 								tty: value.tty,
 								shell: value.shell,
 								login: value.login,
