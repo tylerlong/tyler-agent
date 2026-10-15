@@ -319,3 +319,25 @@ test("local first reads see current contents and initial ancestor access does no
 		await f.close();
 	}
 });
+
+test("symlinked Target folders receive their real Git ancestors and scoped instructions", async () => {
+	const f = await fixture();
+	try {
+		const repo = join(f.directory, "real"),
+			target = join(repo, "target"),
+			alias = join(f.directory, "alias");
+		await mkdir(join(repo, ".git"), { recursive: true });
+		await mkdir(target);
+		await writeFile(join(repo, "AGENTS.md"), "REAL-ANCESTOR");
+		await writeFile(join(target, "AGENTS.md"), "REAL-TARGET");
+		await symlink(target, alias);
+		await f.ask([alias, target]);
+		const text = f.requests[0].instructions;
+		assert(text.includes("REAL-ANCESTOR") && text.includes("REAL-TARGET"));
+		assert.equal(text.split("REAL-TARGET").length, 2);
+		assert(text.includes(JSON.stringify([alias, target])));
+		assert(!text.includes("requires ordinary file authorization"));
+	} finally {
+		await f.close();
+	}
+});

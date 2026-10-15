@@ -94,9 +94,9 @@ for (const language of ["en", "zh-CN"]) {
 				})
 			).json();
 			const root = app.rawStreamModel();
-			const branch = app.rawStreamModel();
-			const sibling = app.rawStreamModel();
-			const failed = app.rawStreamModel();
+			const branch = app.rawStreamModel(`${branchSummary}\nFull branch prompt`);
+			const sibling = app.rawStreamModel("Sibling");
+			const failed = app.rawStreamModel("Failed child");
 			app.rawStreamModel(); // Keep the root's continuation in flight while inspecting children.
 			const accepted = await (
 				await page.request.post(`${app.url}/api/chats/${chat.id}`, {
@@ -130,7 +130,7 @@ for (const language of ["en", "zh-CN"]) {
 				accepted.agentId,
 				3,
 			);
-			const grandchild = app.rawStreamModel();
+			const grandchild = app.rawStreamModel("Deep task\nComplete deep prompt");
 			app.rawStreamModel(); // Branch continuation remains pending until explicitly stopped.
 			branch.push(
 				completedBody({
@@ -512,7 +512,7 @@ test("task preview keeps newer terminal data when an old unmounted read finishes
 		})
 	).json();
 	const root = app.rawStreamModel();
-	const child = app.rawStreamModel();
+	const child = app.rawStreamModel("Cache child");
 	app.rawStreamModel();
 	const accepted = await (
 		await page.request.post(`${app.url}/api/chats/${chat.id}`, {

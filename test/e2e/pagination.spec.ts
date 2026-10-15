@@ -199,10 +199,25 @@ test("late snapshots cannot replace completed agents and interrupted catch-up re
 	await page.route("**/api/agents/*", (route) =>
 		blocked ? route.abort() : route.continue(),
 	);
-	for (let i = 1; i <= 24; i++)
-		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { modelId: "test", prompt: `Missed ${i}.` },
-		});
+	for (let i = 1; i <= 24; i++) {
+		const accepted = await (
+			await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+				data: { modelId: "test", prompt: `Missed ${i}.` },
+			})
+		).json();
+		await expect
+			.poll(
+				async () =>
+					(
+						await (
+							await page.request.get(
+								`${app.url}/api/agents/${accepted.agentId}`,
+							)
+						).json()
+					).busy,
+			)
+			.toBe(false);
+	}
 	const missedGate = app.holdModel();
 	const missedPending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
 		data: { modelId: "test", prompt: "Missed 25." },

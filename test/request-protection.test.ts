@@ -12,6 +12,10 @@ import { completedResponse } from "./model-fixture.ts";
 test("local Host and exact Origin protect all mutations and bodyless cancellation", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-origin-"));
 	let calls = 0;
+	let entered!: () => void;
+	const started = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
 	let release!: () => void;
 	const held = new Promise<void>((resolve) => {
 		release = resolve;
@@ -19,6 +23,7 @@ test("local Host and exact Origin protect all mutations and bodyless cancellatio
 	const server = createTestServer(
 		async (_url, options) => {
 			calls++;
+			entered();
 			await Promise.race([
 				held,
 				new Promise<void>((resolve) =>
@@ -210,6 +215,7 @@ test("local Host and exact Origin protect all mutations and bodyless cancellatio
 		const accepted = await (
 			await send(`/api/chats/${chat.id}`, "POST", { prompt: "accepted" })
 		).json();
+		await started;
 		assert.equal(calls, 1);
 		const rejectedHeaders: Record<string, string>[] = [
 			{},

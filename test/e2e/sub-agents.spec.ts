@@ -23,8 +23,8 @@ test("parallel delegation exposes complete creation cards and preserves root his
 	).json();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const root = app.rawStreamModel();
-	const first = app.rawStreamModel();
-	const second = app.rawStreamModel();
+	const first = app.rawStreamModel("1 + 2");
+	const second = app.rawStreamModel("3 + 4");
 	const beforeEvents = app.rawStreamModel();
 	await page
 		.getByLabel("Prompt")
@@ -194,9 +194,11 @@ for (const language of ["en", "zh-CN"]) {
 			})
 		).json();
 		const root = app.rawStreamModel();
-		const failed = app.rawStreamModel();
-		const cancelled = app.rawStreamModel();
-		const succeeded = app.rawStreamModel();
+		const failed = app.rawStreamModel("Failure task");
+		const cancelled = app.rawStreamModel("Cancelled task");
+		const succeeded = app.rawStreamModel(
+			`${"Complex English 中文 ".repeat(20)}\nMore prompt`,
+		);
 		app.rawStreamModel();
 		const { agentId } = await (
 			await page.request.post(`${app.url}/api/chats/${chat.id}`, {

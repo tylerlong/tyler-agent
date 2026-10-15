@@ -153,7 +153,17 @@ test("all terminal kinds copy complete generic display including absent and empt
 	stream.end();
 	await tool.entered;
 	tool.release();
-	await pending;
+	const accepted = await (await pending).json();
+	await expect
+		.poll(
+			async () =>
+				(
+					await (
+						await page.request.get(`${app.url}/api/agents/${accepted.agentId}`)
+					).json()
+				).busy,
+		)
+		.toBe(false);
 	const db = openDatabase(join(app.folder, "db.sqlite"), false);
 	const saved = db.prepare("SELECT * FROM tool_calls").get();
 	if (!saved) throw new Error("Missing call");

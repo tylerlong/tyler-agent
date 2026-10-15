@@ -835,6 +835,7 @@ for (const during of ["model", "tool"])
 		const held = gate(),
 			entered = gate();
 		let childStarts = 0;
+		const childrenEntered = gate();
 		const parentInputs: { role?: string; content?: string }[][] = [];
 		const f = await fixture(
 			async (_url, init) => {
@@ -842,6 +843,7 @@ for (const during of ["model", "tool"])
 				const prompt = userPrompt(request.input);
 				if (prompt === "ordered one" || prompt === "ordered two") {
 					childStarts++;
+					if (childStarts === 2) childrenEntered.release();
 					await children[prompt === "ordered one" ? 0 : 1].promise;
 					return completedResponse({
 						output: [
@@ -876,6 +878,7 @@ for (const during of ["model", "tool"])
 		try {
 			const rootId = await f.ask("ordered notifications");
 			await entered.promise;
+			await childrenEntered.promise;
 			assert.equal(childStarts, 2);
 			const tools = (await f.get(`/api/agents/${rootId}/tools`)).toolCalls;
 			const childIds = tools
@@ -1297,6 +1300,16 @@ for (const kind of ["model", "tree"])
 		try {
 			const rootId = await f.ask("lower running limit");
 			await started.promise;
+			if (kind === "tree") {
+				const created = (await f.get(`/api/agents/${rootId}/tools`))
+					.toolCalls[0];
+				const childId = JSON.parse(created.result).agent_id;
+				await until(
+					async () =>
+						(await f.get(`/api/agents/${childId}`)).agents[0].status ===
+						"succeeded",
+				);
+			}
 			const db = new DatabaseSync(f.path);
 			db.prepare(
 				`UPDATE settings SET ${kind === "model" ? "model_call_limit" : "sub_agent_limit"}=1 WHERE id=1`,

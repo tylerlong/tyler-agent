@@ -931,12 +931,17 @@ for (const scenario of [
 
 test("pending readable snapshots protect split credentials and survive an interrupted read without saving frames", async () => {
 	let stream!: ReadableStreamDefaultController<Uint8Array>;
+	let entered!: () => void;
+	const started = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
 	const f = await fixture(
 		async () =>
 			new Response(
 				new ReadableStream({
 					start(controller) {
 						stream = controller;
+						entered();
 					},
 				}),
 				{ headers: { "content-type": "text/event-stream" } },
@@ -964,6 +969,7 @@ test("pending readable snapshots protect split credentials and survive an interr
 			}
 			assert.fail(`Partial output never became ${text}`);
 		}
+		await started;
 		stream.enqueue(
 			new TextEncoder().encode(": keepalive\r\n\r\n" + delta("stream-")),
 		);

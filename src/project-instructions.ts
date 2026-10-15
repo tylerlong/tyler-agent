@@ -24,10 +24,21 @@ export async function loadProjectInstructions(
 		directories.set(directory, scopes);
 	};
 	add(join(userHome, ".weft"), "all projects and Agents (user instructions)");
+	const resolvedTargets: string[] = [];
 	for (const target of targets) {
-		const ancestors = [target];
+		let actualTarget: string;
+		try {
+			actualTarget = await realpath(target);
+		} catch (error) {
+			diagnostics.push(
+				`Instruction scope ${JSON.stringify(target)}: ${String(error)}`,
+			);
+			continue;
+		}
+		resolvedTargets.push(actualTarget);
+		const ancestors = [actualTarget];
 		let root: string | undefined;
-		for (let directory = target; ; directory = dirname(directory)) {
+		for (let directory = actualTarget; ; directory = dirname(directory)) {
 			try {
 				await lstat(join(directory, ".git"));
 				root = directory;
@@ -43,7 +54,7 @@ export async function loadProjectInstructions(
 			if (dirname(directory) === directory) break;
 			ancestors.push(dirname(directory));
 		}
-		for (const directory of root ? ancestors.reverse() : [target])
+		for (const directory of root ? ancestors.reverse() : [actualTarget])
 			add(directory, target);
 	}
 	const candidates = new Set(
@@ -88,7 +99,10 @@ export async function loadProjectInstructions(
 						...permissions,
 						paths: [
 							...permissions.paths,
-							...targets.map((path) => ({ path, access: "read" as const })),
+							...resolvedTargets.map((path) => ({
+								path,
+								access: "read" as const,
+							})),
 						],
 					},
 				).paths.length

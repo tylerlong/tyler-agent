@@ -26,7 +26,10 @@ export const test = base.extend<{
 			release: () => void;
 		};
 		holdModel: () => { entered: Promise<void>; release: () => void };
-		rawStreamModel: () => { push: (text: string) => void; end: () => void };
+		rawStreamModel: (prompt?: string) => {
+			push: (text: string) => void;
+			end: () => void;
+		};
 		streamModel: () => { entered: Promise<void>; release: () => void };
 	};
 }>({
@@ -139,16 +142,20 @@ export const test = base.extend<{
 			toolQueue.push({ result, entered, wait });
 			return { entered: started, release };
 		}
-		const rawStreams: ReadableStream<Uint8Array>[] = [];
-		function rawStreamModel() {
+		const rawStreams: {
+			stream: ReadableStream<Uint8Array>;
+			prompt?: string;
+		}[] = [];
+		function rawStreamModel(prompt?: string) {
 			let controller!: ReadableStreamDefaultController<Uint8Array>;
-			rawStreams.push(
-				new ReadableStream({
+			rawStreams.push({
+				prompt,
+				stream: new ReadableStream({
 					start(value) {
 						controller = value;
 					},
 				}),
-			);
+			});
 			return {
 				push: (text: string) =>
 					controller.enqueue(new TextEncoder().encode(text)),
@@ -175,8 +182,22 @@ export const test = base.extend<{
 			);
 		const start = () =>
 			createServer(
-				async () => {
-					const rawStream = rawStreams.shift();
+				async (_url, init) => {
+					const input = JSON.parse(String(init?.body)).input as {
+						role?: string;
+						content?: unknown;
+					}[];
+					let index = rawStreams.findIndex(
+						(entry) =>
+							entry.prompt !== undefined &&
+							input.some(
+								(item) => item.role === "user" && item.content === entry.prompt,
+							),
+					);
+					if (index < 0)
+						index = rawStreams.findIndex((entry) => entry.prompt === undefined);
+					const rawStream =
+						index < 0 ? undefined : rawStreams.splice(index, 1)[0]?.stream;
 					if (rawStream) {
 						const body = rawStream;
 						return new Response(body, {

@@ -58,7 +58,9 @@ for (const child of [false, true]) {
 			})
 		).json();
 		const rootStream = app.rawStreamModel();
-		const childStream = child ? app.rawStreamModel() : undefined;
+		const childStream = child
+			? app.rawStreamModel("Child **original** prompt")
+			: undefined;
 		if (child) app.rawStreamModel(); // Parent continuation awaits its own cancellation.
 		const accepted = await (
 			await page.request.post(`${app.url}/api/chats/${chat.id}`, {

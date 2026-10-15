@@ -393,6 +393,17 @@ test("saved unsupported effort silently resets to Default and model capabilities
 		},
 	);
 	expect(submitted.ok()).toBe(true);
+	const accepted = await submitted.json();
+	await expect
+		.poll(
+			async () =>
+				(
+					await (
+						await page.request.get(`${app.url}/api/agents/${accepted.agentId}`)
+					).json()
+				).busy,
+		)
+		.toBe(false);
 	const db = new DatabaseSync(join(app.folder, "db.sqlite"));
 	try {
 		db.prepare("UPDATE managed_models SET metadata=? WHERE id=?").run(
