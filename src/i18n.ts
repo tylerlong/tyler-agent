@@ -166,6 +166,10 @@ export const resources = {
 			imageInputUnsupported:
 				"This model does not support image input. Choose a model that supports images or remove the attachments.",
 			prompt: "Prompt",
+			skills: "Skills",
+			selectedSkills: "Selected skills",
+			removeSkill: "Remove skill {{name}} ({{source}})",
+			noSkills: "No matching skills.",
 			submit: "Send",
 			name: "Name",
 			selectedFolders: "Selected folders",
@@ -470,6 +474,10 @@ export const resources = {
 			imageInputUnsupported:
 				"此模型不支持图片输入。请选择支持图片的模型或移除附件。",
 			prompt: "问题",
+			skills: "Skills",
+			selectedSkills: "已选 Skills",
+			removeSkill: "移除 Skill {{name}}（{{source}}）",
+			noSkills: "没有匹配的 Skills。",
 			submit: "发送",
 			name: "名称",
 			selectedFolders: "已选文件夹",

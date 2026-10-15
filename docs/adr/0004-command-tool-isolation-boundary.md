@@ -16,7 +16,7 @@
 
 项目指令 loader 的具名来源只读能力按 [ADR 0006](0006-project-instruction-loading.md) 实现；该特例不扩大普通文件或命令工具的权限。
 
-Skills 的已知来源目录及其符号链接目标按 [ADR 0007](0007-skill-discovery-and-invocation.md) 设计为默认只读资料源，尚未实现；沿用工具执行权限，不因 skill 内容授予额外写入或网络权限。
+Skills 的已知来源目录及其符号链接实际目标按 [ADR 0007](0007-skill-discovery-and-invocation.md) 接入为每个 Agent 的默认只读资料源；沿用工具执行权限，不因 skill 内容授予额外写入或网络权限。已有可写 Target／scratch／授权覆盖的只读 grant 不再重复下发，避免原生最具体路径规则收窄原有写权限。
 
 本节的沙箱及授权范围针对内置文件和命令工具。用户主动配置并启用的 MCP 按 [ADR 0009](0009-mcp-client-integration.md) 作为可信外部集成处理，权限由服务账号、启动配置与运行环境约束；尚未实现。
 

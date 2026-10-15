@@ -49,6 +49,7 @@ import {
 } from "./openrouter.ts";
 import { releasePort } from "./port.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
+import { discoverSkills, skillInstructions } from "./skills.ts";
 
 const readableParts = (item: OutputItem) =>
 	item.content.filter(
@@ -393,6 +394,7 @@ export function createServer(
 			controller: AbortController;
 			suppressed: boolean;
 			stopped: boolean;
+			skillReadPaths: string[];
 		}
 	>();
 	const terminalResult = (agentId: number) => {
@@ -689,6 +691,10 @@ export function createServer(
 					.concat(agentScratch(scratchId(agentId)))
 					.map((path) => ({ path, access: "write" as const })),
 				...(fullFile ? [] : grants.paths),
+				...(running.get(agentId)?.skillReadPaths ?? []).map((path) => ({
+					path,
+					access: "read" as const,
+				})),
 			],
 		};
 	};
@@ -821,7 +827,14 @@ export function createServer(
 			return {
 				fullFile: chatOptions(chatId).fileAccess === "full",
 				fullNetwork: chatOptions(chatId).networkAccess === "full",
-				paths: [...grants.paths, ...extra.paths],
+				paths: [
+					...grants.paths,
+					...extra.paths,
+					...(running.get(agentId)?.skillReadPaths ?? []).map((path) => ({
+						path,
+						access: "read" as const,
+					})),
+				],
 				domains: [...new Set([...grants.domains, ...extra.domains])],
 				localNetwork: grants.localNetwork || extra.localNetwork,
 			};
@@ -866,7 +879,7 @@ export function createServer(
 		}
 		return terminalResult(agentId);
 	};
-	const startAgent = (agentId: number) => {
+	const startAgent = (agentId: number, skillSources: string[] = []) => {
 		const state = {
 			events: [] as unknown[],
 			wake: undefined as (() => void) | undefined,
@@ -874,10 +887,11 @@ export function createServer(
 			controller: new AbortController(),
 			suppressed: false,
 			stopped: false,
+			skillReadPaths: [] as string[],
 		};
 		running.set(agentId, state);
 		const source = agentSource(agentId);
-		state.done = runAgent(agentId, state)
+		state.done = runAgent(agentId, state, skillSources)
 			.catch((error) => {
 				if (!closed) {
 					unsavedAgents.add(agentId);
@@ -915,7 +929,9 @@ export function createServer(
 			wake?: () => void;
 			controller: AbortController;
 			stopped: boolean;
+			skillReadPaths: string[];
 		},
+		skillSources: string[],
 	) => {
 		const id = agentSource(agentId).chatId;
 		const apiKey = String(modelSettings.readCredential());
@@ -949,6 +965,9 @@ export function createServer(
 					fullFile: chatOptions(id).fileAccess === "full",
 				},
 			);
+			const skills = await discoverSkills(currentFolders(id), userHome);
+			state.skillReadPaths = skills.readPaths;
+			const skillsContext = await skillInstructions(skills, skillSources);
 			await requestModel(
 				agentSource(agentId).parentAgentId === null
 					? successfulMessages(id, agentId)
@@ -1080,7 +1099,7 @@ export function createServer(
 				() => {
 					const next = currentConfig(id, agentId);
 					rememberKey(next.apiKey);
-					return { ...next, scratch, instructions };
+					return { ...next, scratch, instructions: `${instructions}\n\n${skillsContext}` };
 				},
 				async (name, args, roots, signal) => {
 					signal?.throwIfAborted();
@@ -2299,6 +2318,20 @@ export function createServer(
 			}
 			return;
 		}
+		const skillsRoute = path.match(/^\/api\/chats\/(\d+)\/skills$/);
+		if (skillsRoute && request.method === "GET") {
+			const chatId = Number(skillsRoute[1]);
+			if (!database.prepare("SELECT id FROM chats WHERE id=?").get(chatId)) {
+				json(response, 404, errorBody("chatNotFound"));
+				return;
+			}
+			const { skills, diagnostics } = await discoverSkills(
+				currentFolders(chatId),
+				userHome,
+			);
+			json(response, 200, { skills, diagnostics });
+			return;
+		}
 		const reasoningRoute = path.match(/^\/api\/agents\/(\d+)\/reasoning$/);
 		if (reasoningRoute && request.method === "GET") {
 			const callId = url.searchParams.get("callId");
@@ -2634,6 +2667,15 @@ export function createServer(
 					json(response, 409, errorBody("chatBusy"));
 					return;
 				}
+				if (
+					input.skillSources !== undefined &&
+					(!Array.isArray(input.skillSources) ||
+						input.skillSources.some(
+							(source) =>
+								typeof source !== "string" || !source || source.includes("\0"),
+						))
+				)
+					throw new InputError("invalidInput");
 				const config = currentConfig(id);
 				if (
 					(images.length ||
@@ -2671,7 +2713,9 @@ export function createServer(
 				json(response, 202, { agentId });
 				notifyChange();
 
-				await startAgent(agentId);
+				await startAgent(agentId, [
+					...new Set((input.skillSources ?? []) as string[]),
+				]);
 			} catch (error) {
 				if (acceptedAgentId !== undefined) {
 					// Keep unsaved failures visible without claiming the result was persisted.

@@ -396,7 +396,19 @@ export class CommandExecutor {
 								entry("/private/var/tmp", "deny"),
 								...this.toolPaths.map((path) => entry(path, "read")),
 								...extraPaths
-									.filter((scope) => scope.access === "read")
+									.filter(
+										(scope) =>
+											scope.access === "read" &&
+											!writes.some((root) => {
+												const within = relative(root, scope.path);
+												return (
+													within === "" ||
+													(within !== ".." &&
+														!within.startsWith(`..${sep}`) &&
+														!isAbsolute(within))
+												);
+											}),
+									)
 									.map((scope) => entry(scope.path, "read")),
 								...writes.flatMap((path) => [
 									entry(path, "write"),

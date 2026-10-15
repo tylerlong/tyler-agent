@@ -36,6 +36,7 @@ import {
 	ProjectEditor,
 } from "./project-editor.tsx";
 import { createSettingState } from "./setting-state.ts";
+import { type ComposerSkill, SkillComposer } from "./skill-composer.tsx";
 import { TaskView, urlAgent } from "./task-view.tsx";
 
 import "./style.css";
@@ -224,8 +225,6 @@ function App() {
 					shortcut:
 						enterBehavior === "send" ? "Enter" : mac ? "⌘+Enter" : "Ctrl+Enter",
 				});
-	const composing = useRef(false);
-	const compositionEndedAt = useRef(-Infinity);
 	const [modelSettings, setModelSettings] = useState<ModelSettings | null>(
 		null,
 	);
@@ -443,6 +442,9 @@ function App() {
 	const normalizationAttempt = useRef("");
 
 	const [drafts, setDrafts] = useState<Record<number, string>>({});
+	const [selectedSkills, setSelectedSkills] = useState<
+		Record<number, ComposerSkill[]>
+	>({});
 	const draftVersions = useRef<Record<number, number>>({});
 	const [chatErrors, setChatErrors] = useState<Record<number, ApiError | null>>(
 		{},
@@ -691,6 +693,7 @@ function App() {
 			const { agentId } = await api(`/api/chats/${id}`, "POST", {
 				prompt,
 				...(images.length ? { images } : {}),
+				skillSources: (selectedSkills[id] ?? []).map((skill) => skill.source),
 			});
 			const current = cacheRef.current[id];
 			const accepted = current?.agents.find((agent) => agent.id === agentId);
@@ -707,6 +710,7 @@ function App() {
 			if ((draftVersions.current[id] ?? 0) === version) {
 				setDrafts((current) => ({ ...current, [id]: "" }));
 				setImageDrafts((current) => ({ ...current, [id]: [] }));
+				setSelectedSkills((current) => ({ ...current, [id]: [] }));
 			}
 		} catch (cause) {
 			const error = appError(cause);
@@ -1679,59 +1683,29 @@ function App() {
 										}));
 									}}
 								>
-									<textarea
-										className="composer-input block w-full resize-none bg-transparent px-1 py-2 text-neutral-950 focus-visible:outline-2 focus-visible:outline-blue-600"
-										aria-label={t("prompt")}
-										placeholder={t("prompt")}
-										rows={2}
-										onCompositionStart={() => {
-											composing.current = true;
-											compositionEndedAt.current = -Infinity;
-										}}
-										onCompositionEnd={() => {
-											// Some IMEs finish composition before the confirmation keydown.
-											composing.current = false;
-											compositionEndedAt.current = performance.now();
-										}}
-										onKeyUp={(event) => {
-											if (event.key === "Enter")
-												compositionEndedAt.current = -Infinity;
-										}}
-										onKeyDown={(event) => {
-											if (event.key !== "Enter") {
-												compositionEndedAt.current = -Infinity;
-												return;
-											}
-											if (
-												composing.current ||
-												event.nativeEvent.isComposing ||
-												event.nativeEvent.keyCode === 229 ||
-												performance.now() - compositionEndedAt.current < 100
-											)
-												return;
-											const primary = mac ? event.metaKey : event.ctrlKey;
-											if (
-												event.shiftKey ||
-												event.altKey ||
-												(!primary && (event.ctrlKey || event.metaKey))
-											)
-												return;
-											if (!primary && enterBehavior !== "send") return;
-											event.preventDefault();
-											if (!event.repeat)
-												event.currentTarget.form?.requestSubmit();
-										}}
+									<SkillComposer
+										key={chat.id}
+										chatId={chat.id}
 										disabled={submitting.has(chat.id)}
+										enterBehavior={enterBehavior}
 										value={drafts[chat.id] ?? ""}
-										onChange={(event) => {
+										selected={selectedSkills[chat.id] ?? []}
+										select={(skills) => {
+											draftVersions.current[chat.id] =
+												(draftVersions.current[chat.id] ?? 0) + 1;
+											setSelectedSkills((current) => ({
+												...current,
+												[chat.id]: skills,
+											}));
+										}}
+										change={(value) => {
 											draftVersions.current[chat.id] =
 												(draftVersions.current[chat.id] ?? 0) + 1;
 											setDrafts((current) => ({
 												...current,
-												[chat.id]: event.target.value,
+												[chat.id]: value,
 											}));
 										}}
-										required
 									/>
 								</ImageAttachments>
 								<div className="flex min-h-11 items-center justify-end gap-2 pt-2">
