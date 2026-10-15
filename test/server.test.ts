@@ -208,7 +208,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 20);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 21);
 		assert.deepEqual(
 			db
 				.prepare(

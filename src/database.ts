@@ -87,7 +87,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
                 CREATE TABLE tool_output (tool_call_id INTEGER NOT NULL REFERENCES tool_calls(id), ordinal INTEGER NOT NULL, stream TEXT NOT NULL CHECK(stream IN ('stdout','stderr','pty')), text TEXT NOT NULL, data TEXT NOT NULL DEFAULT '', byte_count INTEGER NOT NULL DEFAULT 0 CHECK(byte_count >= 0), PRIMARY KEY(tool_call_id,ordinal));
                 CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')), api_key TEXT, default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline')), model_call_limit INTEGER NOT NULL DEFAULT 16 CHECK(typeof(model_call_limit)='integer' AND model_call_limit>0), sub_agent_limit INTEGER NOT NULL DEFAULT 32 CHECK(typeof(sub_agent_limit)='integer' AND sub_agent_limit>0), default_file_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_file_access IN ('restricted','full')), default_network_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_network_access IN ('restricted','full')));
                 INSERT INTO settings(id) VALUES(1);
-                PRAGMA user_version=20;
+                PRAGMA user_version=21;
                 COMMIT;
             `);
 			} catch (error) {
@@ -95,7 +95,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			version !== 20 ||
+			version !== 21 ||
 			tables.join(",") !==
 				"agents,chats,folders,managed_models,model_calls,projects,settings,tool_calls,tool_output"
 		) {
