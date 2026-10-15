@@ -8,6 +8,13 @@ export type AgentDetail = {
 	id: number;
 	question: string;
 	images?: ImageInput[];
+	mcpConnections?: {
+		id: string;
+		name: string;
+		status: "connecting" | "connected" | "closed" | "error";
+		error?: string;
+		stderr?: string;
+	}[];
 	context: string;
 	status: string;
 	parentAgentId: number | null;
@@ -42,6 +49,34 @@ export function AgentContent({
 	if (!agent) return null;
 	return (
 		<>
+			{!!agent.mcpConnections?.length && (
+				<section
+					aria-label={t("mcpConnections")}
+					className="mb-4 rounded-md border border-neutral-200 p-3"
+				>
+					<h3 className="font-semibold">{t("mcpConnections")}</h3>
+					{agent.mcpConnections.map((connection) => (
+						<div key={connection.id} className="mt-2 break-words">
+							<p>
+								{connection.name}: {t(`mcpStatus_${connection.status}`)}
+							</p>
+							{connection.error && (
+								<p role="alert" className="whitespace-pre-wrap text-red-700">
+									{connection.error}
+								</p>
+							)}
+							{connection.stderr && (
+								<details onToggle={onLayoutChange}>
+									<summary>{t("mcpDiagnostics")}</summary>
+									<pre className="mt-2 whitespace-pre-wrap text-sm">
+										{connection.stderr}
+									</pre>
+								</details>
+							)}
+						</div>
+					))}
+				</section>
+			)}
 			{agent.calls.map((call) => (
 				<div key={call.id} data-model-call-id={call.id}>
 					<AgentCalls

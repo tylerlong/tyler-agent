@@ -27,6 +27,7 @@ import {
 	type ImageInput,
 	ImagePreviews,
 } from "./image-attachments.tsx";
+import { McpSettings } from "./mcp-settings.tsx";
 import { ModelConfiguration } from "./model-configuration.tsx";
 import type { ModelSettings } from "./model-settings.ts";
 import {
@@ -737,6 +738,7 @@ function App() {
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const accessDefaultsCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const executionCommit = useRef<(() => Promise<boolean>) | null>(null);
+	const mcpCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const modelsCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const closingSettings = useRef(false);
 	const [settingsClosing, setSettingsClosing] = useState(false);
@@ -1118,13 +1120,14 @@ function App() {
 		closingSettings.current = true;
 		setSettingsClosing(true);
 		try {
-			const [languageOK, enterOK, executionOK, modelsOK, accessOK] =
+			const [languageOK, enterOK, executionOK, modelsOK, accessOK, mcpOK] =
 				await Promise.all([
 					commitLanguage(),
 					commitEnter(),
 					executionCommit.current?.() ?? false,
 					modelsCommit.current?.() ?? false,
 					accessDefaultsCommit.current?.() ?? false,
+					mcpCommit.current?.() ?? false,
 				]);
 			if (!languageOK || !enterOK) {
 				setSettingsTab("general");
@@ -1136,6 +1139,10 @@ function App() {
 			}
 			if (!executionOK || !accessOK) {
 				setSettingsTab("execution");
+				return;
+			}
+			if (!mcpOK) {
+				setSettingsTab("mcp");
 				return;
 			}
 			await refreshModelSettings();
@@ -1832,7 +1839,7 @@ function App() {
 					aria-label={t("settings")}
 					className="flex shrink-0 border-b border-neutral-200 px-6"
 				>
-					{["general", "models", "execution"].map((tab) => (
+					{["general", "models", "execution", "mcp"].map((tab) => (
 						<button
 							type="button"
 							role="tab"
@@ -1989,6 +1996,17 @@ function App() {
 							readError={modelSettingsError}
 							refresh={refreshModelSettings}
 						/>
+					</fieldset>
+				</div>
+				<div
+					role="tabpanel"
+					id="settings-panel-mcp"
+					aria-labelledby="settings-tab-mcp"
+					hidden={settingsTab !== "mcp"}
+					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
+				>
+					<fieldset disabled={settingsClosing} className="min-w-0">
+						<McpSettings open={settingsOpen} commitRef={mcpCommit} />
 					</fieldset>
 				</div>
 				<footer className="flex shrink-0 items-center justify-between gap-3 border-t border-neutral-200 px-6 py-4">

@@ -28,6 +28,7 @@
 	},
 	"packageManager": "pnpm@11.22.0",
 	"dependencies": {
+		"@modelcontextprotocol/client": "2.3.1",
 		"@openai/codex": "0.162.0",
 		"i18next": "^26.4.2",
 		"react": "^19.3.0",

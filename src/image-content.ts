@@ -70,10 +70,25 @@ export const userContent = (
 export const redactImageSafe = (
 	text: string,
 	redact: (text: string) => string,
-) =>
-	text
+): string => {
+	// Mask only JSON strings: an env secret like "false" must not corrupt booleans.
+	if (/^\s*[[{]/.test(text)) {
+		try {
+			JSON.parse(text);
+			return text.replace(/"(?:\\.|[^"\\])*"/g, (token) => {
+				const value: string = JSON.parse(token);
+				if (/^data:image\/(?:png|jpeg|gif|webp);base64,/.test(value))
+					return token;
+				return JSON.stringify(redactImageSafe(value, redact));
+			});
+		} catch {
+			/* Partial JSON and plain tool text use the streaming-safe path below. */
+		}
+	}
+	return text
 		.split(
 			/((?<="image_url":")data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+=*)/g,
 		)
 		.map((part, index) => (index % 2 ? part : redact(part)))
 		.join("");
+};

@@ -38,6 +38,8 @@ import {
 	submittedImages,
 	userContent,
 } from "./image-content.ts";
+import { connectMcp } from "./mcp-client.ts";
+import { type McpService, validateMcpServices } from "./mcp-config.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
 import { createModelSettings, ModelSettingsError } from "./model-settings.ts";
 import {
@@ -422,6 +424,13 @@ export function createServer(
 		};
 	};
 
+	const readMcpServices = (): McpService[] =>
+		JSON.parse(
+			String(
+				database.prepare("SELECT mcp_services FROM settings WHERE id=1").get()
+					?.mcp_services ?? "[]",
+			),
+		);
 	const agentResult = (row: Record<string, unknown>) => {
 		const output = agentOutput(Number(row.id));
 		const failedCall = database
@@ -435,6 +444,13 @@ export function createServer(
 		return {
 			...row,
 			...agentSource(Number(row.id)),
+			mcpConnections: JSON.parse(
+				String(
+					database
+						.prepare("SELECT mcp_connections FROM agents WHERE id=?")
+						.get(Number(row.id))?.mcp_connections ?? "[]",
+				),
+			),
 			answer: answerText(output) || null,
 			output: outputSummary(output),
 			errorCode:
@@ -941,6 +957,7 @@ export function createServer(
 		let savedToolIds: number[] = [];
 		let activeToolId = 0;
 		const outputOffsets = new Map<number, number>();
+		let mcp: Awaited<ReturnType<typeof connectMcp>> | undefined;
 		const secrets = [
 			...new Set([apiKey, JSON.stringify(apiKey).slice(1, -1)]),
 		].filter(Boolean);
@@ -948,6 +965,8 @@ export function createServer(
 			for (const secret of [key, JSON.stringify(key).slice(1, -1)])
 				if (secret && !secrets.includes(secret)) secrets.push(secret);
 		};
+		for (const service of readMcpServices())
+			for (const variable of service.env) rememberKey(variable.value);
 		const redactTool = (text: string) =>
 			redactImageSafe(text, (text) =>
 				secrets.reduce(
@@ -956,6 +975,17 @@ export function createServer(
 				),
 			);
 		try {
+			mcp = await connectMcp(
+				readMcpServices(),
+				readMcpServices,
+				state.controller.signal,
+				(connections) => {
+					database
+						.prepare("UPDATE agents SET mcp_connections=? WHERE id=?")
+						.run(redactTool(JSON.stringify(connections)), agentId);
+					notifyAgent(id, agentId);
+				},
+			);
 			const scratch = agentScratch(scratchId(agentId));
 			const instructions = await loadProjectInstructions(
 				currentFolders(id),
@@ -1102,11 +1132,20 @@ export function createServer(
 					return {
 						...next,
 						scratch,
-						instructions: `${instructions}\n\n${skillsContext}`,
+						instructions: `${instructions}\n\n${skillsContext}\nMCP connections for this Agent: ${redactTool(JSON.stringify(mcp?.connections))}. Enabled MCP services are trusted external integrations and are not constrained by built-in Target/file/network sandbox permissions. Resource links are not already-read resources. MCP failures are facts; choose subsequent action without assuming an operation can safely be replayed.`,
+						additionalTools: mcp?.tools() ?? [],
+						secrets,
 					};
 				},
 				async (name, args, roots, signal) => {
 					signal?.throwIfAborted();
+					if (mcp?.has(name))
+						return mcp.execute(
+							name,
+							args,
+							currentConfig(id, agentId).inputModalities?.includes("image") !==
+								false,
+						);
 					if (
 						name === "exec_command" ||
 						name === "write_stdin" ||
@@ -1614,6 +1653,7 @@ export function createServer(
 		} catch (error) {
 			failure = error;
 		}
+		await mcp?.close();
 		state.stopped = true;
 		await commands.closeAgent(scratchId(agentId));
 		if (closed) return;
@@ -1825,6 +1865,28 @@ export function createServer(
 			response.write(": connected\n\n");
 			subscribers.add(response);
 			response.on("close", () => subscribers.delete(response));
+			return;
+		}
+		if (
+			path === "/api/mcp-settings" &&
+			["GET", "PUT"].includes(request.method ?? "")
+		) {
+			try {
+				if (request.method === "PUT") {
+					const body = await readJson(request);
+					const services = validateMcpServices(body.services);
+					database
+						.prepare("UPDATE settings SET mcp_services=? WHERE id=1")
+						.run(JSON.stringify(services));
+					notifyChange();
+				}
+				json(response, 200, { services: readMcpServices() });
+			} catch (error) {
+				json(response, 400, {
+					code: "mcpSettingsFailed",
+					message: String(error),
+				});
+			}
 			return;
 		}
 		if (path === "/api/settings/credential" && request.method === "GET") {

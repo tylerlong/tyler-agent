@@ -98,6 +98,13 @@ export function responseOutput(responseBody: string | null): OutputItem[] {
 		: [];
 }
 export type ModelConfig = {
+	additionalTools?: {
+		type: "function";
+		name: string;
+		description: string;
+		parameters: Record<string, unknown>;
+	}[];
+	secrets?: string[];
 	apiKey: string;
 	model: string;
 	reasoningEffort?: string | null;
@@ -188,6 +195,7 @@ export async function requestModel(
 		input.push(...(loop?.events() ?? []));
 		let current: OutputItem[] = [];
 		const currentConfig = typeof config === "function" ? config() : config;
+		for (const secret of currentConfig?.secrets ?? []) usedSecrets.add(secret);
 		if (currentConfig?.apiKey) {
 			usedSecrets.add(currentConfig.apiKey);
 			usedSecrets.add(JSON.stringify(currentConfig.apiKey).slice(1, -1));
@@ -291,6 +299,7 @@ async function requestOnce(
 		tools: [
 			...fileTools,
 			...commandTools,
+			...(config?.additionalTools ?? []),
 			createSubAgentTool,
 			cancelSubAgentTool,
 		],
