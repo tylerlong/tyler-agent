@@ -289,7 +289,7 @@ async function requestOnce(
 			),
 		);
 	const recordValue = (value: unknown): unknown =>
-		JSON.parse(redact(JSON.stringify(value)));
+		JSON.parse(redact(JSON.stringify([value])))[0];
 	const itemTypes = ["message", "reasoning", "function_call"];
 	const partTypes = [
 		"output_text",

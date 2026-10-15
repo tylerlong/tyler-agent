@@ -413,3 +413,39 @@ for (const malformedResponse of [["credential"], "credential", null])
 			JSON.stringify(malformedResponse).replaceAll("credential", "[REDACTED]"),
 		);
 	});
+
+for (const secret of ["false", "1", '"'])
+	test(`scalar response data retains valid JSON with secret ${JSON.stringify(secret)}`, async () => {
+		const saved: CallResult[] = [];
+		await request(
+			[],
+			"question",
+			async () =>
+				completedResponse({
+					output: [
+						{
+							type: "message",
+							content: [{ type: "output_text", text: "answer" }],
+						},
+					],
+					boolean: false,
+					number: 1,
+					diagnostic: `Value ${secret}`,
+				}),
+			{
+				request() {},
+				result(value) {
+					saved.push(value);
+				},
+			},
+			{
+				apiKey: "credential",
+				model: "test",
+				secrets: [secret],
+			},
+		);
+		const body = JSON.parse(saved.at(-1)?.responseBody ?? "null");
+		assert.equal(body.boolean, false);
+		assert.equal(body.number, 1);
+		assert.equal(body.diagnostic, "Value [REDACTED]");
+	});

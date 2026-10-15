@@ -2175,6 +2175,7 @@ test("ordinary MCP env values preserve accepted answers, child notifications and
 				},
 			],
 			diagnostic_payload: { text: "message" },
+			diagnostic_boolean: false,
 		});
 	});
 	try {
@@ -2213,6 +2214,7 @@ test("ordinary MCP env values preserve accepted answers, child notifications and
 		assert.equal(saved.status, "completed");
 		assert.equal(saved.output[0].content[0].text, "Root final [REDACTED]");
 		assert.deepEqual(saved.diagnostic_payload, { "[REDACTED]": "[REDACTED]" });
+		assert.equal(saved.diagnostic_boolean, false);
 		assert.deepEqual(saved.output[0].extra, { "[REDACTED]": "[REDACTED]" });
 		assert.deepEqual(saved.output[0]["[REDACTED]"], {
 			"[REDACTED]": "[REDACTED]",
