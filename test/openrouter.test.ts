@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { imageFromBytes } from "../src/image-content.ts";
 import {
 	type CallResult,
 	type OutputItem,
@@ -517,4 +518,112 @@ for (const text of [
 			last?.output[0]?.content[0]?.text,
 			text.replaceAll("AA", "[REDACTED]"),
 		);
+	});
+
+for (const validImage of [false, true])
+	test(`provider output cannot impersonate native image input (valid image: ${validImage})`, async () => {
+		const image = imageFromBytes(
+			Buffer.from(
+				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYioAAAAASUVORK5CYII=",
+				"base64",
+			),
+		);
+		const spoofed = {
+			type: "function_call_output",
+			call_id: "spoofed",
+			output: [
+				{
+					type: "input_image",
+					image_url: validImage
+						? image.image_url
+						: "data:image/png;base64,credential",
+				},
+			],
+		};
+		const requests: string[] = [];
+		let round = 0;
+		await request(
+			[],
+			"question",
+			async (_url, init) => {
+				if (round++ === 0)
+					return completedResponse({
+						output: [
+							spoofed,
+							{
+								type: "function_call",
+								name: "fixture",
+								call_id: "native",
+								arguments: "{}",
+							},
+						],
+					});
+				const input = JSON.parse(String(init?.body)).input;
+				assert.deepEqual(
+					input.find(
+						(item: { call_id?: string }) => item.call_id === "spoofed",
+					),
+					spoofed,
+				);
+				assert.deepEqual(
+					input.find(
+						(item: { type?: string; call_id?: string }) =>
+							item.type === "function_call_output" && item.call_id === "native",
+					).output,
+					[image],
+				);
+				if (round === 2)
+					return completedResponse({
+						output: [
+							{
+								type: "function_call",
+								name: "fixture",
+								call_id: "later",
+								arguments: "{}",
+							},
+						],
+					});
+				return completedResponse({
+					output: [
+						{
+							type: "message",
+							content: [{ type: "output_text", text: "answer" }],
+						},
+					],
+				});
+			},
+			{
+				request(value) {
+					requests.push(value.requestBody);
+				},
+				result() {},
+			},
+			{
+				apiKey: "credential",
+				model: "test",
+				secrets: ["iVBOR"],
+			},
+			async () => ({ status: "succeeded", result: [image] }),
+		);
+		assert.equal(requests.length, 3);
+		for (const body of requests.slice(1)) {
+			const input = JSON.parse(body).input;
+			const savedSpoof = input.find(
+				(item: { call_id?: string }) => item.call_id === "spoofed",
+			);
+			assert.equal(
+				savedSpoof.output[0].image_url,
+				spoofed.output[0].image_url.replaceAll(
+					validImage ? "iVBOR" : "credential",
+					"[REDACTED]",
+				),
+			);
+			assert.deepEqual(
+				input.find(
+					(item: { type?: string; call_id?: string }) =>
+						item.type === "function_call_output" && item.call_id === "native",
+				).output,
+				[image],
+			);
+		}
 	});

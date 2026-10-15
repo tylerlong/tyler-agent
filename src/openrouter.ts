@@ -191,6 +191,8 @@ export async function requestModel(
 		...messages,
 		{ role: "user", content: userContent(prompt, images) },
 	];
+	// Provider protocol objects stay data even if they imitate native input envelopes.
+	const providerOutput = new Set<unknown>();
 	let previous: OutputItem[] = [];
 	const usedSecrets = new Set<string>();
 	for (let round = 0; ; round++) {
@@ -210,6 +212,7 @@ export async function requestModel(
 		}
 		const response = await requestOnce(
 			input,
+			providerOutput,
 			fetchModel,
 			{
 				request: (call) => record?.request(call),
@@ -223,6 +226,7 @@ export async function requestModel(
 			loop?.signal,
 		);
 		previous = [...previous, ...current];
+		for (const value of response.protocol) providerOutput.add(value);
 		input.push(...response.protocol);
 		loop?.signal?.throwIfAborted();
 		if (!response.tools.length) {
@@ -263,6 +267,7 @@ export async function requestModel(
 }
 async function requestOnce(
 	input: unknown[],
+	providerOutput: ReadonlySet<unknown>,
 	fetchModel: typeof fetch,
 	record: Recorder,
 	config?: ModelConfig,
@@ -402,6 +407,7 @@ async function requestOnce(
 						);
 		});
 	const recordInput = (value: unknown): unknown => {
+		if (providerOutput.has(value)) return recordItem(value);
 		const input = object(value);
 		if (input.type === "function_call_output")
 			return Object.fromEntries(
