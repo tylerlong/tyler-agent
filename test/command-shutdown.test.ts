@@ -200,6 +200,7 @@ for (const unresponsive of [false, true])
 					0,
 				),
 				Buffer.byteLength(`ready:${commandPid}\n`),
+				JSON.stringify(saved.output),
 			);
 			assert.equal(
 				requests,

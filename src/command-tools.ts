@@ -26,7 +26,11 @@ export const commandTools = [
 					type: "string",
 					description: "Absolute shell executable; default /bin/sh",
 				},
-				login: { type: "boolean", default: true },
+				login: {
+					type: "boolean",
+					description:
+						"Default true for interactive commands, false for legacy OneShot",
+				},
 				tty: { type: "boolean", default: false },
 				yield_time_ms: {
 					type: "integer",

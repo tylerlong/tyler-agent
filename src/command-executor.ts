@@ -570,7 +570,7 @@ export class CommandExecutor {
 					options.patch === undefined
 						? [
 								options.shell ?? "/bin/sh",
-								options.login === false ? "-c" : "-lc",
+								(options.login ?? interactive) ? "-lc" : "-c",
 								options.command,
 							]
 						: [this.binary, "--codex-run-as-apply-patch", options.patch],
