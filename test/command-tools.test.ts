@@ -2132,3 +2132,44 @@ commandTest(
 		}
 	},
 );
+
+commandTest(
+	"process state persistence failure preserves output and drains without crashing the service",
+	async () => {
+		let root = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			if (++requests === 1)
+				return done([
+					call("exec_command", {
+						cmd: "printf retained",
+						workdir: root,
+						timeout_ms: 1000,
+					}),
+				]);
+			const body = JSON.parse(String(init?.body));
+			const result = JSON.parse(body.input.at(-1).output);
+			assert.match(result.error, /Command state persistence failed/);
+			assert.equal(text(result.output.chunks), "retained");
+			return done([answer]);
+		});
+		root = f.root;
+		const { DatabaseSync } = await import("node:sqlite");
+		const db = new DatabaseSync(join(f.directory, "db.sqlite"));
+		try {
+			db.exec(
+				"CREATE TRIGGER fail_command_state BEFORE UPDATE OF command_state ON tool_calls BEGIN SELECT RAISE(ABORT,'command state full'); END;",
+			);
+			const id = await f.ask();
+			const agent = await f.wait(id);
+			assert.equal(agent.status, "succeeded");
+			assert.equal(requests, 2);
+			const tool = (await f.request(`/api/agents/${id}/tools`)).toolCalls[0];
+			assert.equal(tool.status, "interrupted");
+			assert.equal(tool.reason, "toolSaveFailed");
+		} finally {
+			db.close();
+			await f.close();
+		}
+	},
+);

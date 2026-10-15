@@ -1293,7 +1293,9 @@ export function createServer(
 								)
 									throw new InputError("invalidInput");
 								value.command ??= value.cmd;
-								value.cwd ??= value.workdir ?? scratch;
+								if (value.cwd === undefined)
+									value.cwd =
+										value.workdir === undefined ? scratch : value.workdir;
 								delete value.cmd;
 								delete value.workdir;
 							}
@@ -1382,10 +1384,17 @@ export function createServer(
 								login: value.login,
 								toolCallId: toolId,
 								onState: (result) => {
-									database
-										.prepare("UPDATE tool_calls SET command_state=? WHERE id=?")
-										.run(JSON.stringify(result), toolId);
-									notifyAgent(id, agentId);
+									try {
+										database
+											.prepare(
+												"UPDATE tool_calls SET command_state=? WHERE id=?",
+											)
+											.run(JSON.stringify(result), toolId);
+										notifyAgent(id, agentId);
+									} catch (error) {
+										unsavedTools.add(toolId);
+										throw error;
+									}
 								},
 								signal: state.controller.signal,
 								onOutput: (stream, text, data = "") => {

@@ -554,6 +554,8 @@ export class CommandExecutor {
 						proc.cleanup();
 						try {
 							options.onState?.(this.result(proc));
+						} catch (error) {
+							proc.error = `Command state persistence failed: ${String(error)}`;
 						} finally {
 							complete();
 						}
