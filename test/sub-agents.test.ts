@@ -2240,3 +2240,48 @@ test("ordinary MCP env values preserve accepted answers, child notifications and
 		await f.close();
 	}
 });
+
+for (const invalidRootStatus of [false, true]) {
+	test(`malformed provider enum payloads remain masked data (root status: ${invalidRootStatus})`, async () => {
+		const f = await fixture(async () =>
+			completedResponse({
+				status: invalidRootStatus ? ["completed"] : "completed",
+				output: [
+					{
+						type: "message",
+						status: ["completed"],
+						content: [
+							{ type: "output_text", text: "Visible answer" },
+							{ type: ["output_text"], text: "completed" },
+						],
+					},
+				],
+			}),
+		);
+		try {
+			const service = jiraMcpService();
+			service.env.push(
+				{ name: "STATUS_SECRET", value: "completed" },
+				{ name: "PART_SECRET", value: "output_text" },
+			);
+			assert.equal(
+				(await f.put("/api/mcp-settings", { services: [service] })).status,
+				200,
+			);
+			const id = await f.ask("inspect malformed provider metadata");
+			const agent = await f.wait(id);
+			assert.equal(agent.status, invalidRootStatus ? "failed" : "succeeded");
+			const call = (await f.get(`/api/agents/${id}/calls`)).calls[0];
+			const saved = JSON.parse(call.responseBody);
+			assert.deepEqual(saved.output[0].status, ["[REDACTED]"]);
+			assert.deepEqual(saved.output[0].content[1].type, ["[REDACTED]"]);
+			if (invalidRootStatus) {
+				assert.deepEqual(saved.status, ["[REDACTED]"]);
+				assert.notEqual(call.partialOutput[0].content[1].type, "output_text");
+				assert(!call.partialOutput[0].content[1].type.includes("output_text"));
+			}
+		} finally {
+			await f.close();
+		}
+	});
+}

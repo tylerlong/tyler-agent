@@ -65,6 +65,12 @@ const object = (value: unknown): Record<string, unknown> =>
 	value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: {};
+const protocolType = (value: unknown, fallback: string): string =>
+	typeof value === "string"
+		? value
+		: value === undefined
+			? fallback
+			: (JSON.stringify(value) ?? "");
 const readableItem = (data: unknown, index: number): OutputItem => {
 	const source = object(data);
 	const content: OutputPart[] = [];
@@ -76,8 +82,9 @@ const readableItem = (data: unknown, index: number): OutputItem => {
 			if (typeof text === "string")
 				content.push({
 					index,
-					type: String(
-						part.type ?? (field === "summary" ? "summary_text" : "output_text"),
+					type: protocolType(
+						part.type,
+						field === "summary" ? "summary_text" : "output_text",
 					),
 					text,
 				});
@@ -87,7 +94,7 @@ const readableItem = (data: unknown, index: number): OutputItem => {
 	return {
 		index,
 		id: String(source.id ?? ""),
-		type: String(source.type ?? "message"),
+		type: protocolType(source.type, "message"),
 		content,
 	};
 };
@@ -296,7 +303,8 @@ async function requestOnce(
 		partTypes.includes(type) ? type : redact(type);
 	const recordPart = (value: unknown): unknown => {
 		const part = object(value);
-		if (!partTypes.includes(String(part.type))) return recordValue(value);
+		if (typeof part.type !== "string" || !partTypes.includes(part.type))
+			return recordValue(value);
 		return Object.fromEntries(
 			Object.entries(part).map(([key, value]) => [
 				(part.type === "refusal"
@@ -305,13 +313,14 @@ async function requestOnce(
 				).includes(key)
 					? key
 					: redact(key),
-				key === "type" ? partType(String(value)) : recordValue(value),
+				key === "type" ? part.type : recordValue(value),
 			]),
 		);
 	};
 	const recordItem = (value: unknown): unknown => {
 		const item = object(value);
-		if (!itemTypes.includes(String(item.type))) return recordValue(value);
+		if (typeof item.type !== "string" || !itemTypes.includes(item.type))
+			return recordValue(value);
 		return Object.fromEntries(
 			Object.entries(item).map(([key, value]) => {
 				const fields =
@@ -321,12 +330,13 @@ async function requestOnce(
 							? ["id", "type", "status", "role", "content"]
 							: ["id", "type", "status", "summary", "content"];
 				const name = fields.includes(key) ? key : redact(key);
-				if (key === "type") return [name, itemType(String(value))];
+				if (key === "type") return [name, item.type];
 				if (item.type === "message" && key === "role" && value === "assistant")
 					return [name, value];
 				if (
 					key === "status" &&
-					["completed", "in_progress", "incomplete"].includes(String(value))
+					typeof value === "string" &&
+					["completed", "in_progress", "incomplete"].includes(value)
 				)
 					return [name, value];
 				if (
@@ -359,6 +369,7 @@ async function requestOnce(
 					return [name, value.map(recordItem)];
 				if (
 					key === "status" &&
+					typeof value === "string" &&
 					[
 						"completed",
 						"in_progress",
@@ -366,7 +377,7 @@ async function requestOnce(
 						"failed",
 						"cancelled",
 						"queued",
-					].includes(String(value))
+					].includes(value)
 				)
 					return [name, value];
 				return [name, recordValue(value)];
@@ -382,7 +393,8 @@ async function requestOnce(
 						typeof item.image_url === "string" &&
 						/^data:image\/(?:png|jpeg|gif|webp);base64,/.test(item.image_url) &&
 						(item.detail === undefined ||
-							["auto", "low", "high"].includes(String(item.detail))) &&
+							(typeof item.detail === "string" &&
+								["auto", "low", "high"].includes(item.detail))) &&
 						Object.keys(item).every((key) =>
 							["type", "image_url", "detail"].includes(key),
 						);
@@ -476,7 +488,7 @@ async function requestOnce(
 	const snapshot = (index: number, data: unknown) => {
 		const source = readableItem(data, index);
 		const value = item(index, source.id, source.type);
-		value.type = String(object(data).type ?? value.type);
+		value.type = source.type;
 		for (const p of source.content) part(value, p.index, p.type).text = p.text;
 	};
 	const output = (final = false) =>
