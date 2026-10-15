@@ -350,39 +350,41 @@ async function requestOnce(
 		);
 	};
 	const recordResponse = (value: unknown) =>
-		Object.fromEntries(
-			Object.entries(object(value)).map(([key, value]) => {
-				const name = [
-					"id",
-					"object",
-					"created_at",
-					"status",
-					"model",
-					"output",
-					"usage",
-					"error",
-					"incomplete_details",
-				].includes(key)
-					? key
-					: redact(key);
-				if (key === "output" && Array.isArray(value))
-					return [name, value.map(recordItem)];
-				if (
-					key === "status" &&
-					typeof value === "string" &&
-					[
-						"completed",
-						"in_progress",
-						"incomplete",
-						"failed",
-						"cancelled",
-						"queued",
-					].includes(value)
-				)
-					return [name, value];
-				return [name, recordValue(value)];
-			}),
-		);
+		!value || typeof value !== "object" || Array.isArray(value)
+			? recordValue(value)
+			: Object.fromEntries(
+					Object.entries(object(value)).map(([key, value]) => {
+						const name = [
+							"id",
+							"object",
+							"created_at",
+							"status",
+							"model",
+							"output",
+							"usage",
+							"error",
+							"incomplete_details",
+						].includes(key)
+							? key
+							: redact(key);
+						if (key === "output" && Array.isArray(value))
+							return [name, value.map(recordItem)];
+						if (
+							key === "status" &&
+							typeof value === "string" &&
+							[
+								"completed",
+								"in_progress",
+								"incomplete",
+								"failed",
+								"cancelled",
+								"queued",
+							].includes(value)
+						)
+							return [name, value];
+						return [name, recordValue(value)];
+					}),
+				);
 	const inputContent = (value: unknown[]) =>
 		value.every((part) => {
 			const item = object(part);

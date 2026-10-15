@@ -382,3 +382,34 @@ for (const malformedEvent of [false, true])
 		if (malformedEvent) assert.deepEqual(last?.output, []);
 		else assert.equal(last?.output[0]?.content[0]?.text, "Visible");
 	});
+
+for (const malformedResponse of [["credential"], "credential", null])
+	test(`malformed terminal response diagnostics survive: ${JSON.stringify(malformedResponse)}`, async () => {
+		const saved: CallResult[] = [];
+		await assert.rejects(
+			request(
+				[],
+				"question",
+				async () =>
+					new Response(
+						frame("response.failed", { response: malformedResponse }),
+						{ headers: { "content-type": "text/event-stream" } },
+					),
+				{
+					request() {},
+					result(value) {
+						saved.push(value);
+					},
+				},
+				{
+					apiKey: "credential",
+					model: "test",
+				},
+			),
+		);
+		assert.equal(saved.at(-1)?.status, "failed");
+		assert.equal(
+			saved.at(-1)?.responseBody,
+			JSON.stringify(malformedResponse).replaceAll("credential", "[REDACTED]"),
+		);
+	});
