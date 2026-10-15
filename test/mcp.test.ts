@@ -617,12 +617,22 @@ for (const value of [undefined, ""]) {
 }
 
 test("credential redaction keeps JSON booleans, schemas and image bytes valid", async () => {
+	const keySecret = "controlled-secret-object-key";
 	let requests = 0;
 	let expectedImage: unknown;
 	const f = await fixture((request) => {
 		requests++;
 		const tool = mcpTool(request, "redaction");
-		if (requests === 1) return [call(tool, "redacted-values")];
+		if (requests === 1)
+			return [
+				{
+					...call(tool, "redacted-values"),
+					arguments: JSON.stringify({
+						mode: "mixed",
+						payload: { [keySecret]: { prompt: "value" } },
+					}),
+				},
+			];
 		const output = request.input.find(
 			(part) => part.type === "function_call_output",
 		)?.output;
@@ -632,11 +642,14 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		const metadata = JSON.parse(output.at(-1).text).mcpResult;
 		assert.equal(metadata.isError, false);
 		assert.equal(metadata.structuredContent.inherited, "false");
+		assert.equal(metadata.structuredContent.payload[keySecret].prompt, "value");
 		return [answer];
 	});
 	try {
 		const service = f.service("redaction");
 		service.env = [
+			{ name: "OBJECT_KEY", value: keySecret },
+			{ name: "STRUCTURAL_NAME", value: "prompt" },
 			{ name: "SHORT", value: "false" },
 			{ name: "ESCAPED", value: 'quoted "value"\nline' },
 			{ name: "PIXEL", value: "AA" },
@@ -675,6 +688,13 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		const metadata = JSON.parse(result.at(-1).text).mcpResult;
 		assert.equal(metadata.isError, false);
 		assert.equal(metadata.structuredContent.inherited, "[REDACTED]");
+		assert.equal(metadata.structuredContent.payload[keySecret], undefined);
+		assert.equal(
+			metadata.structuredContent.payload["[REDACTED]"]["[REDACTED]"],
+			"value",
+		);
+		for (const modelCall of modelCalls)
+			assert(!String(modelCall.request_body).includes(keySecret));
 	} finally {
 		await f.close();
 	}

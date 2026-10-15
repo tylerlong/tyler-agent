@@ -2008,6 +2008,11 @@ for (const maskKeys of [false, true]) {
 		}[] = [];
 		const f = await fixture(async (_url, init) => {
 			const request = JSON.parse(String(init?.body));
+			const create = request.tools.find(
+				(tool: { name: string }) => tool.name === "create_sub_agent",
+			);
+			assert(create.parameters.properties.prompt);
+			assert(create.parameters.properties.model_id);
 			requests.push(request);
 			const prompt = request.input
 				.filter((part: { role?: string }) => part.role === "user")
@@ -2110,11 +2115,6 @@ for (const maskKeys of [false, true]) {
 				for (const call of calls) {
 					const saved = JSON.parse(call.requestBody);
 					assert.equal(typeof saved.model, "string");
-					const create = saved.tools.find(
-						(tool: { name: string }) => tool.name === "create_sub_agent",
-					);
-					assert(create.parameters.properties.prompt);
-					assert(create.parameters.properties.model_id);
 					assert(
 						!call.requestBody.includes(JSON.stringify(secret).slice(1, -1)),
 					);

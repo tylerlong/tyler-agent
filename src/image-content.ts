@@ -70,14 +70,19 @@ export const userContent = (
 export const redactImageSafe = (
 	text: string,
 	redact: (text: string) => string,
+	preserveKeys: readonly string[] = [],
 ): string => {
-	// Mask JSON string values, preserving structural keys, booleans and pixels.
+	// Preserve only caller-known fields; arbitrary payload keys may contain credentials.
 	if (/^\s*[[{]/.test(text)) {
 		try {
 			JSON.parse(text);
 			return text.replace(/"(?:\\.|[^"\\])*"/g, (token, offset: number) => {
-				if (/^\s*:/.test(text.slice(offset + token.length))) return token;
 				const value: string = JSON.parse(token);
+				if (
+					preserveKeys.includes(value) &&
+					/^\s*:/.test(text.slice(offset + token.length))
+				)
+					return token;
 				if (/^data:image\/(?:png|jpeg|gif|webp);base64,/.test(value))
 					return token;
 				return JSON.stringify(redactImageSafe(value, redact));

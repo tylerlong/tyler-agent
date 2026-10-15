@@ -976,12 +976,15 @@ export function createServer(
 		};
 		for (const service of readMcpServices())
 			for (const variable of service.env) rememberKey(variable.value);
-		const redactTool = (text: string) =>
-			redactImageSafe(text, (text) =>
-				secrets.reduce(
-					(value, secret) => value.replaceAll(secret, "[REDACTED]"),
-					text,
-				),
+		const redactTool = (text: string, preserveKeys?: readonly string[]) =>
+			redactImageSafe(
+				text,
+				(text) =>
+					secrets.reduce(
+						(value, secret) => value.replaceAll(secret, "[REDACTED]"),
+						text,
+					),
+				preserveKeys,
 			);
 		const safeMcpConnections = (connections: McpConnection[]) =>
 			redactTool(
@@ -1627,6 +1630,9 @@ export function createServer(
 							};
 						const toolId = activeToolId;
 						if (!toolId) throw new Error("Missing creating Tool Call");
+						database
+							.prepare("UPDATE tool_calls SET arguments=? WHERE id=?")
+							.run(redactTool(args, Object.keys(value)), toolId);
 						const childId = Number(
 							database
 								.prepare(
