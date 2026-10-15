@@ -551,7 +551,7 @@ async function requestOnce(
 			return;
 		}
 		const data = object(parsed);
-		const type = String(data.type ?? "");
+		const type = typeof data.type === "string" ? data.type : "";
 		const index = Number(data.output_index ?? 0);
 		if (
 			type === "response.output_item.added" ||
@@ -568,7 +568,7 @@ async function requestOnce(
 				part(
 					item(index, String(data.item_id ?? "")),
 					Number(data.content_index ?? 0),
-					String(p.type ?? "output_text"),
+					protocolType(p.type, "output_text"),
 				).text = text;
 		}
 		const kinds: Record<string, string> = {

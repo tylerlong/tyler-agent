@@ -346,3 +346,39 @@ test("headerless incomplete SSE preserves readable partials without saving frame
 		/data:|response.output_text.delta|unfinished/,
 	);
 });
+
+for (const malformedEvent of [false, true])
+	test(`malformed streamed discriminators stay untrusted (event: ${malformedEvent})`, async () => {
+		const saved: { result: CallResult; output: OutputItem[] }[] = [];
+		await assert.rejects(
+			request(
+				[],
+				"question",
+				async () =>
+					new Response(
+						`data: ${JSON.stringify({
+							type: malformedEvent
+								? ["response.content_part.added"]
+								: "response.content_part.added",
+							part: {
+								type: malformedEvent ? "output_text" : ["output_text"],
+								text: "Visible",
+							},
+						})}\n\n`,
+						{ headers: { "content-type": "text/event-stream" } },
+					),
+				{
+					request() {},
+					result(result, output) {
+						saved.push({ result, output });
+					},
+				},
+				{ apiKey: "secret", model: "test", secrets: ["output_text"] },
+			),
+		);
+		const last = saved.at(-1);
+		assert.equal(last?.result.status, "failed");
+		assert.doesNotMatch(JSON.stringify(last?.output), /output_text/);
+		if (malformedEvent) assert.deepEqual(last?.output, []);
+		else assert.equal(last?.output[0]?.content[0]?.text, "Visible");
+	});
