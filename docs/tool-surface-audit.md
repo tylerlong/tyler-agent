@@ -6,7 +6,7 @@
 
 `exec_command` 与 `write_stdin` 已连接 Codex 0.162.0 的托管进程、PTY、输入与中断。模型决定运行、等待、续接和主动停止，完整 Command Output 归属启动它的 Tool Call；返回时事实与当前进程状态分别保存。
 
-另一个共用限制是 `ToolExecution.result` 只能是字符串；它不能直接承载 OpenRouter 已支持的多模态工具结果。错误处理还丢失了有诊断意义的原生字段。
+初次审查还发现字符串 Tool Result 与原生错误信息丢失的限制。#163 已接通原生图片结果数组；#160 保留原生错误 code/data 和沙箱拒绝事实。
 
 并非所有工具都是第三方同名工具的包装。`read_file` 是文件 RPC 的组合，日志读取和子 Agent 工具属于 Weft 自己的数据与调度。它们不应被误报为删减了同名上游工具。
 
@@ -32,7 +32,7 @@ Codex 同版本已有两层接口：
 
 优先参照上游模型工具，不直接把原始沙箱参数和跨 Agent 进程句柄交给模型。npm 包提供原生后端程序，没有可直接导入 Node 的完整 unified-exec 模型工具实现；所需适配应仅连接现有权限、Agent 身份、输出记录和模型协议。
 
-Codex 本身也提供 OneShot 模式；问题在于 Weft 只接入了这一种行为，隐藏了上游的交互式会话能力。后端还支持非 PTY 的可写 stdin，但 Codex 上层工具并不直接开放该开关；不能声称照抄上层参数就自动覆盖全部底层 RPC。
+Codex 本身也提供 OneShot 模式；初次审查时 Weft 只接入这种行为，#160 已恢复交互式会话能力。后端还支持非 PTY 的可写 stdin，但 Codex 上层工具并不直接开放该开关；不能声称照抄上层参数就自动覆盖全部底层 RPC。
 
 #160 实际接线：
 
@@ -51,7 +51,7 @@ Codex 本身也提供 OneShot 模式；问题在于 Weft 只接入了这一种�
 
 过滤凭据也不要求固定 `/bin/sh` 或禁止选择 login 行为；这些选择应独立核对上游约定及实际权限兼容性，不能以环境隔离为笼统理由取消。
 
-## 尚未实现的接入
+## 其他接入与边界
 
 | 接入 | 应保留的上游能力 | 接线边界 |
 | --- | --- | --- |
@@ -64,7 +64,7 @@ Codex 本身也提供 OneShot 模式；问题在于 Weft 只接入了这一种�
 
 命令能力恢复涉及工具 schema、`server.ts` 校验/分派、执行器进程句柄、取消清理、输出持久化、日志读取、工具结果及 UI。图片结果涉及 `ToolExecution`、模型续接、记录和展示。不能只扩展 schema，却让后续校验拒绝新参数，或让执行器继续忽略它们。
 
-相关已有保护在 `test/command-tools.test.ts`、`test/command-lifecycle.test.ts`、`test/command-shutdown.test.ts`、`test/sub-agents.test.ts` 及命令输出 E2E。修正后应验证早返回后继续读写、PTY 输出、中断/取消、Agent 隔离、退出与错误事实以及持久记录；现有权限和关闭清理行为不能回退。
+相关已有保护在 `test/command-tools.test.ts`、`test/command-lifecycle.test.ts`、`test/command-shutdown.test.ts`、`test/sub-agents.test.ts` 及命令输出 E2E。#160 新增真实原生测试已验证早返回后继续读写、PTY 输出、中断/取消、Agent 隔离、退出与错误事实以及持久记录；现有权限和关闭清理测试继续保留。
 
 命令侧已运行真实 macOS 原生测试；浏览器、MCP 和付费模型的实际验证不由 #160 证明。数据库按既有不兼容时拒绝启动规则更新 schema，无迁移、自动重置或用户数据删除。
 

@@ -26,7 +26,7 @@
 | Model Call（模型调用） | 属于 Agent 的一次模型 HTTP 通信，拥有独立请求、响应、状态和错误。 |
 | Tool Call（工具调用） | 属于 Model Call 的一次工具请求，具有独立执行状态。 |
 | Tool Result（工具结果） | 工具实际返回的数据及错误，交给模型决定下一步。 |
-| Command Output（命令输出） | 持久保存的实际 stdout／stderr，区别于有长度上限的模型工具结果。 |
+| Command Output（命令输出） | 持久保存的实际 stdout／stderr／PTY 流，区别于有长度上限的模型工具结果。 |
 | Provisional Content（暂存内容） | 调用尚未成功时收到的可读内容，不代表最终结果。 |
 | Complete Response（完整响应） | 服务方实际返回并通过协议校验的完整响应，是成功调用的输出依据。 |
 | Tool Access Mode（工具访问模式） | Chat 分别选择的文件／网络受限或完全访问模式。 |
