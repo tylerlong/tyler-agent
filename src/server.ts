@@ -15,6 +15,7 @@ import {
 	agentScratch,
 	CommandExecutor,
 	ExecutionInterruptedError,
+	executionError,
 } from "./command-executor.ts";
 import { outputPage } from "./command-tools.ts";
 import {
@@ -286,11 +287,14 @@ export function createServer(
 	) =>
 		database
 			.prepare(
-				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason,approval${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=?${toolId === undefined ? "" : " AND tool_calls.id=?"} ORDER BY model_call_id,ordinal`,
+				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason,approval,command_state AS commandState${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=?${toolId === undefined ? "" : " AND tool_calls.id=?"} ORDER BY model_call_id,ordinal`,
 			)
 			.all(...(toolId === undefined ? [agentId] : [agentId, toolId]))
 			.map((call) => ({
 				...call,
+				commandState: call.commandState
+					? JSON.parse(String(call.commandState))
+					: null,
 				approval: call.approval ? JSON.parse(String(call.approval)) : null,
 				id: call.id,
 				...(content === true &&
@@ -920,6 +924,7 @@ export function createServer(
 		let callId: number | undefined;
 		let savedToolIds: number[] = [];
 		let activeToolId = 0;
+		const outputOffsets = new Map<number, number>();
 		const secrets = [
 			...new Set([apiKey, JSON.stringify(apiKey).slice(1, -1)]),
 		].filter(Boolean);
@@ -1081,6 +1086,7 @@ export function createServer(
 					signal?.throwIfAborted();
 					if (
 						name === "exec_command" ||
+						name === "write_stdin" ||
 						name === "read_tool_output" ||
 						name === "apply_patch" ||
 						name === "read_file" ||
@@ -1120,6 +1126,64 @@ export function createServer(
 							}
 							if (!value || typeof value !== "object" || Array.isArray(value))
 								throw new InputError("invalidInput");
+							if (name === "write_stdin") {
+								if (
+									Object.keys(value).some(
+										(key) =>
+											![
+												"session_id",
+												"chars",
+												"yield_time_ms",
+												"max_output_tokens",
+											].includes(key),
+									) ||
+									!Number.isSafeInteger(value.session_id) ||
+									value.session_id < 1 ||
+									(value.chars !== undefined &&
+										typeof value.chars !== "string") ||
+									(value.yield_time_ms !== undefined &&
+										(!Number.isSafeInteger(value.yield_time_ms) ||
+											value.yield_time_ms < 0 ||
+											value.yield_time_ms > 300000)) ||
+									(value.max_output_tokens !== undefined &&
+										(!Number.isSafeInteger(value.max_output_tokens) ||
+											value.max_output_tokens < 0 ||
+											value.max_output_tokens > Number.MAX_SAFE_INTEGER / 4))
+								)
+									throw new InputError("invalidInput");
+								const result = await commands.writeStdin({
+									sessionId: value.session_id,
+									agentId: scratchId(agentId),
+									chars: value.chars ?? "",
+									yieldTimeMs: Math.max(
+										value.chars ? 250 : 5000,
+										Math.min(
+											value.chars ? 30000 : 300000,
+											value.yield_time_ms ?? 250,
+										),
+									),
+								});
+								const output = outputPage(
+									savedOutput(Number(result.tool_call_id)),
+									outputOffsets.get(value.session_id) ?? 0,
+									value.max_output_tokens === undefined
+										? 16000
+										: value.max_output_tokens * 4,
+								);
+								if (result.running)
+									outputOffsets.set(value.session_id, output.total_chars);
+								else outputOffsets.delete(value.session_id);
+								return {
+									status:
+										result.interrupted || result.cancelled
+											? "interrupted"
+											: result.error ||
+													(result.exitCode !== null && result.exitCode !== 0)
+												? "failed"
+												: "succeeded",
+									result: JSON.stringify({ ...result, output }),
+								};
+							}
 							if (name === "read_tool_output") {
 								const offset = value.offset ?? 0;
 								const limit = value.limit ?? 16000;
@@ -1221,6 +1285,19 @@ export function createServer(
 											: JSON.stringify(result),
 								};
 							}
+							if (name === "exec_command") {
+								if (
+									(value.cmd !== undefined && value.command !== undefined) ||
+									(value.workdir !== undefined && value.cwd !== undefined) ||
+									(value.timeout_ms !== undefined &&
+										(value.yield_time_ms !== undefined || value.tty === true))
+								)
+									throw new InputError("invalidInput");
+								value.command ??= value.cmd;
+								value.cwd ??= value.workdir ?? scratch;
+								delete value.cmd;
+								delete value.workdir;
+							}
 							if (name === "apply_patch") value.timeout_ms ??= 30000;
 
 							if (
@@ -1230,6 +1307,15 @@ export function createServer(
 											name === "apply_patch" ? "patch" : "command",
 											"cwd",
 											"timeout_ms",
+											...(name === "exec_command"
+												? [
+														"yield_time_ms",
+														"tty",
+														"shell",
+														"login",
+														"max_output_tokens",
+													]
+												: []),
 											"extra_permissions",
 											"reason",
 										].includes(key),
@@ -1239,9 +1325,25 @@ export function createServer(
 								!value[name === "apply_patch" ? "patch" : "command"].trim() ||
 								typeof value.cwd !== "string" ||
 								!value.cwd.startsWith("/") ||
-								!Number.isSafeInteger(value.timeout_ms) ||
-								value.timeout_ms < 1 ||
-								value.timeout_ms > 3600000
+								(value.timeout_ms !== undefined &&
+									(!Number.isSafeInteger(value.timeout_ms) ||
+										value.timeout_ms < 1 ||
+										value.timeout_ms > 3600000)) ||
+								(value.yield_time_ms !== undefined &&
+									(!Number.isSafeInteger(value.yield_time_ms) ||
+										value.yield_time_ms < 0 ||
+										value.yield_time_ms > 30000)) ||
+								(value.tty !== undefined && typeof value.tty !== "boolean") ||
+								(value.login !== undefined &&
+									typeof value.login !== "boolean") ||
+								(value.shell !== undefined &&
+									(typeof value.shell !== "string" ||
+										!isAbsolute(value.shell) ||
+										value.shell.includes("\0"))) ||
+								(value.max_output_tokens !== undefined &&
+									(!Number.isSafeInteger(value.max_output_tokens) ||
+										value.max_output_tokens < 0 ||
+										value.max_output_tokens > Number.MAX_SAFE_INTEGER / 4))
 							)
 								throw new InputError("invalidInput");
 							const toolId = activeToolId;
@@ -1273,6 +1375,20 @@ export function createServer(
 								targetFolders: currentFolders(id),
 								agentId: scratchId(agentId),
 								timeoutMs: value.timeout_ms,
+								yieldTimeMs:
+									value.yield_time_ms === undefined
+										? undefined
+										: Math.max(250, value.yield_time_ms),
+								tty: value.tty,
+								shell: value.shell,
+								login: value.login,
+								toolCallId: toolId,
+								onState: (result) => {
+									database
+										.prepare("UPDATE tool_calls SET command_state=? WHERE id=?")
+										.run(JSON.stringify(result), toolId);
+									notifyAgent(id, agentId);
+								},
 								signal: state.controller.signal,
 								onOutput: (stream, text, data = "") => {
 									database
@@ -1289,17 +1405,30 @@ export function createServer(
 										);
 								},
 							});
+							if (result.session_id)
+								outputOffsets.set(
+									result.session_id,
+									outputPage(savedOutput(toolId)).total_chars,
+								);
 							return {
 								status:
 									result.interrupted || result.cancelled
 										? "interrupted"
-										: result.exitCode === 0 && !result.error && !result.timedOut
+										: (result.running || result.exitCode === 0) &&
+												!result.error &&
+												!result.timedOut
 											? "succeeded"
 											: "failed",
 								result: JSON.stringify({
 									tool_call_id: toolId,
 									...result,
-									output: outputPage(savedOutput(toolId)),
+									output: outputPage(
+										savedOutput(toolId),
+										0,
+										value.max_output_tokens === undefined
+											? 16000
+											: value.max_output_tokens * 4,
+									),
 								}),
 							};
 						} catch (error) {
@@ -1310,7 +1439,7 @@ export function createServer(
 										? "interrupted"
 										: "failed",
 								result: JSON.stringify({
-									error: error instanceof Error ? error.message : String(error),
+									...executionError(error),
 								}),
 							};
 						}
@@ -1456,6 +1585,7 @@ export function createServer(
 			failure = error;
 		}
 		state.stopped = true;
+		await commands.closeAgent(scratchId(agentId));
 		if (closed) return;
 		while (children(agentId).some((child) => running.has(Number(child.id)))) {
 			await new Promise<void>((resolve) => {

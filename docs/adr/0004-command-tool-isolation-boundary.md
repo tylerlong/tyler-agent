@@ -4,7 +4,7 @@
 
 选择 Codex exec-server 的独立文件／进程协议，复用逐请求权限、原生读取、patch 和受控生命周期，保留自己的模型 HTTP 与 Agent 调度。沿用上游设计，仅为授权边界或实测开发失败调整配置。[实施规格 #145](https://github.com/tylerlong/tyler-agent/issues/145)。
 
-当前模型工具未完整暴露上游能力；逐项证据和恢复范围见[工具接口审查](../tool-surface-audit.md)。恢复能力时遵循 [ADR 0005](0005-local-execution-and-model-decisions.md)，由模型通过工具选择运行、等待、续接和主动停止，本地维持执行与授权约束。
+命令工具已恢复上游交互会话、PTY、stdin 和中断；逐项证据和差异见[工具接口审查](../tool-surface-audit.md)。恢复能力时遵循 [ADR 0005](0005-local-execution-and-model-decisions.md)，由模型通过工具选择运行、等待、续接和主动停止，本地维持执行与授权约束。
 
 2026-10 的固定版本验证中，Pi + sandbox-runtime 需要整 worker 隔离和独立权限 manager，接线更复杂；microsandbox 引入 Linux 工具链及 VM 生命周期，整盘挂载首次写入的配额扫描影响文件完全访问方案，普通 Target 挂载不受此结论否定；OpenShell 0.1.3 的 native VM 接口缺主机 Target 共享，Docker 路线未验证。这些取舍支持选择本机逐请求执行后端。
 
@@ -34,4 +34,4 @@ Chat 独立保存文件／网络模式，全局默认只初始化新 Chat。完�
 
 `/tmp/tyler-agent/` 下的工作目录按服务和 Agent 隔离，交给系统清理，不保证保留或回收期限。长期成果保存到项目目录。
 
-单人 macOS 隔离采用 best efforts。独立 watcher 属于用户运行环境；符号链接按实际目标授权，已有跨范围硬链接可影响同一 inode，主动脱离进程组的后台进程不保证全部回收。项目 `AGENTS.md` 加载已按 ADR 0006 接入；交互 PTY、stdin 和长期会话的当前支持见工具接口审查。
+单人 macOS 隔离采用 best efforts。独立 watcher 属于用户运行环境；符号链接按实际目标授权，已有跨范围硬链接可影响同一 inode，主动脱离进程组的后台进程不保证全部回收。交互 PTY、stdin 与会话续接已支持；句柄只在所属 Agent 的本次执行中有效，详情中的当前进程状态与返回时 Tool Result 分开保存。项目 `AGENTS.md` 加载已按 ADR 0006 接入。

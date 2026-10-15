@@ -4,16 +4,56 @@ export const commandTools = [
 		type: "function",
 		name: "exec_command",
 		description:
-			"Run a shell command inside current Project target folders/grants or your scratch. Waits for completion. Explicit extra_permissions plus reason wait for user deny/once/Project-always approval. Network is restricted; errors are returned without escalation or replay. Output is bounded; continue using read_tool_output.",
+			"Run a command in current Project target folders/grants or Agent scratch. Defaults to interactive yield (10000ms), returning session_id if still running; continue with write_stdin. tty enables stdin; non-PTY only supports Ctrl-C. Explicit timeout_ms selects legacy OneShot: waits to completion, terminates on timeout, cannot resume. Do not combine timeout_ms with tty/yield_time_ms. Explicit extra_permissions plus reason waits for approval. No automatic escalation/replay. Full output is saved under tool_call_id; read_tool_output continues history. max_output_tokens budgets returned text using 4 characters/token, without deleting logs.",
 		parameters: {
 			type: "object",
 			properties: {
 				...permissionParameters,
-				command: { type: "string" },
-				cwd: { type: "string", description: "Absolute working directory" },
+				cmd: { type: "string" },
+				workdir: {
+					type: "string",
+					description: "Absolute directory; defaults to Agent scratch",
+				},
+				command: {
+					type: "string",
+					description: "Legacy alias of cmd; supply only one",
+				},
+				cwd: {
+					type: "string",
+					description: "Legacy alias of workdir; supply only one",
+				},
+				shell: {
+					type: "string",
+					description: "Absolute shell executable; default /bin/sh",
+				},
+				login: { type: "boolean", default: true },
+				tty: { type: "boolean", default: false },
+				yield_time_ms: {
+					type: "integer",
+					minimum: 0,
+					maximum: 30000,
+					default: 10000,
+				},
+				max_output_tokens: { type: "integer", minimum: 0 },
 				timeout_ms: { type: "integer", minimum: 1, maximum: 3600000 },
 			},
-			required: ["command", "cwd", "timeout_ms"],
+			additionalProperties: false,
+		},
+	},
+	{
+		type: "function",
+		name: "write_stdin",
+		description:
+			"Continue your own exec_command session. Omit chars to poll; tty sessions accept text or Ctrl-C (\\u0003); non-PTY sessions accept only Ctrl-C. Polls wait at least 5000ms (max 300000), nonempty writes 250–30000ms. Returns new output and actual process state; read_tool_output can reread full saved history under the original tool_call_id. No replay.",
+		parameters: {
+			type: "object",
+			properties: {
+				session_id: { type: "integer", minimum: 1 },
+				chars: { type: "string" },
+				yield_time_ms: { type: "integer", minimum: 0, maximum: 300000 },
+				max_output_tokens: { type: "integer", minimum: 0 },
+			},
+			required: ["session_id"],
 			additionalProperties: false,
 		},
 	},

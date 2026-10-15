@@ -13,10 +13,35 @@ import { imageFromBytes, MAX_IMAGE_BYTES } from "./image-content.ts";
 
 export class ExecutionInterruptedError extends Error {}
 
-type Stream = "stdout" | "stderr";
+type Stream = "stdout" | "stderr" | "pty";
+
+export class NativeExecutionError extends Error {
+	code: number;
+	data?: unknown;
+	constructor(code: number, message: string, data?: unknown) {
+		super(message);
+		this.code = code;
+		this.data = data;
+	}
+}
+export const executionError = (error: unknown) => ({
+	error: error instanceof Error ? error.message : String(error),
+	...(error instanceof NativeExecutionError
+		? {
+				error_code: error.code,
+				...(error.data === undefined ? {} : { error_data: error.data }),
+			}
+		: {}),
+});
+
 type ExecutionResult = {
 	exitCode: number | null;
 	error?: string;
+	error_code?: number;
+	error_data?: unknown;
+	session_id?: number;
+	running?: boolean;
+	sandboxDenied?: boolean;
 	timedOut?: boolean;
 	cancelled?: boolean;
 	interrupted?: boolean;
@@ -32,14 +57,29 @@ type Execution = {
 		"targetFolders" | "extraPermissions"
 	>;
 	agentId: string;
-	timeoutMs: number;
+	timeoutMs?: number;
+	yieldTimeMs?: number;
+	tty?: boolean;
+	shell?: string;
+	login?: boolean;
+	toolCallId?: number;
+	onState?: (result: ExecutionResult) => void;
 	signal: AbortSignal;
 	onOutput: (stream: Stream, text: string, data?: string) => void;
 };
 type Running = {
 	exitCode: number | null;
 	closed: boolean;
-	error?: string;
+	error?: ExecutionResult["error"];
+	agentId: string;
+	toolCallId?: number;
+	tty: boolean;
+	sandboxDenied?: boolean;
+	completed: Promise<void>;
+	cancelled: boolean;
+	timedOut: boolean;
+	stop: () => Promise<void>;
+	cleanup: () => void;
 	decoders: Record<Stream, StringDecoder>;
 	onOutput: Execution["onOutput"];
 	finish: () => void;
@@ -77,6 +117,8 @@ export class CommandExecutor {
 		{ resolve: (result: unknown) => void; reject: (error: Error) => void }
 	>();
 	private processes = new Map<string, Running>();
+	private sessions = new Map<number, string>();
+	private nextSession = 1;
 
 	private fail(message: string, disconnected = false) {
 		this.failure ??= message;
@@ -197,7 +239,14 @@ export class CommandExecutor {
 					const request = this.pending.get(message.id);
 					if (!request) return;
 					this.pending.delete(message.id);
-					if (message.error) request.reject(new Error(message.error.message));
+					if (message.error)
+						request.reject(
+							new NativeExecutionError(
+								message.error.code,
+								message.error.message,
+								message.error.data,
+							),
+						);
 					else request.resolve(message.result);
 					return;
 				}
@@ -205,7 +254,7 @@ export class CommandExecutor {
 				if (!proc) return;
 				if (message.method === "process/output") {
 					const stream = message.params.stream as Stream;
-					if (stream !== "stdout" && stream !== "stderr")
+					if (stream !== "stdout" && stream !== "stderr" && stream !== "pty")
 						throw new Error("Invalid command output stream");
 					proc.onOutput(
 						stream,
@@ -216,6 +265,7 @@ export class CommandExecutor {
 					);
 				} else if (message.method === "process/exited") {
 					proc.exitCode = message.params.exitCode ?? null;
+					proc.sandboxDenied = message.params.sandboxDenied;
 				} else if (message.method === "process/closed") {
 					proc.finish();
 				}
@@ -452,28 +502,18 @@ export class CommandExecutor {
 		let proc: Running | undefined;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let abort: (() => void) | undefined;
-		let cancelled = false;
-		let timedOut = false;
+		const interactive = options.timeoutMs === undefined;
+		const sessionId = this.nextSession++;
 		const processId = randomUUID();
 		try {
-			if (
-				!options.command ||
-				!isAbsolute(options.cwd) ||
-				!Number.isInteger(options.timeoutMs) ||
-				options.timeoutMs < 1 ||
-				options.timeoutMs > 2147483647
-			)
-				throw new Error(
-					"Invalid command, working directory or execution budget",
-				);
+			if (!options.command || !isAbsolute(options.cwd))
+				throw new Error("Invalid command or working directory");
 			if (options.signal.aborted) return { exitCode: null, cancelled: true };
 			this.initialized ??= this.initialize();
 			await this.initialized;
-			if (this.closing) throw new Error("Command executor is closed");
 			const sandbox = await this.latestScope(options);
 			const scratch = agentScratch(options.agentId);
-			const cwd = options.cwd;
-			if (options.signal.aborted) return { exitCode: null, cancelled: true };
+			options.signal.throwIfAborted();
 			let complete!: () => void;
 			const completed = new Promise<void>((resolve) => {
 				complete = resolve;
@@ -481,34 +521,58 @@ export class CommandExecutor {
 			proc = {
 				exitCode: null,
 				closed: false,
+				agentId: options.agentId,
+				toolCallId: options.toolCallId,
+				tty: options.tty ?? false,
+				completed,
+				cancelled: false,
+				timedOut: false,
+				stop: async () => {
+					if (!proc?.closed) await this.rpc("process/terminate", { processId });
+				},
+				cleanup: () => {
+					clearTimeout(timer);
+					if (abort) options.signal.removeEventListener("abort", abort);
+				},
 				decoders: {
 					stdout: new StringDecoder("utf8"),
 					stderr: new StringDecoder("utf8"),
+					pty: new StringDecoder("utf8"),
 				},
 				onOutput: options.onOutput,
-				finish() {
-					if (this.closed) return;
-					this.closed = true;
+				finish: () => {
+					if (!proc || proc.closed) return;
+					proc.closed = true;
 					try {
-						for (const stream of ["stdout", "stderr"] as const) {
-							const tail = this.decoders[stream].end();
-							if (tail) this.onOutput(stream, tail, "");
+						for (const stream of ["stdout", "stderr", "pty"] as const) {
+							const tail = proc.decoders[stream].end();
+							if (tail) proc.onOutput(stream, tail, "");
 						}
 					} catch (error) {
-						this.error = `Command output persistence failed: ${String(error)}`;
+						proc.error = `Command output persistence failed: ${String(error)}`;
 					} finally {
-						complete();
+						proc.cleanup();
+						try {
+							options.onState?.(this.result(proc));
+						} finally {
+							complete();
+						}
 					}
 				},
 			};
 			this.processes.set(processId, proc);
+			if (interactive) this.sessions.set(sessionId, processId);
 			await this.rpc("process/start", {
 				processId,
 				argv:
 					options.patch === undefined
-						? ["/bin/sh", "-c", options.command]
+						? [
+								options.shell ?? "/bin/sh",
+								options.login === false ? "-c" : "-lc",
+								options.command,
+							]
 						: [this.binary, "--codex-run-as-apply-patch", options.patch],
-				cwd: uri(cwd),
+				cwd: uri(options.cwd),
 				env: {
 					PATH: this.commandPath,
 					HOME: scratch,
@@ -520,7 +584,7 @@ export class CommandExecutor {
 					GIT_CONFIG_NOSYSTEM: "1",
 					DEVELOPER_DIR: "/Library/Developer/CommandLineTools",
 				},
-				tty: false,
+				tty: options.tty ?? false,
 				pipeStdin: false,
 				arg0: null,
 				sandbox,
@@ -551,46 +615,163 @@ export class CommandExecutor {
 						}
 					: {}),
 			});
-			const stop = async () => {
-				if (proc?.closed) return;
-				try {
-					await this.rpc("process/terminate", { processId });
-				} catch (error) {
-					this.fail(`Command termination failed: ${String(error)}`);
-				}
+			const stop = () => {
+				void proc
+					?.stop()
+					.catch((error) =>
+						this.fail(`Command termination failed: ${String(error)}`),
+					);
 			};
 			abort = () => {
-				if (proc?.closed) return;
-				cancelled = true;
-				void stop();
+				if (proc && !proc.closed) {
+					proc.cancelled = true;
+					stop();
+				}
 			};
 			options.signal.addEventListener("abort", abort, { once: true });
 			if (options.signal.aborted) abort();
-			else if (!proc.closed)
+			else if (!proc.closed && options.timeoutMs !== undefined)
 				timer = setTimeout(() => {
-					timedOut = true;
-					void stop();
+					if (proc) proc.timedOut = true;
+					stop();
 				}, options.timeoutMs);
+			if (interactive) {
+				if (!proc.closed)
+					options.onState?.({
+						exitCode: null,
+						running: true,
+						session_id: sessionId,
+					});
+				return await this.waitSession(
+					sessionId,
+					options.agentId,
+					options.yieldTimeMs ?? 10000,
+				);
+			}
 			await completed;
-			return {
-				exitCode: proc.exitCode,
-				...(proc.error ? { error: proc.error, interrupted: true } : {}),
-				...(cancelled ? { cancelled } : {}),
-				...(timedOut ? { timedOut } : {}),
-			};
+			return this.result(proc);
 		} catch (error) {
 			if (this.failure) await this.disconnected;
+			if (proc && !abort) {
+				proc.error = String(error);
+				proc.finish();
+			}
 			return {
 				exitCode: proc?.exitCode ?? null,
 				error: String(error),
-				...(options.signal.aborted && !proc?.closed ? { cancelled: true } : {}),
+				...(error instanceof NativeExecutionError
+					? { error_code: error.code, error_data: error.data }
+					: {}),
+				...(options.signal.aborted ? { cancelled: true } : {}),
 				...(this.failure ? { interrupted: true } : {}),
 			};
 		} finally {
-			clearTimeout(timer);
-			if (abort) options.signal.removeEventListener("abort", abort);
-			this.processes.delete(processId);
+			if (!interactive || !proc || proc.closed || !abort) {
+				clearTimeout(timer);
+				if (abort) options.signal.removeEventListener("abort", abort);
+				this.processes.delete(processId);
+				this.sessions.delete(sessionId);
+			}
 		}
+	}
+
+	private result(proc: Running): ExecutionResult {
+		return {
+			exitCode: proc.exitCode,
+			running: !proc.closed,
+			...(proc.error ? { error: proc.error, interrupted: true } : {}),
+			...(proc.sandboxDenied === undefined
+				? {}
+				: { sandboxDenied: proc.sandboxDenied }),
+			...(proc.cancelled ? { cancelled: true } : {}),
+			...(proc.timedOut ? { timedOut: true } : {}),
+		};
+	}
+
+	private ownedSession(sessionId: number, agentId: string) {
+		const processId = this.sessions.get(sessionId);
+		const proc = processId && this.processes.get(processId);
+		if (!proc || proc.agentId !== agentId)
+			throw new Error("Session is available only to the Agent that started it");
+		return { processId, proc };
+	}
+
+	private async waitSession(
+		sessionId: number,
+		agentId: string,
+		yieldTimeMs: number,
+	) {
+		const { processId, proc } = this.ownedSession(sessionId, agentId);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				proc.completed,
+				new Promise<void>((resolve) => {
+					timer = setTimeout(resolve, yieldTimeMs);
+				}),
+			]);
+			const result = this.result(proc);
+			return {
+				...result,
+				...(proc.closed ? {} : { session_id: sessionId }),
+				tool_call_id: proc.toolCallId,
+			};
+		} finally {
+			clearTimeout(timer);
+			if (proc.closed) {
+				this.processes.delete(processId);
+				this.sessions.delete(sessionId);
+			}
+		}
+	}
+
+	async writeStdin(options: {
+		sessionId: number;
+		agentId: string;
+		chars: string;
+		yieldTimeMs: number;
+	}) {
+		const { processId, proc } = this.ownedSession(
+			options.sessionId,
+			options.agentId,
+		);
+		if (options.chars) {
+			if (!proc.tty) {
+				if (options.chars !== "\x03")
+					throw new Error(
+						"stdin is closed for this non-PTY session; only Ctrl-C is supported",
+					);
+				await this.rpc("process/signal", { processId, signal: "interrupt" });
+			} else {
+				const result = (await this.rpc("process/write", {
+					processId,
+					writeId: randomUUID(),
+					chunk: Buffer.from(options.chars).toString("base64"),
+				})) as { status: string };
+				if (result.status !== "accepted")
+					throw new Error(`Command stdin write: ${result.status}`);
+			}
+		}
+		return this.waitSession(
+			options.sessionId,
+			options.agentId,
+			options.yieldTimeMs,
+		);
+	}
+
+	async closeAgent(agentId: string) {
+		const owned = [...this.processes.entries()].filter(
+			([, proc]) => proc.agentId === agentId,
+		);
+		await Promise.all(
+			owned.map(async ([processId, proc]) => {
+				if (!proc.closed) await proc.stop();
+				await proc.completed;
+				this.processes.delete(processId);
+			}),
+		);
+		for (const [sessionId, processId] of this.sessions)
+			if (!this.processes.has(processId)) this.sessions.delete(sessionId);
 	}
 
 	async close() {

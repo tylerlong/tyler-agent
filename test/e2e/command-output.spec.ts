@@ -43,9 +43,9 @@ test("running command card manually refreshes saved streams without a model call
 	const row = db.prepare("SELECT id FROM tool_calls").get();
 	expect(row).toBeTruthy();
 	const toolId = Number(row?.id);
-	db.prepare("UPDATE tool_calls SET name='exec_command' WHERE id=?").run(
-		toolId,
-	);
+	db.prepare(
+		`UPDATE tool_calls SET name='exec_command',command_state='{"running":true,"exitCode":null}' WHERE id=?`,
+	).run(toolId);
 	db.prepare(
 		"INSERT INTO tool_output(tool_call_id,ordinal,stream,text) VALUES(?,1,'stdout','first log')",
 	).run(toolId);
@@ -59,14 +59,16 @@ test("running command card manually refreshes saved streams without a model call
 		const card = page.locator(`[data-tool-call-id='${toolId}']`);
 		await card.locator("summary").click();
 		await expect(card).toContainText("first log");
+		await expect(card).toContainText("Current process state");
+		await expect(card).toContainText('"running": true');
 		const before = modelCount();
 		db.prepare(
-			"INSERT INTO tool_output(tool_call_id,ordinal,stream,text) VALUES(?,2,'stderr','trailing diagnostic')",
+			"INSERT INTO tool_output(tool_call_id,ordinal,stream,text) VALUES(?,2,'pty','trailing diagnostic')",
 		).run(toolId);
 		await expect(card).not.toContainText("trailing diagnostic");
 		await card.getByRole("button", { name: "Refresh", exact: true }).click();
 		await expect(card).toContainText("trailing diagnostic");
-		await expect(card).toContainText("[2 stderr]");
+		await expect(card).toContainText("[2 pty]");
 		expect(modelCount()).toBe(before);
 	} finally {
 		held.release();

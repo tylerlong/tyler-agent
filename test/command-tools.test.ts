@@ -1185,6 +1185,7 @@ commandTest(
 						"read_file",
 						"read_image",
 						"read_tool_output",
+						"write_stdin",
 					],
 				);
 				return done([call("read_file", { path: join(root, "input.txt") })]);
@@ -1833,6 +1834,299 @@ commandTest(
 			assert.equal((await f.wait(agentId)).status, "succeeded");
 			assert.equal(requests, 2);
 			assert.equal(await readFile(join(root, "input.txt"), "utf8"), "after\n");
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"interactive commands yield, preserve PTY output and accept input while other tools run",
+	async () => {
+		let root = "",
+			session = 0,
+			toolId = 0,
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			const last = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.at(-1);
+			switch (++requests) {
+				case 1:
+					return done([
+						call("exec_command", {
+							cmd: "printf 'ready\\n'; read value; printf 'received:%s\\n' \"$value\"",
+							workdir: root,
+							tty: true,
+							shell: "/bin/bash",
+							login: false,
+							yield_time_ms: 20,
+							max_output_tokens: 4,
+						}),
+					]);
+				case 2: {
+					const result = JSON.parse(last.output);
+					assert.equal(result.running, true, last.output);
+					assert.equal(typeof result.session_id, "number");
+					session = result.session_id;
+					toolId = result.tool_call_id;
+					return done([
+						call("read_file", { path: join(root, "test.txt") }, "read"),
+					]);
+				}
+				case 3:
+					assert.equal(JSON.parse(last.output).text, "fixture");
+					return done([
+						call(
+							"write_stdin",
+							{ session_id: session, chars: "hello\n", yield_time_ms: 1000 },
+							"input",
+						),
+					]);
+				case 4: {
+					const result = JSON.parse(last.output);
+					assert.equal(result.exitCode, 0, last.output);
+					assert.equal(result.running, false);
+					assert.equal(result.tool_call_id, toolId);
+					return done([
+						call("read_tool_output", { tool_call_id: toolId }, "logs"),
+					]);
+				}
+				default: {
+					const output = JSON.parse(last.output);
+					assert.match(text(output.chunks), /received:hello/);
+					assert(
+						output.chunks.some(
+							(chunk: { stream: string }) => chunk.stream === "pty",
+						),
+					);
+					return done([answer]);
+				}
+			}
+		});
+		root = f.root;
+		try {
+			await writeFile(join(root, "test.txt"), "fixture");
+			const id = await f.ask();
+			await f.wait(id);
+			assert.equal(requests, 5);
+			const detail = (
+				await f.request(`/api/agents/${id}/tools?toolId=${toolId}`)
+			).toolCalls[0];
+			assert.equal(detail.commandState.running, false);
+			assert.equal(detail.commandState.exitCode, 0);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"interactive output budget retains full history, non-PTY rejects input and Ctrl-C stops the process",
+	async () => {
+		let root = "",
+			requests = 0,
+			session = 0,
+			toolId = 0;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			const last = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.at(-1);
+			const result = last ? JSON.parse(last.output) : null;
+			switch (++requests) {
+				case 1:
+					return done([
+						call("exec_command", {
+							cmd: "node -e \"process.stdout.write('x'.repeat(30000));setInterval(()=>{},1000)\"",
+							workdir: root,
+							yield_time_ms: 1000,
+							max_output_tokens: 2,
+						}),
+					]);
+				case 2:
+					assert.equal(result.running, true, JSON.stringify(result));
+					assert.equal(text(result.output.chunks).length, 8);
+					assert.equal(result.output.total_chars, 30000);
+					session = result.session_id;
+					toolId = result.tool_call_id;
+					return done([
+						call(
+							"write_stdin",
+							{ session_id: session, chars: "bad", yield_time_ms: 250 },
+							"bad-input",
+						),
+					]);
+				case 3:
+					assert.match(result.error, /stdin is closed/);
+					return done([
+						call(
+							"write_stdin",
+							{ session_id: session, chars: "\u0003", yield_time_ms: 1000 },
+							"stop",
+						),
+					]);
+				case 4:
+					assert.equal(result.running, false, JSON.stringify(result));
+					assert.notEqual(result.exitCode, 0);
+					return done([
+						call(
+							"read_tool_output",
+							{ tool_call_id: toolId, offset: 29990 },
+							"history",
+						),
+					]);
+				default:
+					assert.equal(text(result.chunks), "xxxxxxxxxx");
+					return done([answer]);
+			}
+		});
+		root = f.root;
+		try {
+			const id = await f.ask();
+			await f.wait(id);
+			assert.equal(requests, 5);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"yielded sessions remain Agent-owned and cancellation drains the process before returning",
+	async () => {
+		let root = "",
+			session = 0,
+			toolId = 0,
+			requests = 0,
+			heldResolve!: () => void;
+		const held = new Promise<void>((resolve) => {
+			heldResolve = resolve;
+		});
+		let foreign = false;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			const last = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.at(-1);
+			if (foreign) {
+				if (!last)
+					return done([
+						call(
+							"write_stdin",
+							{ session_id: session, chars: "\u0003" },
+							"foreign",
+						),
+					]);
+				assert.match(JSON.parse(last.output).error, /only to the Agent/);
+				return done([answer]);
+			}
+			if (++requests === 1)
+				return done([
+					call("exec_command", {
+						cmd: "printf '%s' $$ > process.pid; exec sleep 60",
+						workdir: root,
+						yield_time_ms: 250,
+					}),
+				]);
+			const result = JSON.parse(last.output);
+			session = result.session_id;
+			toolId = result.tool_call_id;
+			heldResolve();
+			return new Promise<Response>((_, reject) =>
+				init?.signal?.addEventListener(
+					"abort",
+					() => reject(init.signal?.reason),
+					{ once: true },
+				),
+			);
+		});
+		root = f.root;
+		try {
+			const id = await f.ask();
+			await held;
+			foreign = true;
+			const other = await f.ask("foreign");
+			await f.wait(other);
+			const pid = Number(await readFile(join(root, "process.pid"), "utf8"));
+			assert.doesNotThrow(() => process.kill(pid, 0));
+			await f.request(`/api/agents/${id}/cancel`, {});
+			assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+			const saved = (
+				await f.request(`/api/agents/${id}/tools?toolId=${toolId}`)
+			).toolCalls[0];
+			assert.equal(saved.commandState.cancelled, true);
+			assert.equal(saved.commandState.running, false);
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"native command startup errors retain protocol code and do not poison later operations",
+	async () => {
+		let root = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			const last = body.input
+				.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.at(-1);
+			switch (++requests) {
+				case 1:
+					return done([
+						call("exec_command", {
+							cmd: "echo test",
+							workdir: root,
+							shell: "/missing-shell",
+						}),
+					]);
+				case 2: {
+					const result = JSON.parse(last.output);
+					assert.equal(result.sandboxDenied, true, last.output);
+					assert.notEqual(result.exitCode, 0);
+					return done([
+						call(
+							"read_file",
+							{ path: join(root, "..", "native-secret") },
+							"native-error",
+						),
+					]);
+				}
+				case 3:
+					assert.equal(
+						typeof JSON.parse(last.output).error_code,
+						"number",
+						last.output,
+					);
+					return done([
+						call(
+							"exec_command",
+							{ cmd: "printf recovered", workdir: root, yield_time_ms: 1000 },
+							"recover",
+						),
+					]);
+				default:
+					assert.equal(JSON.parse(last.output).exitCode, 0, last.output);
+					return done([answer]);
+			}
+		});
+		root = f.root;
+		await writeFile(join(root, "..", "native-secret"), "private");
+		try {
+			const id = await f.ask();
+			await f.wait(id);
+			assert.equal(requests, 4);
 		} finally {
 			await f.close();
 		}

@@ -100,6 +100,15 @@ export function ToolCallCard({
 				{ text: t("toolArguments"), body: false },
 				{ text: prettyToolContent(content.arguments), body: true },
 				{ text: t("toolResult"), body: false },
+				...(content.commandState
+					? [
+							{ text: t("commandState"), body: false },
+							{
+								text: JSON.stringify(content.commandState, null, 2),
+								body: true,
+							},
+						]
+					: []),
 				...(content.result !== null
 					? [{ text: prettyToolContent(content.result), body: true }]
 					: []),

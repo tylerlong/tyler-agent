@@ -1,10 +1,10 @@
 # 工具接口与上游能力审查
 
-2026-10-14。检查当前六个内置工具的定义、执行分派、结果续接与相关测试，并检查已讨论的 MCP、Playwright 和图片接入设计。本文记录审查结果及修正建议，不表示已经实现。
+2026-10-14 初次审查；#160 已恢复下述命令能力。其余接入的实现状态按各自 ticket 和代码确认。
 
 ## 结论
 
-当前最明确的能力损失在 `exec_command`：Codex 执行后端已有托管进程、输入与 PTY，Weft 却只暴露等待进程结束的调用。应恢复这些上游能力，沿用成熟的模型工具约定，而不是重新设计一套进程管理工具。
+`exec_command` 与 `write_stdin` 已连接 Codex 0.162.0 的托管进程、PTY、输入与中断。模型决定运行、等待、续接和主动停止，完整 Command Output 归属启动它的 Tool Call；返回时事实与当前进程状态分别保存。
 
 另一个共用限制是 `ToolExecution.result` 只能是字符串；它不能直接承载 OpenRouter 已支持的多模态工具结果。错误处理还丢失了有诊断意义的原生字段。
 
@@ -14,8 +14,8 @@
 
 | 工具 | 实际来源与当前行为 | 差异与处理建议 |
 | --- | --- | --- |
-| `exec_command` | `src/command-tools.ts` 定义；`src/server.ts` 校验并调用 `CommandExecutor`；复用固定 `@openai/codex@0.162.0` 的 `exec-server`。 | 丢失 yield 后返回、会话续接、stdin、PTY 和中断信号能力；shell 固定 `/bin/sh -c`，输出上限固定。应参考同版本 Codex 模型工具恢复接口和语义，避免另起命名与管理方案。 |
-| `read_tool_output` | 读取 SQLite 中归属当前 Agent 的实际命令日志，有界分页；保留 stdout/stderr 顺序。 | 不是上游 `process/read` 的替代品：后者读取有限期进程缓冲，前者读取持久历史。保留日志入口；恢复 PTY 时需支持实际 `pty` 流。 |
+| `exec_command` | `src/command-tools.ts` 定义；`src/server.ts` 校验并调用 `CommandExecutor`；复用固定 `@openai/codex@0.162.0` 的 `exec-server`。 | 支持 `cmd/workdir`、`shell/login/tty/yield_time_ms/max_output_tokens`。默认交互模式；`session_id` 仅能由所属 Agent 使用。旧 `command/cwd/timeout_ms` 兼容为 OneShot，timeout 不能与 tty/yield 混用。 |
+| `read_tool_output` | 读取 SQLite 中归属当前 Agent 的实际命令日志，有界分页；保留 stdout/stderr/pty 顺序。 | 不是上游 `process/read` 的替代品：后者读取有限期进程缓冲，前者读取持久历史。保留日志入口；实际 `pty` 字节、文本和顺序均持久保存。 |
 | `read_file` | `fs/open` → `fs/readBlock` → `fs/close`；返回字节位置、base64、UTF-8 显示和 eof，单次最多 50 KiB。 | 没有发现被简化的同名上游模型工具。分页与句柄关闭有明确用途；不能将 base64 文件内容当作模型已看见图片。底层其他文件 RPC 的存在，也不意味着必须各注册一个 function tool：当前命令工具已承担发现、复制、移动和删除。 |
 | `apply_patch` | 原 patch 字符串直接传给 `codex --codex-run-as-apply-patch`；支持 Add、Update、Move、Delete，没有本地重写语法。 | 上游可用 freeform/lark；Weft 使用 JSON `{patch,cwd,...}`。这改变外层格式，但未删减补丁能力。OpenRouter 跨模型 freeform 兼容性未验证；保留 patch 原文，不能据此武断要求所有模型改用 freeform。 |
 | `create_sub_agent` | Weft 自己的 Agent 执行核心；支持明确背景、模型和 reasoning 覆盖，立即返回身份，终态主动通知父任务。 | 不是 Codex spawn-agent 工具的包装。上下文不自动继承、通知和等待规则是 ADR 0002 已确定的产品行为，不是第三方参数被删。没有依据为“直接 expose”而更换调度框架。 |
@@ -34,14 +34,18 @@ Codex 同版本已有两层接口：
 
 Codex 本身也提供 OneShot 模式；问题在于 Weft 只接入了这一种行为，隐藏了上游的交互式会话能力。后端还支持非 PTY 的可写 stdin，但 Codex 上层工具并不直接开放该开关；不能声称照抄上层参数就自动覆盖全部底层 RPC。
 
-当前具体损失：
+#160 实际接线：
 
-- `src/command-tools.ts:7` 明确只能等待结束，参数缺少 yield、tty、shell 和输出预算等上游选择。
-- `src/command-executor.ts:494` 固定 `/bin/sh -c`，`:509` 与 `:510` 固定关闭 tty 和 stdin；`:560` 始终等待完成，`:578` 随调用结束丢弃本地句柄。
-- `src/command-executor.ts:199` 只保留 RPC 错误 message，丢失 code/data；`:217` 只取退出码，未保留 `sandboxDenied`。应保留实际错误和诊断信息，不靠退出码或日志文本猜测失败类别。
-- 当前输出解码与 SQLite 流类型只接受 stdout/stderr。恢复 PTY 必须贯通执行、存储、续读和展示，不能只把 `tty` 参数开放后忽略实际输出。
+- 不带 `timeout_ms` 为交互模式，默认等待 10000ms，按上游夹至 250–30000ms；到期返回存活 `session_id`，不终止进程。
+- `write_stdin` 有输入时等待 250–30000ms，空输入等待 5000–300000ms。PTY 直接接收文字和 Ctrl-C；非 PTY 沿用上游只接受 Ctrl-C，调用原生 `process/signal`，不开放后端专用 `pipeStdin` 参数。
+- 显式 `timeout_ms` 保留旧 OneShot 行为，等待完成、超时终止、不可续接；拒绝同用 `tty:true` 或 `yield_time_ms`，避免混淆两种生命周期。
+- 原生 JSON-RPC 错误保持 `error` 可读文本，并保留 `error_code/error_data`；原生 `sandboxDenied`、退出码、部分输出、取消及后端断开事实不靠文本推测。
+- Tool Result 保存返回当时的事实；`commandState` 是同一启动 Tool Call 上的当前进程状态，完成时更新，服务重启时标记中断。详情页 Refresh 能读取新输出和状态；不重放或恢复旧句柄。
+- 输出预算仅限制交给模型的文本；默认 16000 字符，显式 token 预算使用 4 字符/token 的估算。交互续接返回新输出，超出预算的原记录仍能通过 `read_tool_output` 按字符有界补读。此估算不同于模型实际 tokenizer。
+- `shell` 为绝对可执行路径，默认 `/bin/sh`；`login` 默认 true。固定清洁环境和 scratch HOME 仍有效，额外 shell/配置文件读取必须在现有文件权限内。不同于 Codex 按宿主配置选择默认 shell，Weft 不读取宿主 shell 配置来推导默认值。
+- 取消等待原生清理；Agent 结束时释放其所属进程，服务关闭先排空 Agent 后关闭执行后端。无命令内容识别、开发服务器策略或跨应用重启恢复。
 
-上游交互模式和 OneShot 模式的等待、超时语义不同；不能机械地把 `yield_time_ms` 和现有“超时杀进程”拼在一起，宣称等同上游。实现前对照固定版本行为确定映射。命令的启动、等待、续接和主动停止由模型通过工具选择，本地不根据命令内容或用途制定策略；职责遵循 ADR 0005。
+已用现有 HTTP → 受控模型 → 实际固定版原生执行器测试 PTY 早返回后使用其他工具、写入、非 PTY 中断、输出预算与持久日志、归属及取消。上游 README 的 `process/write` 例子遗漏 `writeId`，实际 0.162.0 协议要求它；已按协议源文件和真实执行验证接线。
 
 环境过滤、独立 HOME/scratch、沙箱和句柄归属来自 ADR 0004；应保留。上游后端的 `env` 字段不等于上游面向模型的工具允许任意继承 Weft 服务环境，不能为接口对齐泄露服务凭据。
 
@@ -62,7 +66,7 @@ Codex 本身也提供 OneShot 模式；问题在于 Weft 只接入了这一种�
 
 相关已有保护在 `test/command-tools.test.ts`、`test/command-lifecycle.test.ts`、`test/command-shutdown.test.ts`、`test/sub-agents.test.ts` 及命令输出 E2E。修正后应验证早返回后继续读写、PTY 输出、中断/取消、Agent 隔离、退出与错误事实以及持久记录；现有权限和关闭清理行为不能回退。
 
-本次仅做静态代码、测试内容和官方资料审查；未运行原生后端、浏览器、MCP、付费模型或整个测试集，未修改运行代码、依赖或数据库。
+命令侧已运行真实 macOS 原生测试；浏览器、MCP 和付费模型的实际验证不由 #160 证明。数据库按既有不兼容时拒绝启动规则更新 schema，无迁移、自动重置或用户数据删除。
 
 ## 对照来源
 

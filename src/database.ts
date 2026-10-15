@@ -83,8 +83,8 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
                 CREATE TABLE agents (id INTEGER PRIMARY KEY, chat_id INTEGER REFERENCES chats(id), prompt TEXT, images TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(images) AND json_type(images)='array'), created_by_tool_call_id INTEGER UNIQUE REFERENCES tool_calls(id), status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed','cancelled')), created_at INTEGER NOT NULL, error_code TEXT, CHECK((chat_id IS NOT NULL AND prompt IS NOT NULL AND created_by_tool_call_id IS NULL) OR (chat_id IS NULL AND prompt IS NULL AND created_by_tool_call_id IS NOT NULL)));
                 CREATE TABLE model_calls (id INTEGER PRIMARY KEY, agent_id INTEGER NOT NULL REFERENCES agents(id), url TEXT NOT NULL, method TEXT NOT NULL, requested_at TEXT NOT NULL, request_body TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed')), http_status INTEGER, response_body TEXT, duration_ms INTEGER, error TEXT, error_code TEXT, output_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(output_json) AND json_type(output_json)='array'));
                 CREATE TABLE managed_models (id TEXT PRIMARY KEY CHECK(length(trim(id))>0), name TEXT NOT NULL, metadata TEXT NOT NULL CHECK(json_valid(metadata)));
-                CREATE TABLE tool_calls (id INTEGER PRIMARY KEY, model_call_id INTEGER NOT NULL REFERENCES model_calls(id), call_id TEXT NOT NULL, name TEXT NOT NULL, arguments TEXT NOT NULL, ordinal INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('waiting','running','succeeded','failed','not_executed','interrupted')), result TEXT, reason TEXT, approval TEXT CHECK(approval IS NULL OR json_valid(approval)), UNIQUE(model_call_id,ordinal));
-                CREATE TABLE tool_output (tool_call_id INTEGER NOT NULL REFERENCES tool_calls(id), ordinal INTEGER NOT NULL, stream TEXT NOT NULL CHECK(stream IN ('stdout','stderr')), text TEXT NOT NULL, data TEXT NOT NULL DEFAULT '', byte_count INTEGER NOT NULL DEFAULT 0 CHECK(byte_count >= 0), PRIMARY KEY(tool_call_id,ordinal));
+                CREATE TABLE tool_calls (id INTEGER PRIMARY KEY, model_call_id INTEGER NOT NULL REFERENCES model_calls(id), call_id TEXT NOT NULL, name TEXT NOT NULL, arguments TEXT NOT NULL, ordinal INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('waiting','running','succeeded','failed','not_executed','interrupted')), result TEXT, reason TEXT, command_state TEXT CHECK(command_state IS NULL OR json_valid(command_state)), approval TEXT CHECK(approval IS NULL OR json_valid(approval)), UNIQUE(model_call_id,ordinal));
+                CREATE TABLE tool_output (tool_call_id INTEGER NOT NULL REFERENCES tool_calls(id), ordinal INTEGER NOT NULL, stream TEXT NOT NULL CHECK(stream IN ('stdout','stderr','pty')), text TEXT NOT NULL, data TEXT NOT NULL DEFAULT '', byte_count INTEGER NOT NULL DEFAULT 0 CHECK(byte_count >= 0), PRIMARY KEY(tool_call_id,ordinal));
                 CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')), api_key TEXT, default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline')), model_call_limit INTEGER NOT NULL DEFAULT 16 CHECK(typeof(model_call_limit)='integer' AND model_call_limit>0), sub_agent_limit INTEGER NOT NULL DEFAULT 32 CHECK(typeof(sub_agent_limit)='integer' AND sub_agent_limit>0), default_file_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_file_access IN ('restricted','full')), default_network_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_network_access IN ('restricted','full')));
                 INSERT INTO settings(id) VALUES(1);
                 PRAGMA user_version=20;
@@ -121,7 +121,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			managed_models: "id,name,metadata",
 			tool_output: "tool_call_id,ordinal,stream,text,data,byte_count",
 			tool_calls:
-				"id,model_call_id,call_id,name,arguments,ordinal,status,result,reason,approval",
+				"id,model_call_id,call_id,name,arguments,ordinal,status,result,reason,command_state,approval",
 		})) {
 			if (columns(table) !== expected)
 				throw new Error("Invalid database schema");
@@ -158,6 +158,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			"SAVEPOINT startup_check; INSERT INTO projects(name,created_at) VALUES ('startup',0); ROLLBACK TO startup_check; RELEASE startup_check;",
 		);
 		db.exec(`BEGIN;
+        UPDATE tool_calls SET command_state=json_set(command_state,'$.running',json('false'),'$.interrupted',json('true'),'$.error','Service restarted before process completion') WHERE json_extract(command_state,'$.running')=1;
         UPDATE agents SET status='failed',error_code='agentInterrupted' WHERE status='pending';
         UPDATE tool_calls SET status='interrupted',reason='toolRestartInterrupted',approval=CASE WHEN json_extract(approval,'$.status')='pending' THEN json_set(approval,'$.status','interrupted') ELSE approval END WHERE status IN ('waiting','running');
         UPDATE model_calls SET status='failed',error_code='modelInterrupted',error='Service restarted before the call completed' WHERE status='pending';

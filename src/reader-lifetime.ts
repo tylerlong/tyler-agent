@@ -181,6 +181,7 @@ export function useReasoningReader(
 	};
 }
 type ToolContent = ToolCall & {
+	commandState?: unknown;
 	arguments: string;
 	result: string | null;
 	output?: { ordinal: number; stream: string; text: string }[];
