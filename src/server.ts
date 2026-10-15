@@ -35,6 +35,7 @@ import {
 	type InputImage,
 	MAX_IMAGE_BYTES,
 	redactImageSafe,
+	redactInputContent,
 	submittedImages,
 	userContent,
 } from "./image-content.ts";
@@ -987,24 +988,27 @@ export function createServer(
 				preserveKeys,
 			);
 		const safeMcpConnections = (connections: McpConnection[]) =>
-			redactTool(
-				JSON.stringify(
-					connections.map((connection) => {
-						let stderr = connection.stderr;
-						if (stderr && connection.status !== "closed") {
-							let hold = 0;
-							for (const secret of secrets)
-								for (let size = 1; size < secret.length; size++)
-									if (stderr.endsWith(secret.slice(0, size)))
-										hold = Math.max(hold, size);
-							if (hold) stderr = stderr.slice(0, -hold);
-						}
-						return {
-							...connection,
-							...(stderr === undefined ? {} : { stderr }),
-						};
-					}),
-				),
+			JSON.stringify(
+				connections.map((connection) => {
+					let stderr = connection.stderr;
+					if (stderr && connection.status !== "closed") {
+						let hold = 0;
+						for (const secret of secrets)
+							for (let size = 1; size < secret.length; size++)
+								if (stderr.endsWith(secret.slice(0, size)))
+									hold = Math.max(hold, size);
+						if (hold) stderr = stderr.slice(0, -hold);
+					}
+					return {
+						id: redactTool(connection.id),
+						name: redactTool(connection.name),
+						status: connection.status,
+						...(connection.error === undefined
+							? {}
+							: { error: redactTool(connection.error) }),
+						...(stderr === undefined ? {} : { stderr: redactTool(stderr) }),
+					};
+				}),
 			);
 		try {
 			mcp = await connectMcp(
@@ -1060,7 +1064,9 @@ export function createServer(
 										.run(
 											ownerId,
 											redactTool(call.call_id),
-											redactTool(call.name),
+											["exec_command", "apply_patch"].includes(call.name)
+												? call.name
+												: redactTool(call.name),
 											redactTool(call.arguments),
 											index + 1,
 											reason ? "not_executed" : "waiting",
@@ -1101,11 +1107,11 @@ export function createServer(
 								)
 								.run(
 									result.status,
-									redactTool(
-										typeof result.result === "string"
-											? result.result
-											: JSON.stringify(result.result),
-									),
+									typeof result.result === "string"
+										? redactTool(result.result)
+										: JSON.stringify(
+												redactInputContent(result.result, redactTool),
+											),
 									savedToolIds[ordinal - 1],
 								);
 						} catch {

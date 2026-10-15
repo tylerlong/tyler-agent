@@ -9,6 +9,7 @@ import {
 	type InputContent,
 	type InputImage,
 	redactImageSafe,
+	redactInputContent,
 	userContent,
 } from "./image-content.ts";
 
@@ -280,6 +281,141 @@ async function requestOnce(
 				text,
 			),
 		);
+	const recordValue = (value: unknown): unknown =>
+		JSON.parse(redact(JSON.stringify(value)));
+	const itemTypes = ["message", "reasoning", "function_call"];
+	const partTypes = [
+		"output_text",
+		"refusal",
+		"reasoning_text",
+		"summary_text",
+	];
+	const itemType = (type: string) =>
+		itemTypes.includes(type) ? type : redact(type);
+	const partType = (type: string) =>
+		partTypes.includes(type) ? type : redact(type);
+	const recordPart = (value: unknown): unknown => {
+		const part = object(value);
+		if (!partTypes.includes(String(part.type))) return recordValue(value);
+		return Object.fromEntries(
+			Object.entries(part).map(([key, value]) => [
+				(part.type === "refusal"
+					? ["type", "refusal", "text"]
+					: ["type", "text"]
+				).includes(key)
+					? key
+					: redact(key),
+				key === "type" ? partType(String(value)) : recordValue(value),
+			]),
+		);
+	};
+	const recordItem = (value: unknown): unknown => {
+		const item = object(value);
+		if (!itemTypes.includes(String(item.type))) return recordValue(value);
+		return Object.fromEntries(
+			Object.entries(item).map(([key, value]) => {
+				const fields =
+					item.type === "function_call"
+						? ["id", "type", "status", "name", "call_id", "arguments"]
+						: item.type === "message"
+							? ["id", "type", "status", "role", "content"]
+							: ["id", "type", "status", "summary", "content"];
+				const name = fields.includes(key) ? key : redact(key);
+				if (key === "type") return [name, itemType(String(value))];
+				if (item.type === "message" && key === "role" && value === "assistant")
+					return [name, value];
+				if (
+					key === "status" &&
+					["completed", "in_progress", "incomplete"].includes(String(value))
+				)
+					return [name, value];
+				if (
+					fields.includes(key) &&
+					(key === "content" || key === "summary") &&
+					Array.isArray(value)
+				)
+					return [name, value.map(recordPart)];
+				return [name, recordValue(value)];
+			}),
+		);
+	};
+	const recordResponse = (value: unknown) =>
+		Object.fromEntries(
+			Object.entries(object(value)).map(([key, value]) => {
+				const name = [
+					"id",
+					"object",
+					"created_at",
+					"status",
+					"model",
+					"output",
+					"usage",
+					"error",
+					"incomplete_details",
+				].includes(key)
+					? key
+					: redact(key);
+				if (key === "output" && Array.isArray(value))
+					return [name, value.map(recordItem)];
+				if (
+					key === "status" &&
+					[
+						"completed",
+						"in_progress",
+						"incomplete",
+						"failed",
+						"cancelled",
+						"queued",
+					].includes(String(value))
+				)
+					return [name, value];
+				return [name, recordValue(value)];
+			}),
+		);
+	const inputContent = (value: unknown[]) =>
+		value.every((part) => {
+			const item = object(part);
+			return item.type === "input_text"
+				? typeof item.text === "string" &&
+						Object.keys(item).every((key) => ["type", "text"].includes(key))
+				: item.type === "input_image" &&
+						typeof item.image_url === "string" &&
+						/^data:image\/(?:png|jpeg|gif|webp);base64,/.test(item.image_url) &&
+						(item.detail === undefined ||
+							["auto", "low", "high"].includes(String(item.detail))) &&
+						Object.keys(item).every((key) =>
+							["type", "image_url", "detail"].includes(key),
+						);
+		});
+	const recordInput = (value: unknown): unknown => {
+		const input = object(value);
+		if (input.type === "function_call_output")
+			return Object.fromEntries(
+				Object.entries(input).map(([key, value]) => [
+					["type", "call_id", "output"].includes(key) ? key : redact(key),
+					key === "type"
+						? "function_call_output"
+						: key === "output" && Array.isArray(value) && inputContent(value)
+							? redactInputContent(value, redact)
+							: recordValue(value),
+				]),
+			);
+		if (
+			input.type === undefined &&
+			(input.role === "user" || input.role === "assistant")
+		)
+			return Object.fromEntries(
+				Object.entries(input).map(([key, value]) => [
+					["role", "content"].includes(key) ? key : redact(key),
+					key === "role"
+						? value
+						: key === "content" && Array.isArray(value) && inputContent(value)
+							? redactInputContent(value, redact)
+							: recordValue(value),
+				]),
+			);
+		return recordItem(value);
+	};
 	// Hold only an unfinished credential prefix; it cannot be exposed before the next chunk.
 	const safe = (text: string, final = false) => {
 		text = redact(text);
@@ -293,7 +429,7 @@ async function requestOnce(
 		return text;
 	};
 	const url = "https://openrouter.ai/api/v1/responses";
-	const body = JSON.stringify({
+	const payload = {
 		model,
 		input,
 		tools: [
@@ -307,7 +443,8 @@ async function requestOnce(
 
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
-	});
+	};
+	const body = JSON.stringify(payload);
 	const started = performance.now();
 	let upstream: Response | undefined;
 	let raw = "";
@@ -348,12 +485,12 @@ async function requestOnce(
 			.map((value) => ({
 				...value,
 				id: redact(value.id),
-				type: redact(value.type),
+				type: itemType(value.type),
 				content: value.content
 					.sort((a, b) => a.index - b.index)
 					.map((part) => ({
 						...part,
-						type: redact(part.type),
+						type: partType(part.type),
 						text: safe(part.text, final),
 					})),
 			}));
@@ -372,7 +509,7 @@ async function requestOnce(
 	) => {
 		const response =
 			actualResponse !== undefined && (status !== "pending" || terminalFailure)
-				? redact(JSON.stringify(actualResponse))
+				? JSON.stringify(recordResponse(actualResponse))
 				: !isSse && (!upstream?.ok || status === "failed")
 					? safe(raw, final)
 					: "";
@@ -467,7 +604,35 @@ async function requestOnce(
 		url,
 		method: "POST",
 		requestedAt: new Date().toISOString(),
-		requestBody: redact(body),
+		requestBody: JSON.stringify({
+			...payload,
+			model: redact(model),
+			...(reasoningEffort
+				? {
+						reasoning: {
+							effort: [
+								"none",
+								"minimal",
+								"low",
+								"medium",
+								"high",
+								"xhigh",
+								"max",
+							].includes(reasoningEffort)
+								? reasoningEffort
+								: redact(reasoningEffort),
+						},
+					}
+				: {}),
+			input: input.map(recordInput),
+			instructions: redact(payload.instructions),
+			tools: payload.tools.map((tool) => ({
+				type: tool.type,
+				name: redact(tool.name),
+				description: redact(tool.description),
+				parameters: recordValue(tool.parameters),
+			})),
+		}),
 	});
 	try {
 		upstream = await fetchModel(url, {

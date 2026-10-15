@@ -648,6 +648,19 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 	try {
 		const service = f.service("redaction");
 		service.env = [
+			...[
+				"text",
+				"output_text",
+				"type",
+				"input_text",
+				"input_image",
+				"image",
+				"image_url",
+				"name",
+				"status",
+				"connected",
+				"closed",
+			].map((value, index) => ({ name: `ENVELOPE_${index}`, value })),
 			{ name: "OBJECT_KEY", value: keySecret },
 			{ name: "STRUCTURAL_NAME", value: "prompt" },
 			{ name: "SHORT", value: "false" },
@@ -659,6 +672,9 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		const id = await f.start();
 		const agent = await waitForAgent(f.base, id);
 		assert.equal(agent.status, "succeeded");
+		assert.equal(agent.answer, "MCP complete");
+		assert.equal(agent.mcpConnections[0].name, "redaction");
+		assert.equal(agent.mcpConnections[0].status, "closed");
 		const db = new DatabaseSync(f.path);
 		const modelCalls = db
 			.prepare(

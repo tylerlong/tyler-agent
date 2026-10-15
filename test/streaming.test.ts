@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
+import { jiraMcpService } from "../src/mcp-config.ts";
 import { waitForAgent, waitForIdle } from "./agent-fixture.ts";
 import { createTestServer as createServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
@@ -60,6 +61,8 @@ async function fixture(fake: typeof fetch) {
 		path,
 		chat,
 		post,
+		put: (route: string, body: unknown) =>
+			fetch(base + route, { method: "PUT", body: JSON.stringify(body) }),
 		get,
 		wait: (id: number) => waitForAgent(base, id),
 		waitForIdle: (id: number) => waitForIdle(base, id),
@@ -948,6 +951,17 @@ test("pending readable snapshots protect split credentials and survive an interr
 			),
 	);
 	try {
+		const service = jiraMcpService();
+		service.env.push(
+			...["type", "text", "message", "output_text"].map((value, index) => ({
+				name: `ENVELOPE_${index}`,
+				value,
+			})),
+		);
+		assert.equal(
+			(await f.put("/api/mcp-settings", { services: [service] })).status,
+			200,
+		);
 		const accepted = await (
 			await f.post(`/api/chats/${f.chat.id}`, {
 				modelId: "stream-fixture",
@@ -964,7 +978,11 @@ test("pending readable snapshots protect split credentials and survive an interr
 					JSON.stringify(call),
 					/stream-secret|response.output_text.delta|event:|data:/,
 				);
-				if (call.partialOutput?.[0]?.content[0]?.text === text) return;
+				if (call.partialOutput?.[0]?.content[0]?.text === text) {
+					assert.equal(call.partialOutput[0].type, "message");
+					assert.equal(call.partialOutput[0].content[0].type, "output_text");
+					return;
+				}
 				await new Promise((resolve) => setTimeout(resolve, 5));
 			}
 			assert.fail(`Partial output never became ${text}`);
@@ -984,6 +1002,8 @@ test("pending readable snapshots protect split credentials and survive an interr
 			.calls[0];
 		assert.equal(call.responseBody, null);
 		assert.equal(call.partialOutput[0].content[0].text, "[REDACTED] visible");
+		assert.equal(call.partialOutput[0].type, "message");
+		assert.equal(call.partialOutput[0].content[0].type, "output_text");
 		assert.equal(call.httpStatus, 200);
 		assert(!call.error.includes("stream-secret"));
 		await f.restart();

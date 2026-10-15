@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { jiraMcpService } from "../../src/mcp-config.ts";
 import { completedBody } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
@@ -75,3 +76,84 @@ test("running command card manually refreshes saved streams without a model call
 		db.close();
 	}
 });
+
+for (const name of ["exec_command", "apply_patch"]) {
+	test(`credential values do not hide the ${name} Command Output refresh control`, async ({
+		page,
+		app,
+	}) => {
+		const service = jiraMcpService();
+		service.env.push(
+			{ name: "COMMAND_SECRET", value: "command" },
+			{ name: "PATCH_SECRET", value: "patch" },
+		);
+		expect(
+			(
+				await page.request.put(`${app.url}/api/mcp-settings`, {
+					data: { services: [service] },
+				})
+			).ok(),
+		).toBeTruthy();
+		const project = await (
+			await page.request.post(`${app.url}/api/projects`, {
+				data: { name: "Logs", folders: [] },
+			})
+		).json();
+		const chat = await (
+			await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+				data: { name: "Control" },
+			})
+		).json();
+		const held =
+			name === "apply_patch"
+				? app.holdTool({ status: "succeeded", result: "{}" })
+				: undefined;
+		held?.release();
+		const stream = app.rawStreamModel();
+		stream.push(
+			completedBody({
+				output: [
+					{
+						id: "probe",
+						type: "function_call",
+						name,
+						call_id: "probe",
+						arguments: "{}",
+					},
+				],
+			}),
+		);
+		stream.end();
+		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
+			data: { prompt: "run" },
+		});
+		await expect
+			.poll(
+				async () =>
+					(
+						await (
+							await page.request.get(`${app.url}/api/chats/${chat.id}`)
+						).json()
+					).busy,
+			)
+			.toBe(false);
+		const db = new DatabaseSync(join(app.folder, "db.sqlite"));
+		try {
+			const toolId = Number(db.prepare("SELECT id FROM tool_calls").get()?.id);
+			db.prepare(
+				"INSERT INTO tool_output(tool_call_id,ordinal,stream,text) VALUES(?,1,'stdout','first log')",
+			).run(toolId);
+			await page.goto(`${app.url}/?chat=${chat.id}`);
+			const card = page.locator(`[data-tool-call-id='${toolId}']`);
+			await card.locator("summary").click();
+			await expect(card).toContainText("first log");
+			db.prepare(
+				"INSERT INTO tool_output(tool_call_id,ordinal,stream,text) VALUES(?,2,'stdout','later log')",
+			).run(toolId);
+			await card.getByRole("button", { name: "Refresh", exact: true }).click();
+			await expect(card).toContainText("later log");
+		} finally {
+			db.close();
+		}
+	});
+}

@@ -66,6 +66,15 @@ export const userContent = (
 	images: InputImage[] = [],
 ): string | InputContent[] =>
 	images.length ? [{ type: "input_text", text }, ...images] : text;
+export const redactInputContent = (
+	content: InputContent[],
+	redact: (text: string) => string,
+): InputContent[] =>
+	content.map((part) =>
+		part.type === "input_image"
+			? part
+			: { type: "input_text", text: redact(part.text) },
+	);
 // Encoded pixels are opaque data; textual credential replacement would corrupt them.
 export const redactImageSafe = (
 	text: string,

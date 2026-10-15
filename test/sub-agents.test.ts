@@ -2131,3 +2131,112 @@ for (const maskKeys of [false, true]) {
 		}
 	});
 }
+
+test("ordinary MCP env values preserve accepted answers, child notifications and later Root history", async () => {
+	let terminal = "";
+	let nextInput: { role?: string; content?: string }[] = [];
+	const f = await fixture(async (_url, init) => {
+		const request = JSON.parse(String(init?.body));
+		const prompt = request.input[0]?.content;
+		if (prompt === "child")
+			return completedResponse({ output: [message("Child final text")] });
+		if (request.input.at(-1)?.content === "next") {
+			nextInput = request.input;
+			return completedResponse({ output: [message("Next answer")] });
+		}
+		if (
+			!request.input.some(
+				(part: { type?: string }) => part.type === "function_call_output",
+			)
+		)
+			return completedResponse({ output: [childTool({ prompt: "child" })] });
+		terminal =
+			request.input.find(
+				(part: { role?: string; content?: string }) =>
+					part.role === "user" &&
+					part.content?.startsWith(
+						"[Runtime service: sub-agent terminal result]",
+					),
+			)?.content ?? terminal;
+		return completedResponse({
+			output: [
+				{
+					...message(terminal ? "Root final text" : "Waiting"),
+					extra: { text: "message" },
+					arguments: { text: "message" },
+					content: [
+						{
+							type: "output_text",
+							text: terminal ? "Root final text" : "Waiting",
+							refusal: { text: "message" },
+						},
+						{ type: "custom", metadata: { text: "message" } },
+					],
+				},
+			],
+			diagnostic_payload: { text: "message" },
+		});
+	});
+	try {
+		const service = jiraMcpService();
+		service.env.push(
+			...[
+				"text",
+				"message",
+				"output",
+				"content",
+				"type",
+				"status",
+				"input",
+				"tools",
+				"model",
+				"arguments",
+				"refusal",
+			].map((value, index) => ({ name: `STRUCTURE_${index}`, value })),
+		);
+		assert.equal(
+			(await f.put("/api/mcp-settings", { services: [service] })).status,
+			200,
+		);
+		const rootId = await f.ask("root");
+		const root = await f.wait(rootId);
+		assert.equal(root.status, "succeeded");
+		assert.match(root.answer, /Root final \[REDACTED\]/);
+		assert.match(terminal, /Child final \[REDACTED\]/);
+		const tree = await f.get(`/api/agents/${rootId}/tree`);
+		const child = (await f.get(`/api/agents/${tree.agents[1].id}`)).agents[0];
+		assert.equal(child.answer, "Child final [REDACTED]");
+		assert.equal(child.output[0].type, "message");
+		assert.equal(child.output[0].content[0].type, "output_text");
+		const calls = (await f.get(`/api/agents/${rootId}/calls`)).calls;
+		const saved = JSON.parse(calls.at(-1).responseBody);
+		assert.equal(saved.status, "completed");
+		assert.equal(saved.output[0].content[0].text, "Root final [REDACTED]");
+		assert.deepEqual(saved.diagnostic_payload, { "[REDACTED]": "[REDACTED]" });
+		assert.deepEqual(saved.output[0].extra, { "[REDACTED]": "[REDACTED]" });
+		assert.deepEqual(saved.output[0]["[REDACTED]"], {
+			"[REDACTED]": "[REDACTED]",
+		});
+		assert.deepEqual(saved.output[0].content[0]["[REDACTED]"], {
+			"[REDACTED]": "[REDACTED]",
+		});
+		assert.deepEqual(saved.output[0].content[1].metadata, {
+			"[REDACTED]": "[REDACTED]",
+		});
+		const sent = JSON.parse(calls[0].requestBody);
+		assert.equal(sent.input[0].role, "user");
+		assert.equal(sent.input[0].content, "root");
+		assert(Array.isArray(sent.tools));
+		assert.equal(typeof sent.model, "string");
+		assert.equal((await f.wait(await f.ask("next"))).status, "succeeded");
+		assert(
+			nextInput.some(
+				(part) =>
+					part.role === "assistant" &&
+					part.content?.includes("Root final [REDACTED]"),
+			),
+		);
+	} finally {
+		await f.close();
+	}
+});

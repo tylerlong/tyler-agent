@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { imageFromBytes } from "../src/image-content.ts";
+import { jiraMcpService } from "../src/mcp-config.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
@@ -59,6 +60,21 @@ test("user and native tool images preserve exact protocol, record ownership and 
 	const send = (route: string, input: unknown) =>
 		fetch(base + route, { method: "POST", body: JSON.stringify(input) });
 	try {
+		const service = jiraMcpService();
+		service.env.push(
+			...["type", "text", "image_url", "input_image", "input_text"].map(
+				(value, index) => ({ name: `ENVELOPE_${index}`, value }),
+			),
+		);
+		assert.equal(
+			(
+				await fetch(`${base}/api/mcp-settings`, {
+					method: "PUT",
+					body: JSON.stringify({ services: [service] }),
+				})
+			).status,
+			200,
+		);
 		const project = await (
 			await send("/api/projects", { name: "images", folders: [directory] })
 		).json();
