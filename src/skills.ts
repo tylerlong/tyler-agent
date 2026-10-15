@@ -30,7 +30,13 @@ export async function discoverSkills(
 	const roots = new Set([join(userHome, ".agents", "skills")]);
 	for (const target of targetFolders) {
 		const chain = [target];
-		let directory = target;
+		let directory: string;
+		try {
+			directory = await realpath(target);
+		} catch (error) {
+			diagnostics.push(diagnostic(target, error));
+			continue;
+		}
 		for (;;) {
 			try {
 				await lstat(join(directory, ".git"));
@@ -85,15 +91,19 @@ export async function discoverSkills(
 					)
 						throw new Error("Skill requires a name and description");
 					let implicit = metadata["disable-model-invocation"] !== true;
+					const policyPath = join(path, "agents", "openai.yaml");
+					let present = true;
 					try {
-						const policy = parse(
-							await readFile(join(path, "agents", "openai.yaml"), "utf8"),
-						);
-						if (policy?.policy?.allow_implicit_invocation === false)
-							implicit = false;
+						await lstat(policyPath);
 					} catch (error) {
 						if (!missing(error)) throw error;
+						present = false;
 					}
+					const policy = present
+						? parse(await readFile(policyPath, "utf8"))
+						: null;
+					if (policy?.policy?.allow_implicit_invocation === false)
+						implicit = false;
 					skills.push({
 						name: metadata.name,
 						description: metadata.description,

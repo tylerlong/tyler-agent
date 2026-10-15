@@ -693,7 +693,9 @@ function App() {
 			const { agentId } = await api(`/api/chats/${id}`, "POST", {
 				prompt,
 				...(images.length ? { images } : {}),
-				skillSources: (selectedSkills[id] ?? []).map((skill) => skill.source),
+				...(selectedSkills[id]?.length && {
+					skillSources: selectedSkills[id].map((skill) => skill.source),
+				}),
 			});
 			const current = cacheRef.current[id];
 			const accepted = current?.agents.find((agent) => agent.id === agentId);

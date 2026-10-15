@@ -85,10 +85,12 @@ async function fixture(model: typeof globalThis.fetch) {
 	});
 	return {
 		directory,
+		project,
 		target,
 		home,
 		chat,
 		request,
+		wait: (id: number) => waitForAgent(base, id),
 		ask: async (skillSources: string[] = []) => {
 			const { agentId } = await request(`/api/chats/${chat.id}`, {
 				prompt: "Task",
@@ -240,11 +242,20 @@ test("new Sub-agents refresh skills without inheriting the parent selection; bro
 			join(f.directory, "missing"),
 			join(target, ".agents/skills/dangling"),
 		);
+		const brokenPolicy = join(target, ".agents/skills/broken-policy");
+		await skill(brokenPolicy, "broken-policy", "Unresolved policy metadata");
+		await mkdir(join(brokenPolicy, "agents"));
+		await symlink(
+			join(f.directory, "missing-policy"),
+			join(brokenPolicy, "agents/openai.yaml"),
+		);
 		await f.ask([explicit, join(target, ".agents/skills/vanished/SKILL.md")]);
 		assert.match(requests[0].instructions, /PARENT SELECTION/);
 		assert.match(requests[0].instructions, /Skill discovery diagnostics/);
 		assert.match(requests[0].instructions, /Explicit skill read failed/);
 		assert.match(requests[0].instructions, /dangling/);
+		assert.match(requests[0].instructions, /openai.yaml/);
+		assert.doesNotMatch(requests[0].instructions, /Unresolved policy metadata/);
 		const child = requests.find((body) =>
 			body.input.some(
 				(item: { role?: string; content?: string }) =>
@@ -296,6 +307,12 @@ test("trusted skill links permit native file and command reads while rejecting w
 				});
 			case 3:
 				assert.notEqual(JSON.parse(results.at(-1).output).exitCode, 0);
+				assert.match(
+					JSON.parse(results.at(-1).output)
+						.output.chunks.map((chunk: { text: string }) => chunk.text)
+						.join(""),
+					/REFERENCE/,
+				);
 				assert.equal(await readFile(reference, "utf8"), "REFERENCE");
 				return completedResponse({
 					output: [
@@ -327,6 +344,61 @@ test("trusted skill links permit native file and command reads while rejecting w
 		projectFile = join(target, ".agents/skills/local/output.txt");
 		await f.ask();
 		assert.equal(await readFile(projectFile, "utf8"), "TARGET WRITE\n");
+	} finally {
+		await f.close();
+	}
+});
+
+test("project skills follow the nearest Git root through a saved Target alias and keep Target-local sources distinct", async () => {
+	let instructions = "";
+	const f = await fixture(async (_url, init) => {
+		instructions = JSON.parse(String(init?.body)).instructions;
+		return completedResponse({ output: [message] });
+	});
+	try {
+		await mkdir(join(f.target, ".git"));
+		const nested = join(f.target, "nested");
+		await mkdir(nested);
+		const alias = join(f.directory, "alias");
+		await symlink(nested, alias);
+		await skill(
+			join(f.target, ".agents/skills/shared"),
+			"shared",
+			"Repository root",
+		);
+		await skill(
+			join(nested, ".agents/skills/shared"),
+			"shared",
+			"Target local",
+		);
+		await skill(
+			join(f.directory, ".agents/skills/outside"),
+			"outside",
+			"Outside repository",
+		);
+		const project = await f.request("/api/projects", {
+			name: "Alias",
+			folders: [alias],
+		});
+		const chat = await f.request(`/api/projects/${project.id}/chats`, {
+			name: "Alias",
+		});
+		const catalog = await f.request(`/api/chats/${chat.id}/skills`);
+		assert.equal(catalog.skills.length, 2);
+		assert.deepEqual(
+			catalog.skills
+				.map((entry: { description: string }) => entry.description)
+				.sort(),
+			["Repository root", "Target local"],
+		);
+		const { agentId } = await f.request(`/api/chats/${chat.id}`, {
+			prompt: "Task",
+		});
+		await f.wait(agentId);
+		assert.match(instructions, /Repository root/);
+		assert.match(instructions, /Target local/);
+		assert.doesNotMatch(instructions, /Outside repository/);
+		assert(agentId);
 	} finally {
 		await f.close();
 	}

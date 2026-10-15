@@ -179,6 +179,10 @@ export function SkillComposer({
 						return;
 					if (
 						open &&
+						!event.shiftKey &&
+						!event.altKey &&
+						!event.ctrlKey &&
+						!event.metaKey &&
 						["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(event.key)
 					) {
 						event.preventDefault();

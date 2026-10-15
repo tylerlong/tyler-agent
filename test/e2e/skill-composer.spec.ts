@@ -53,6 +53,13 @@ test("skill picker distinguishes sources, filters and selects without submitting
 	});
 	await prompt.fill("Do work /shared");
 	await expect(options).toHaveCount(2);
+	await prompt.press("Shift+Enter");
+	await expect(prompt).toHaveValue("Do work /shared\n");
+	await expect(selections).toHaveCount(0);
+	expect(posts).toHaveLength(0);
+	await expect(options).toHaveCount(0);
+	await prompt.fill("Do work /shared");
+	await expect(options).toHaveCount(2);
 	await prompt.press("ArrowDown");
 	await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
 	await prompt.press("ArrowUp");

@@ -287,6 +287,8 @@ export const test = base.extend<{
 					});
 					return next.result;
 				},
+				undefined,
+				folder,
 			).listen(0, "127.0.0.1");
 		let server = start();
 		if (originalHome === undefined) delete process.env.HOME;
