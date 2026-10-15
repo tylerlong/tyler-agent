@@ -66,6 +66,10 @@ the native `input_image` content array against the image bytes and persisted
 Tool Result/Model Call records. It stops trace, closes and lists its browser
 session, then interrupts its server command session. These operations cross
 multiple CLI invocations and retain their actual command output and ownership.
+The same HTTP-submitted task includes project instructions, a selected explicit-only
+Skill and a user image. It discovers a configured Streamable HTTP MCP tool
+alongside the built-ins, calls it after browser diagnosis, retains both image
+entry points and actual request records, and checks MCP session cleanup.
 The test explicitly selects upstream `outputMode: stdout` for inline diagnostic
 assertions; production CLI defaults are unchanged. Native CI installs Chromium
 and runs both tests on macOS, alongside the existing permission/lifecycle tests.

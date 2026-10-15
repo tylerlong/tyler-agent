@@ -17,10 +17,11 @@ import { browserCacheDirectory, playwrightRoot } from "../src/browser-tools.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
+import { httpMcpFixture } from "./mcp-http-fixture.ts";
 import { completedResponse } from "./model-fixture.ts";
 
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
-test("model tools diagnose a command-started website through official CLI sessions and native screenshot results", {
+test("instructions, explicit Skills, user images and MCP coexist with official CLI browser diagnosis and native screenshot results", {
 	skip: process.platform !== "darwin",
 	timeout: 120000,
 }, async () => {
@@ -29,6 +30,20 @@ test("model tools diagnose a command-started website through official CLI sessio
 	);
 	const target = join(directory, "target");
 	await mkdir(target);
+	await writeFile(join(target, "AGENTS.md"), "PROJECT-BROWSER-INTEGRATION");
+	const skillDirectory = join(target, ".agents/skills/diagnosis");
+	await mkdir(skillDirectory, { recursive: true });
+	const selectedSkill = join(skillDirectory, "SKILL.md");
+	await writeFile(
+		selectedSkill,
+		"---\nname: diagnosis\ndescription: Controlled integration guidance\ndisable-model-invocation: true\n---\nEXPLICIT-BROWSER-INTEGRATION",
+	);
+	const userImage = {
+		type: "input_image",
+		image_url:
+			"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYioAAAAASUVORK5CYII=",
+	};
+	const mcp = await httpMcpFixture();
 	await writeFile(
 		join(target, "browser.json"),
 		JSON.stringify({
@@ -96,7 +111,15 @@ const server = createServer((req, res) => {
 			});
 			switch (++step) {
 				case 1:
+					assert.match(body.instructions, /PROJECT-BROWSER-INTEGRATION/);
+					assert.match(body.instructions, /EXPLICIT-BROWSER-INTEGRATION/);
 					assert.match(body.instructions, /playwright-cli/);
+					assert.deepEqual(body.input.at(-1).content.at(-1), userImage);
+					assert(
+						body.tools.some((tool: { description?: string }) =>
+							tool.description?.includes("controlled HTTP tool"),
+						),
+					);
 					args = {
 						...command('printf "HOME:%s\\n" "$HOME"; exec node website.cjs'),
 						yield_time_ms: 1000,
@@ -177,6 +200,17 @@ const server = createServer((req, res) => {
 				case 17:
 					assert.equal(result.running, false);
 					assert.equal(result.exitCode, 130);
+					name = body.tools.find((tool: { description?: string }) =>
+						tool.description?.includes("controlled HTTP tool"),
+					).name;
+					args = { mode: "mixed", payload: { diagnosis: "browser complete" } };
+					break;
+				case 18:
+					assert(Array.isArray(result));
+					assert.match(JSON.stringify(result), /HTTP result/);
+					assert.match(JSON.stringify(result), /browser complete/);
+					assert.match(body.instructions, /PROJECT-BROWSER-INTEGRATION/);
+					assert.match(body.instructions, /EXPLICIT-BROWSER-INTEGRATION/);
 					return completedResponse({
 						output: [
 							{
@@ -224,6 +258,21 @@ const server = createServer((req, res) => {
 	};
 	try {
 		await request("/api/execution-limits", { modelCallLimit: 32 }, "PATCH");
+		await request(
+			"/api/mcp-settings",
+			{
+				services: [
+					{
+						id: "browser-integration",
+						name: "Browser integration",
+						enabled: true,
+						config: JSON.stringify({ url: mcp.url, startup_timeout_sec: 5 }),
+						env: [],
+					},
+				],
+			},
+			"PUT",
+		);
 		const project = await request("/api/projects", {
 			name: "Browser",
 			folders: [target],
@@ -239,13 +288,18 @@ const server = createServer((req, res) => {
 		const { agentId } = await request(`/api/chats/${chat.id}`, {
 			prompt:
 				"Inspect the controlled website using the installed official browser skill",
+			skillSources: [selectedSkill],
+			images: [userImage],
 		});
 		const agent = await waitForAgent(base, agentId);
 		assert.equal(agent.status, "succeeded", JSON.stringify(agent));
-		assert.equal(step, 17);
+		assert.equal(step, 18);
+		assert.deepEqual(agent.images, [userImage]);
+		assert(mcp.requests.some((request) => request.method === "DELETE"));
+		assert.equal(mcp.streams.size, 0);
 		assert.equal(screenshots.length, 1);
 		const tools = (await request(`/api/agents/${agentId}/tools`)).toolCalls;
-		assert.equal(tools.length, 16);
+		assert.equal(tools.length, 17);
 		const image = tools.find(
 			(tool: { name: string }) => tool.name === "read_image",
 		);
@@ -290,6 +344,7 @@ const server = createServer((req, res) => {
 					timeout: 10000,
 				},
 			).catch(() => {});
+		await mcp.close();
 		await rm(directory, { recursive: true, force: true });
 	}
 });
