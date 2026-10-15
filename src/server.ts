@@ -1099,7 +1099,11 @@ export function createServer(
 				() => {
 					const next = currentConfig(id, agentId);
 					rememberKey(next.apiKey);
-					return { ...next, scratch, instructions: `${instructions}\n\n${skillsContext}` };
+					return {
+						...next,
+						scratch,
+						instructions: `${instructions}\n\n${skillsContext}`,
+					};
 				},
 				async (name, args, roots, signal) => {
 					signal?.throwIfAborted();
