@@ -1143,8 +1143,7 @@ export function createServer(
 										typeof value.chars !== "string") ||
 									(value.yield_time_ms !== undefined &&
 										(!Number.isSafeInteger(value.yield_time_ms) ||
-											value.yield_time_ms < 0 ||
-											false)) ||
+											value.yield_time_ms < 0)) ||
 									(value.max_output_tokens !== undefined &&
 										(!Number.isSafeInteger(value.max_output_tokens) ||
 											value.max_output_tokens < 0 ||

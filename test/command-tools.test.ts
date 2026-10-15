@@ -1882,7 +1882,7 @@ commandTest(
 					return done([
 						call(
 							"write_stdin",
-							{ session_id: session, chars: "hello\n", yield_time_ms: 1000 },
+							{ session_id: session, chars: "hello\n", yield_time_ms: 600000 },
 							"input",
 						),
 					]);
@@ -1945,7 +1945,7 @@ commandTest(
 						call("exec_command", {
 							cmd: "node -e \"process.stdout.write('x'.repeat(30000));setInterval(()=>{},1000)\"",
 							workdir: root,
-							yield_time_ms: 600000,
+							yield_time_ms: 1000,
 							max_output_tokens: 2,
 						}),
 					]);
