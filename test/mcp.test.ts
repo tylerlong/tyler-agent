@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
+import { httpMcpFixture } from "./mcp-http-fixture.ts";
 import { completedBody } from "./model-fixture.ts";
 
 type Tool = {
@@ -743,3 +744,273 @@ test("stderr preserves split UTF8 and withholds incomplete credentials from diag
 		await f.close();
 	}
 });
+
+for (const auth of ["none", "auth", "key"]) {
+	test(`Streamable HTTP ${auth} saves URL settings, discovers model tools, forwards auth and records actual errors without replay`, async () => {
+		const peer = await httpMcpFixture();
+		let requests = 0;
+		const f = await fixture((request) => {
+			requests++;
+			const tool = request.tools.find((item) =>
+				item.description?.includes("controlled HTTP tool"),
+			);
+			assert(tool);
+			assert.notEqual(tool.name, "read_file");
+			assert.deepEqual(tool.parameters.required, ["mode", "payload"]);
+			if (requests === 1)
+				return ["mixed", "error", "protocol", "http-error", "auth-error"].map(
+					(mode) => call(tool, mode, mode),
+				);
+			const output = JSON.stringify(request.input);
+			assert.match(output, /HTTP result/);
+			assert.match(output, /controlled HTTP protocol error/);
+			assert.match(output, /controlled call rejection/);
+			return [answer];
+		});
+		try {
+			const service = {
+				...f.service("http"),
+				config: JSON.stringify({
+					url: "<ENDPOINT>",
+					http_headers:
+						auth === "auth"
+							? { Authorization: "Bearer <TOKEN>", "x-static": "plain" }
+							: auth === "key"
+								? { "x-api-key": "<KEY>" }
+								: {},
+					startup_timeout_sec: 2,
+				}),
+				env: [
+					{ name: "ENDPOINT", value: `${peer.url}/${auth}` },
+					{ name: "TOKEN", value: "controlled-<ONCE>" },
+					{ name: "ONCE", value: "must-not-expand" },
+					{ name: "KEY", value: "controlled-key" },
+				],
+			};
+			await f.settings([service]);
+			assert.deepEqual(
+				(await (await fetch(`${f.base}/api/mcp-settings`)).json()).services,
+				[service],
+			);
+			const id = await f.start();
+			assert.equal((await waitForAgent(f.base, id)).status, "succeeded");
+			assert.equal(requests, 2);
+			const calls = peer.requests.filter(
+				(item) => item.method === "tools/call",
+			);
+			assert.equal(calls.length, 5);
+			assert.deepEqual(calls[0].params?.arguments, args());
+			assert.equal(new Set(calls.map((item) => item.session)).size, 1);
+			if (auth === "auth") assert.equal(calls[0].headers["x-static"], "plain");
+			const db = new DatabaseSync(f.path);
+			const records = db
+				.prepare("SELECT status,result FROM tool_calls ORDER BY id")
+				.all();
+			db.close();
+			assert.deepEqual(
+				records.map((row) => row.status),
+				["succeeded", "failed", "failed", "failed", "failed"],
+			);
+			assert.match(String(records[1].result), /isError/);
+			assert.match(String(records[2].result), /protocol/);
+			assert.match(String(records[3].result), /503|controlled call rejection/);
+			assert.match(String(records[4].result), /401|controlled call rejection/);
+			await eventually(async () => peer.streams.size === 0);
+			assert.equal(
+				peer.requests.filter((item) => item.method === "DELETE").length,
+				1,
+			);
+		} finally {
+			await f.close();
+			await peer.close();
+		}
+	});
+}
+
+test("HTTP cancellation aborts a live call and releases streams", async () => {
+	const peer = await httpMcpFixture();
+	const f = await fixture((request) => {
+		const tool = request.tools.find((item) =>
+			item.description?.includes("controlled HTTP tool"),
+		);
+		assert(tool);
+		return [call(tool, "wait", "wait")];
+	});
+	try {
+		await f.settings([
+			{
+				...f.service("http"),
+				config: JSON.stringify({ url: peer.url }),
+				env: [],
+			},
+		]);
+		const id = await f.start();
+		await eventually(async () =>
+			peer.requests.some((item) => item.method === "tools/call"),
+		);
+		await f.send(`/api/agents/${id}/cancel`, {});
+		assert.equal((await waitForAgent(f.base, id)).status, "cancelled");
+		await eventually(async () => peer.streams.size === 0);
+		assert.equal(
+			peer.requests.filter((item) => item.method === "DELETE").length,
+			1,
+		);
+	} finally {
+		await f.close();
+		await peer.close();
+	}
+});
+
+test("HTTP auth rejection, connection failure and missing env reach the model without stopping healthy MCP", async () => {
+	const peer = await httpMcpFixture();
+	const f = await fixture((request) => {
+		assert(mcpTool(request, "healthy"));
+		assert.match(request.instructions ?? "", /controlled auth rejection/);
+		assert.match(request.instructions ?? "", /Missing MCP variable/);
+		return [answer];
+	});
+	try {
+		await f.settings([
+			{
+				...f.service("rejected"),
+				config: JSON.stringify({ url: `${peer.url}/auth` }),
+				env: [],
+			},
+			{
+				...f.service("missing"),
+				config: JSON.stringify({
+					url: peer.url,
+					http_headers: { Authorization: "<MISSING>" },
+				}),
+				env: [],
+			},
+			{
+				...f.service("offline"),
+				config: JSON.stringify({
+					url: "http://127.0.0.1:1",
+					startup_timeout_sec: 1,
+				}),
+				env: [],
+			},
+			f.service("healthy"),
+		]);
+		assert.equal(
+			(await waitForAgent(f.base, await f.start())).status,
+			"succeeded",
+		);
+		assert.equal(
+			peer.requests.filter((row) => row.method === "unauthorized").length,
+			1,
+		);
+	} finally {
+		await f.close();
+		await peer.close();
+	}
+});
+
+test("HTTP settings reject invalid transport combinations and preserve saved rows", async () => {
+	const f = await fixture(() => [answer]);
+	try {
+		const service = {
+			...f.service("http"),
+			config: '{"url":"https://example.invalid/mcp"}',
+			env: [],
+		};
+		await f.settings([service]);
+		for (const config of [
+			{ url: "file:///tmp/mcp" },
+			{ url: "https://user:password@example.invalid" },
+			{ url: "http://localhost:3000", command: "node" },
+			{ url: "http://localhost:3000", args: [] },
+			{ url: "http://localhost:3000", http_headers: ["header"] },
+			{ url: "http://localhost:3000", http_headers: { token: 1 } },
+			{
+				url: "http://localhost:3000",
+				http_headers: { token: "invalid\nheader" },
+			},
+			{ url: "http://localhost:3000", startup_timeout_sec: 0 },
+			{ url: "http://localhost:3000", env: {} },
+		]) {
+			const response = await fetch(`${f.base}/api/mcp-settings`, {
+				method: "PUT",
+				body: JSON.stringify({
+					services: [{ ...service, config: JSON.stringify(config) }],
+				}),
+			});
+			assert.equal(response.status, 400, JSON.stringify(config));
+		}
+		assert.deepEqual(
+			(await (await fetch(`${f.base}/api/mcp-settings`)).json()).services,
+			[service],
+		);
+	} finally {
+		await f.close();
+	}
+});
+
+for (const change of ["disable", "delete"]) {
+	test(`HTTP edit preserves active connection and ${change} blocks later calls while inflight result finishes`, async () => {
+		const before = await httpMcpFixture();
+		const after = await httpMcpFixture();
+		let requests = 0;
+		const f = await fixture((request) => {
+			requests++;
+			const tool = request.tools.find((item) =>
+				item.description?.includes("controlled HTTP tool"),
+			);
+			if (requests === 1) {
+				assert(tool);
+				return [call(tool, "inflight", "hold"), call(tool, "blocked")];
+			}
+			return [answer];
+		});
+		try {
+			const service = {
+				...f.service("http"),
+				config: JSON.stringify({ url: before.url }),
+				env: [],
+			};
+			await f.settings([service]);
+			const id = await f.start();
+			await eventually(async () =>
+				before.requests.some((row) => row.method === "tools/call"),
+			);
+			const edited = { ...service, config: JSON.stringify({ url: after.url }) };
+			await f.settings([edited]);
+			assert.equal(after.requests.length, 0);
+			await f.settings(
+				change === "disable" ? [{ ...edited, enabled: false }] : [],
+			);
+			before.release();
+			assert.equal((await waitForAgent(f.base, id)).status, "succeeded");
+			assert.equal(
+				before.requests.filter((row) => row.method === "tools/call").length,
+				1,
+			);
+			assert.equal(after.requests.length, 0);
+			const db = new DatabaseSync(f.path);
+			const results = db
+				.prepare("SELECT status,result FROM tool_calls ORDER BY id")
+				.all();
+			db.close();
+			assert.equal(results[0].status, "succeeded");
+			assert.match(String(results[0].result), /inflight HTTP result/);
+			assert.equal(results[1].status, "failed");
+			assert.match(String(results[1].result), /disabled|unavailable|removed/);
+			await f.settings([edited]);
+			assert.equal(
+				(await waitForAgent(f.base, await f.start())).status,
+				"succeeded",
+			);
+			assert.equal(
+				after.requests.filter((row) => row.method === "initialize").length,
+				1,
+			);
+		} finally {
+			before.release();
+			await f.close();
+			await before.close();
+			await after.close();
+		}
+	});
+}

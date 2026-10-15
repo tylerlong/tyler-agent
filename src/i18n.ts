@@ -266,13 +266,13 @@ export const resources = {
 			mcpAddService: "Add service",
 			mcpNameRequired: "Enter a service name.",
 			mcpInvalidConfig:
-				"Invalid connection JSON or environment variables. Check the command, args, timeout, and variable names.",
+				"Invalid connection JSON or environment variables. Check the command/args or URL/headers, timeout, and variable names.",
 			mcpHelp:
 				"Changes apply to the next Agent. Disabling or removing a service also blocks later calls by running Agents; in-flight calls can finish.",
 			mcpTrust:
 				"Enabled MCP services are trusted external integrations. They use their own account and runtime permissions, outside the built-in Target Folder and sandbox. The model can call their tools without individual approval.",
 			mcpJsonHelp:
-				"Use a JSON object with command, args and startup_timeout_sec. Keep env in the fields below. <NAME> in any JSON string refers to this service’s environment variable, replaced once.",
+				"Use command/args for stdio, or url/http_headers for Streamable HTTP (including localhost). Optional startup_timeout_sec defaults to 120. Keep env in the fields below. <NAME> in any JSON string refers to this service’s environment variable, replaced once.",
 			mcpJiraHelp:
 				"Jira uses Docker ghcr.io/sooperset/mcp-atlassian with a 120-second startup timeout. Set JIRA_URL and JIRA_PERSONAL_TOKEN for your Jira server. Docker receives values through -e NAME; credentials are stored locally in SQLite like the OpenRouter key. Edit command and args in JSON.",
 			settingsExecution: "Execution",
@@ -604,13 +604,13 @@ export const resources = {
 			mcpAddService: "添加服务",
 			mcpNameRequired: "请输入服务名称。",
 			mcpInvalidConfig:
-				"连接 JSON 或环境变量无效，请检查命令、参数、超时及变量名。",
+				"连接 JSON 或环境变量无效，请检查命令／参数或 URL／请求头、超时及变量名。",
 			mcpHelp:
 				"修改从下一个 Agent 生效。禁用或删除服务还会阻止运行中 Agent 的后续调用；在途调用可以完成。",
 			mcpTrust:
 				"启用的 MCP 服务是可信外部集成，按自身账号与运行环境权限执行，不受内置 Target Folder 和沙箱约束。模型可直接调用工具，无逐次审批。",
 			mcpJsonHelp:
-				"JSON 对象包含 command、args 和 startup_timeout_sec。env 在下方单独编辑。JSON 字符串中的 <NAME> 引用本服务的环境变量，仅替换一次。",
+				"stdio 使用 command／args，Streamable HTTP 使用 url／http_headers（含本机 URL）。可选 startup_timeout_sec 默认为 120。env 在下方单独编辑。JSON 字符串中的 <NAME> 引用本服务的环境变量，仅替换一次。",
 			mcpJiraHelp:
 				"Jira 模板通过 Docker ghcr.io/sooperset/mcp-atlassian 启动，超时为 120 秒。请填写 Jira 服务器的 JIRA_URL 和 JIRA_PERSONAL_TOKEN。Docker 通过 -e NAME 接收变量值；凭据与 OpenRouter 密钥一样保存在本地 SQLite。命令和完整参数可在 JSON 中修改。",
 			settingsExecution: "执行",

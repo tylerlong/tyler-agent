@@ -2,7 +2,7 @@
 
 采用 [官方 TypeScript MCP 客户端 SDK](https://github.com/modelcontextprotocol/typescript-sdk)（`@modelcontextprotocol/client`），复用协议与连接实现，避免自写 MCP 协议或为此引入完整 Agent 框架。保留 Weft 自己的模型 HTTP、Agent 生命周期与实际工具记录，模型选择调用，本地适配并执行。
 
-当前已实现命令型 stdio；URL 型 Streamable HTTP 由 #165 实施。第一版规格包含两者；HTTP 认证支持固定 token／API key 或无需认证，凭据沿用统一 Settings 保存方式，浏览器 OAuth 登录延期。stdio 由 Weft 启动进程，HTTP 连接用户指定的服务 URL，本机 HTTP 服务也属于 URL 型。
+当前已实现命令型 stdio 与 URL 型 Streamable HTTP。第一版规格包含两者；HTTP 认证支持固定 token／API key 或无需认证，凭据沿用统一 Settings 保存方式，浏览器 OAuth 登录延期。stdio 由 Weft 启动进程，HTTP 连接用户指定的服务 URL，本机 HTTP 服务也属于 URL 型。
 
 第一版至少支持用户当前 Codex 的 Jira MCP 功能：通过 stdio 启动 Docker 中的 `ghcr.io/sooperset/mcp-atlassian`，支持启用开关、完整参数及 120 秒启动超时。复用该 MCP 服务实际暴露的全部 Jira 工具，不把兼容范围限于搜索或读取，也不在 Weft 中重写 Jira API。这条接入路径无需 OAuth 或 `mcp-remote`；现有 Codex 配置是功能对照，不要求用户沿用独立令牌文件。
 
@@ -30,6 +30,8 @@ Weft 管理的 MCP 凭据与 OpenRouter API key 统一采用 Settings 输入、�
 
 后续若实测工具定义的上下文或输入成本明显，再优先评估 OpenRouter Tool Search 等现成的按需发现能力，不自写检索框架；这不改变第一版全量提供的范围。
 
-stdio 已使用固定的 `@modelcontextprotocol/client@2.3.1` 实现，复用官方连接、发现、调用、取消及关闭。为避免 SDK 的现代 header 校正路径重放调用，每次传入当时发现的 toolDefinition；不自动协商／重试现代协议。实际结果按原顺序转成模型原生内容数组：文本和未支持内容保留原块 JSON，图片走原生 input_image，单独保留图片 metadata 及结果 structuredContent、isError、_meta。资源链接注明尚未读取。
+stdio 与 HTTP 已使用固定的 `@modelcontextprotocol/client@2.3.1` 实现，复用官方连接、发现、调用、取消及关闭。为避免 SDK 的现代 header 校正路径重放调用，每次传入当时发现的 toolDefinition；不自动协商／重试现代协议。实际结果按原顺序转成模型原生内容数组：文本和未支持内容保留原块 JSON，图片走原生 input_image，单独保留图片 metadata 及结果 structuredContent、isError、_meta。资源链接注明尚未读取。
 
-2026-10-14 使用现有 Colima/Docker Jira PAT stdio 配置实测：初始化与分页发现成功，共 49 个 Jira 工具（含写操作），完整工具定义 65,649 UTF-8 字节，inputSchema 共 26,132 字节。只读 jira_search 成功返回一项；未执行真实写操作。日常受控 stdio 服务覆盖写参数透传、连接生命周期、多模态与错误。URL 实际连接仍待 #165。
+2026-10-14 使用现有 Colima/Docker Jira PAT stdio 配置实测：初始化与分页发现成功，共 49 个 Jira 工具（含写操作），完整工具定义 65,649 UTF-8 字节，inputSchema 共 26,132 字节。只读 jira_search 成功返回一项；未执行真实写操作。日常受控 stdio 服务覆盖写参数透传、连接生命周期、多模态与错误。受控本机 Streamable HTTP 服务已覆盖同一 Settings 保存、实际模型工具目录、固定 token／API key／无认证、调用结果与错误、取消及连接清理；未实测外部 HTTP 服务或付费模型。
+
+URL 行使用 `url`、可选 `http_headers` 与 `startup_timeout_sec`，命令行使用 `command`、可选 `args` 与同一超时字段；不混用两种传输字段。HTTP 复用官方 `StreamableHTTPClientTransport`，不设置 OAuth provider，不回退旧 SSE transport。结束时尝试官方会话删除（服务器可拒绝），最多等待一秒再关闭本地流，避免远程服务阻塞 Agent 清理。

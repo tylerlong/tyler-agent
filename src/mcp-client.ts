@@ -1,5 +1,9 @@
 import { StringDecoder } from "node:string_decoder";
-import { Client, ProtocolError } from "@modelcontextprotocol/client";
+import {
+	Client,
+	ProtocolError,
+	StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import type { ToolExecution } from "./file-tools.ts";
 import { type InputContent, submittedImages } from "./image-content.ts";
@@ -26,6 +30,7 @@ export async function connectMcp(
 ) {
 	const connections: McpConnection[] = [];
 	const clients: Client[] = [];
+	const httpTransports: StreamableHTTPClientTransport[] = [];
 	const tools: McpTool[] = [];
 	const owners = new Map<string, string>();
 	const handlers = new Map<
@@ -39,6 +44,17 @@ export async function connectMcp(
 	const close = async () => {
 		if (!closing)
 			closing = (async () => {
+				await Promise.allSettled(
+					httpTransports.map(async (transport) => {
+						// Bound remote session deletion so an unresponsive server cannot hold Agent cleanup.
+						const timeout = setTimeout(() => void transport.close(), 1000);
+						try {
+							await transport.terminateSession();
+						} finally {
+							clearTimeout(timeout);
+						}
+					}),
+				);
 				await Promise.allSettled(clients.map((client) => client.close()));
 				for (const connection of connections)
 					if (connection.status !== "error") connection.status = "closed";
@@ -77,21 +93,34 @@ export async function connectMcp(
 					try {
 						signal.throwIfAborted();
 						const config = parseMcpConfig(service.config, service.env);
-						const transport = new StdioClientTransport({
-							command: config.command,
-							args: config.args,
-							env: Object.fromEntries(
-								service.env.map(({ name, value }) => [name, value]),
-							),
-							stderr: "pipe",
-						});
+						const transport =
+							"url" in config
+								? new StreamableHTTPClientTransport(new URL(config.url), {
+										requestInit: { headers: config.http_headers },
+									})
+								: new StdioClientTransport({
+										command: config.command,
+										args: config.args,
+										env: Object.fromEntries(
+											service.env.map(({ name, value }) => [name, value]),
+										),
+										stderr: "pipe",
+									});
+						if (transport instanceof StreamableHTTPClientTransport)
+							httpTransports.push(transport);
 						const stderrDecoder = new StringDecoder("utf8");
-						transport.stderr?.on("data", (chunk: Buffer) => {
+						(transport instanceof StdioClientTransport
+							? transport.stderr
+							: null
+						)?.on("data", (chunk: Buffer) => {
 							connection.stderr =
 								(connection.stderr ?? "") + stderrDecoder.write(chunk);
 							update();
 						});
-						transport.stderr?.on("end", () => {
+						(transport instanceof StdioClientTransport
+							? transport.stderr
+							: null
+						)?.on("end", () => {
 							connection.stderr =
 								(connection.stderr ?? "") + stderrDecoder.end();
 							update();

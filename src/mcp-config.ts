@@ -5,11 +5,10 @@ export type McpService = {
 	config: string;
 	env: { name: string; value: string }[];
 };
-export type McpConfig = {
-	command: string;
-	args: string[];
-	startup_timeout_sec: number;
-};
+export type McpConfig = { startup_timeout_sec: number } & (
+	| { command: string; args: string[] }
+	| { url: string; http_headers: Record<string, string> }
+);
 export function parseMcpConfig(
 	source: string,
 	env?: McpService["env"],
@@ -33,10 +32,52 @@ export function parseMcpConfig(
 		return value;
 	};
 	const value = substitute(parsed) as Record<string, unknown> | null;
+	const invalid = () => {
+		throw new Error(
+			"Expected command with optional string args, or HTTP(S) url with optional string http_headers; optional positive startup_timeout_sec; store env separately",
+		);
+	};
+	if (!value || Array.isArray(value) || typeof value !== "object")
+		return invalid();
 	if (
-		!value ||
-		Array.isArray(value) ||
-		typeof value !== "object" ||
+		value.startup_timeout_sec !== undefined &&
+		(typeof value.startup_timeout_sec !== "number" ||
+			!Number.isFinite(value.startup_timeout_sec) ||
+			value.startup_timeout_sec <= 0)
+	)
+		return invalid();
+	const startup_timeout_sec = (value.startup_timeout_sec ?? 120) as number;
+	if ("url" in value) {
+		if (
+			Object.keys(value).some(
+				(key) => !["url", "http_headers", "startup_timeout_sec"].includes(key),
+			) ||
+			typeof value.url !== "string" ||
+			!value.url.trim() ||
+			(value.http_headers !== undefined &&
+				(!value.http_headers ||
+					typeof value.http_headers !== "object" ||
+					Array.isArray(value.http_headers) ||
+					Object.values(value.http_headers).some(
+						(header) => typeof header !== "string",
+					)))
+		)
+			return invalid();
+		// Validate the template URL at save time; resolve placeholders only when connecting.
+		if (env !== undefined || !/<[^<>]+>/.test(value.url)) {
+			const url = new URL(value.url);
+			if (
+				!["http:", "https:"].includes(url.protocol) ||
+				url.username ||
+				url.password
+			)
+				return invalid();
+		}
+		const http_headers = (value.http_headers ?? {}) as Record<string, string>;
+		new Headers(http_headers);
+		return { url: value.url, http_headers, startup_timeout_sec };
+	}
+	if (
 		Object.keys(value).some(
 			(key) => !["command", "args", "startup_timeout_sec"].includes(key),
 		) ||
@@ -44,19 +85,13 @@ export function parseMcpConfig(
 		!value.command.trim() ||
 		(value.args !== undefined &&
 			(!Array.isArray(value.args) ||
-				value.args.some((arg) => typeof arg !== "string"))) ||
-		(value.startup_timeout_sec !== undefined &&
-			(typeof value.startup_timeout_sec !== "number" ||
-				!Number.isFinite(value.startup_timeout_sec) ||
-				value.startup_timeout_sec <= 0))
+				value.args.some((arg) => typeof arg !== "string")))
 	)
-		throw new Error(
-			"Expected command, optional string args and positive startup_timeout_sec; store env separately",
-		);
+		return invalid();
 	return {
 		command: value.command,
 		args: (value.args ?? []) as string[],
-		startup_timeout_sec: (value.startup_timeout_sec ?? 120) as number,
+		startup_timeout_sec,
 	};
 }
 export function validateMcpServices(value: unknown): McpService[] {

@@ -1,4 +1,6 @@
 import { jiraMcpService } from "../../src/mcp-config.ts";
+import { httpMcpFixture } from "../mcp-http-fixture.ts";
+import { completedBody } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
 for (const chinese of [false, true]) {
@@ -65,8 +67,8 @@ for (const chinese of [false, true]) {
 		expect(writes).toBe(0);
 		fail = true;
 		const config = JSON.stringify({
-			command: "docker",
-			args: ["<JIRA_PERSONAL_TOKEN>"],
+			url: "https://example.invalid/mcp",
+			http_headers: { Authorization: "Bearer <JIRA_PERSONAL_TOKEN>" },
 			startup_timeout_sec: 120,
 		});
 		await json.fill(config);
@@ -269,4 +271,99 @@ test("Agent detail shows its MCP connection error and diagnostics", async ({
 	await expect(connections.locator("pre")).toHaveText(
 		"Controlled startup diagnostic",
 	);
+});
+
+test("Settings URL and masked token save through to an actual HTTP model tool call", async ({
+	page,
+	app,
+}) => {
+	const peer = await httpMcpFixture();
+	try {
+		const project = await (
+			await page.request.post(`${app.url}/api/projects`, {
+				data: { name: "HTTP MCP", folders: [] },
+			})
+		).json();
+		const chat = await (
+			await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+				data: { name: "HTTP MCP" },
+			})
+		).json();
+		await page.goto(`${app.url}/?chat=${chat.id}`);
+		await page.getByRole("button", { name: "Settings", exact: true }).click();
+		const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+		await dialog.getByRole("tab", { name: "MCP", exact: true }).click();
+		const panel = dialog.getByRole("tabpanel", { name: "MCP", exact: true });
+		await panel
+			.getByRole("button", { name: "Add service", exact: true })
+			.click();
+		await panel
+			.getByRole("textbox", { name: "Service name", exact: true })
+			.fill("HTTP MCP");
+		await panel
+			.getByRole("textbox", { name: "Connection JSON", exact: true })
+			.fill(
+				JSON.stringify({
+					url: `${peer.url}/auth`,
+					http_headers: { Authorization: "Bearer <TOKEN>" },
+				}),
+			);
+		await panel
+			.getByRole("button", { name: "Add environment variable", exact: true })
+			.click();
+		await panel
+			.getByRole("textbox", { name: "Environment variable name", exact: true })
+			.fill("TOKEN");
+		const value = panel.getByLabel("Environment variable value", {
+			exact: true,
+		});
+		await expect(value).toHaveAttribute("type", "password");
+		await value.fill("controlled-<ONCE>");
+		await value.blur();
+		await expect(panel.getByRole("status")).toHaveText("Saved");
+		await panel.getByRole("checkbox", { name: "Enabled", exact: true }).check();
+		await dialog.getByRole("button", { name: "Close", exact: true }).click();
+		await expect(dialog).not.toBeVisible();
+		const model = app.rawStreamModel();
+		model.push(
+			completedBody({
+				output: [
+					{
+						type: "function_call",
+						name: "mcp_0_0",
+						call_id: "http-ui",
+						arguments: JSON.stringify({
+							mode: "mixed",
+							payload: { source: "Settings" },
+						}),
+					},
+				],
+			}),
+		);
+		model.end();
+		await page.getByLabel("Prompt").fill("Use configured HTTP MCP");
+		await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
+		await expect
+			.poll(
+				() => peer.requests.filter((row) => row.method === "tools/call").length,
+			)
+			.toBe(1);
+		expect(
+			peer.requests.find((row) => row.method === "tools/call")?.params
+				?.arguments,
+		).toEqual({ mode: "mixed", payload: { source: "Settings" } });
+		await expect(page.getByRole("log")).toContainText("Test answer");
+		const history = await (
+			await page.request.get(`${app.url}/api/chats/${chat.id}`)
+		).json();
+		const calls = await (
+			await page.request.get(
+				`${app.url}/api/agents/${history.agents[0].id}/calls?kind=request`,
+			)
+		).json();
+		expect(calls.calls).toHaveLength(2);
+		await expect.poll(() => peer.streams.size).toBe(0);
+	} finally {
+		await peer.close();
+	}
 });
