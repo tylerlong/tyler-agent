@@ -71,11 +71,12 @@ export const redactImageSafe = (
 	text: string,
 	redact: (text: string) => string,
 ): string => {
-	// Mask only JSON strings: an env secret like "false" must not corrupt booleans.
+	// Mask JSON string values, preserving structural keys, booleans and pixels.
 	if (/^\s*[[{]/.test(text)) {
 		try {
 			JSON.parse(text);
-			return text.replace(/"(?:\\.|[^"\\])*"/g, (token) => {
+			return text.replace(/"(?:\\.|[^"\\])*"/g, (token, offset: number) => {
+				if (/^\s*:/.test(text.slice(offset + token.length))) return token;
 				const value: string = JSON.parse(token);
 				if (/^data:image\/(?:png|jpeg|gif|webp);base64,/.test(value))
 					return token;

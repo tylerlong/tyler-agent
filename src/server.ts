@@ -397,6 +397,7 @@ export function createServer(
 			suppressed: boolean;
 			stopped: boolean;
 			skillReadPaths: string[];
+			creationArguments: Record<string, unknown> | null;
 		}
 	>();
 	const terminalResult = (agentId: number) => {
@@ -542,7 +543,9 @@ export function createServer(
 		while (agentId !== undefined) {
 			const source = agentSource(agentId);
 			if (source.creationArguments === null) break;
-			overrides.unshift(source.creationArguments);
+			overrides.unshift(
+				running.get(agentId)?.creationArguments ?? source.creationArguments,
+			);
 			agentId = source.parentAgentId ?? undefined;
 		}
 		if (override) overrides.push(override);
@@ -895,7 +898,11 @@ export function createServer(
 		}
 		return terminalResult(agentId);
 	};
-	const startAgent = (agentId: number, skillSources: string[] = []) => {
+	const startAgent = (
+		agentId: number,
+		skillSources: string[] = [],
+		creationArguments: Record<string, unknown> | null = null,
+	) => {
 		const state = {
 			events: [] as unknown[],
 			wake: undefined as (() => void) | undefined,
@@ -904,6 +911,7 @@ export function createServer(
 			suppressed: false,
 			stopped: false,
 			skillReadPaths: [] as string[],
+			creationArguments,
 		};
 		running.set(agentId, state);
 		const source = agentSource(agentId);
@@ -946,6 +954,7 @@ export function createServer(
 			controller: AbortController;
 			stopped: boolean;
 			skillReadPaths: string[];
+			creationArguments: Record<string, unknown> | null;
 		},
 		skillSources: string[],
 	) => {
@@ -1018,13 +1027,18 @@ export function createServer(
 			const skills = await discoverSkills(currentFolders(id), userHome);
 			state.skillReadPaths = skills.readPaths;
 			const skillsContext = await skillInstructions(skills, skillSources);
+			const source = agentSource(agentId);
+			const prompt = (state.creationArguments?.prompt ??
+				source.question) as string;
+			const context = (state.creationArguments?.context ??
+				source.context) as string;
 			await requestModel(
-				agentSource(agentId).parentAgentId === null
+				source.parentAgentId === null
 					? successfulMessages(id, agentId)
-					: agentSource(agentId).context
-						? [{ role: "user", content: agentSource(agentId).context }]
+					: context
+						? [{ role: "user", content: context }]
 						: [],
-				agentSource(agentId).question,
+				prompt,
 				fetchModel,
 				{
 					tools: (calls, reason) => {
@@ -1620,7 +1634,7 @@ export function createServer(
 								)
 								.run(toolId, Date.now()).lastInsertRowid,
 						);
-						startAgent(childId);
+						startAgent(childId, [], value);
 						return {
 							status: "succeeded",
 							result: JSON.stringify({ agent_id: childId, status: "pending" }),

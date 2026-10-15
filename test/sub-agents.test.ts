@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import type { ToolExecutor } from "../src/file-tools.ts";
+import { jiraMcpService } from "../src/mcp-config.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
@@ -1982,3 +1983,151 @@ test("selected Tool Call loads only its own Command Output and rejects wrong own
 		await f.close();
 	}
 });
+
+for (const maskKeys of [false, true]) {
+	test(`disabled Jira settings mask records without changing active nested delegation (structural keys: ${maskKeys})`, {
+		timeout: 10000,
+	}, async () => {
+		const childStarted = gate(),
+			releaseChild = gate();
+		const secret = 'quoted "credential"\nline';
+		const middle = {
+			prompt: `Inspect src/jira.ts false prompt model_id ${secret}`,
+			context: `Jira background jira false ${secret}`,
+			model_id: "jira-model",
+			reasoning_effort: "high",
+		};
+		const leaf = {
+			prompt: `Check nested src/jira.ts false ${secret}`,
+			context: `Nested Jira background ${secret}`,
+		};
+		const requests: {
+			model: string;
+			reasoning?: { effort: string };
+			input: { role?: string; content?: string; type?: string }[];
+		}[] = [];
+		const f = await fixture(async (_url, init) => {
+			const request = JSON.parse(String(init?.body));
+			requests.push(request);
+			const prompt = request.input
+				.filter((part: { role?: string }) => part.role === "user")
+				.at(-1)?.content;
+			if (
+				request.input.some(
+					(part: { type?: string }) => part.type === "function_call_output",
+				)
+			)
+				return completedResponse({ output: [message("done")] });
+			if (prompt === "root")
+				return completedResponse({ output: [childTool(middle, "middle")] });
+			if (prompt === middle.prompt) {
+				childStarted.release();
+				await releaseChild.promise;
+				return completedResponse({ output: [childTool(leaf, "leaf")] });
+			}
+			assert.equal(prompt, leaf.prompt);
+			return completedResponse({ output: [message("leaf done")] });
+		});
+		try {
+			const service = jiraMcpService();
+			service.env.push({ name: "ESCAPED_SECRET", value: secret });
+			if (maskKeys)
+				service.env.push(
+					...["prompt", "model_id", "high"].map((value, index) => ({
+						name: `KEY_${index}`,
+						value,
+					})),
+				);
+			assert.equal(
+				(await f.put("/api/mcp-settings", { services: [service] })).status,
+				200,
+			);
+			const db = new DatabaseSync(f.path);
+			db.prepare(
+				"INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?)",
+			).run(
+				"jira-model",
+				"jira-model",
+				JSON.stringify({
+					reasoningRequired: false,
+					supportedEfforts: ["high"],
+				}),
+			);
+			db.close();
+			const rootId = await f.ask("root");
+			await Promise.race([
+				childStarted.promise,
+				f.wait(rootId).then((agent) => {
+					assert.fail(
+						`Child did not receive original delegation: ${JSON.stringify(agent)}`,
+					);
+				}),
+			]);
+			const tree = await f.get(`/api/agents/${rootId}/tree`);
+			const childId = tree.agents.find(
+				(agent: { parentAgentId: number | null }) =>
+					agent.parentAgentId === rootId,
+			).id;
+			const active = (await f.get(`/api/agents/${childId}`)).agents[0];
+			assert.equal(active.status, "pending");
+			assert.match(active.question, /src\/\[REDACTED\]\.ts/);
+			assert.match(active.context, /\[REDACTED\]/);
+			assert.equal(active.creationArguments.model_id, "[REDACTED]-model");
+			assert(!active.question.includes(secret));
+			assert(!active.context.includes(secret));
+			assert(!active.creationArguments.prompt.includes(secret));
+			releaseChild.release();
+			assert.equal((await f.wait(rootId)).status, "succeeded");
+			for (const source of [middle, leaf]) {
+				const request = requests.find((request) =>
+					request.input.some(
+						(part) => part.role === "user" && part.content === source.prompt,
+					),
+				);
+				assert(request, `Missing original prompt ${source.prompt}`);
+				assert.equal(request.model, "jira-model");
+				assert.equal(request.reasoning?.effort, "high");
+				assert.equal(request.input[0].content, source.context);
+			}
+			const finalTree = await f.get(`/api/agents/${rootId}/tree`);
+			assert.equal(finalTree.agents.length, 3);
+			for (const { id } of finalTree.agents) {
+				const detail = (await f.get(`/api/agents/${id}`)).agents[0];
+				assert.equal(detail.status, "succeeded");
+				if (id !== rootId) {
+					assert.match(detail.question, /src\/\[REDACTED\]\.ts/);
+					assert(!detail.question.includes(secret));
+					assert(!detail.context.includes(secret));
+				}
+				const tools = (await f.get(`/api/agents/${id}/tools`)).toolCalls;
+				for (const tool of tools) {
+					const argumentsRecord = JSON.parse(tool.arguments);
+					assert.match(argumentsRecord.prompt, /src\/\[REDACTED\]\.ts/);
+					assert(!argumentsRecord.prompt.includes(secret));
+					assert(!argumentsRecord.context.includes(secret));
+				}
+				const calls = (await f.get(`/api/agents/${id}/calls`)).calls;
+				for (const call of calls) {
+					const saved = JSON.parse(call.requestBody);
+					assert.equal(typeof saved.model, "string");
+					const create = saved.tools.find(
+						(tool: { name: string }) => tool.name === "create_sub_agent",
+					);
+					assert(create.parameters.properties.prompt);
+					assert(create.parameters.properties.model_id);
+					assert(
+						!call.requestBody.includes(JSON.stringify(secret).slice(1, -1)),
+					);
+				}
+			}
+			await f.restart();
+			const restored = (await f.get(`/api/agents/${childId}`)).agents[0];
+			assert.equal(restored.question, active.question);
+			assert.equal(restored.context, active.context);
+			assert.deepEqual(restored.creationArguments, active.creationArguments);
+		} finally {
+			releaseChild.release();
+			await f.close();
+		}
+	});
+}
