@@ -1,4 +1,24 @@
+import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
+
+async function completedQuestion(
+	request: APIRequestContext,
+	url: string,
+	chatId: number,
+	prompt: string,
+) {
+	const response = await request.post(`${url}/api/chats/${chatId}`, {
+		data: { modelId: "test", prompt },
+	});
+	expect(response.status()).toBe(202);
+	const { agentId } = await response.json();
+	await expect
+		.poll(
+			async () =>
+				(await (await request.get(`${url}/api/agents/${agentId}`)).json()).busy,
+		)
+		.toBe(false);
+}
 
 test("ten-agent pages retain history and drafts across chats and reset on refresh", async ({
 	page,
@@ -18,9 +38,7 @@ test("ten-agent pages retain history and drafts across chats and reset on refres
 		data: { name: "Beta" },
 	});
 	for (let i = 1; i <= 25; i++)
-		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { modelId: "test", prompt: `Question ${i}.` },
-		});
+		await completedQuestion(page.request, app.url, chat.id, `Question ${i}.`);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const log = page.getByRole("log");
 	await expect(log).toContainText("Question 16.");
@@ -76,9 +94,7 @@ test("offline cached history survives and lifecycle synchronization fills more t
 	).toContainText("Unable to reach the server");
 	await expect(log).toContainText("First question");
 	for (let i = 1; i <= 23; i++)
-		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { modelId: "test", prompt: `Unseen ${i}.` },
-		});
+		await completedQuestion(page.request, app.url, chat.id, `Unseen ${i}.`);
 	offline = false;
 	await page.evaluate(() =>
 		document.dispatchEvent(new Event("visibilitychange")),
@@ -119,9 +135,7 @@ test("older-page errors preserve history and retry the same page", async ({
 		})
 	).json();
 	for (let i = 1; i <= 11; i++)
-		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { modelId: "test", prompt: `Question ${i}.` },
-		});
+		await completedQuestion(page.request, app.url, chat.id, `Question ${i}.`);
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	await expect(page.getByRole("log")).toContainText("Question 11.");
 	await page.route("**/api/chats/*?before=*", (route) => route.abort(), {
@@ -199,25 +213,8 @@ test("late snapshots cannot replace completed agents and interrupted catch-up re
 	await page.route("**/api/agents/*", (route) =>
 		blocked ? route.abort() : route.continue(),
 	);
-	for (let i = 1; i <= 24; i++) {
-		const accepted = await (
-			await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-				data: { modelId: "test", prompt: `Missed ${i}.` },
-			})
-		).json();
-		await expect
-			.poll(
-				async () =>
-					(
-						await (
-							await page.request.get(
-								`${app.url}/api/agents/${accepted.agentId}`,
-							)
-						).json()
-					).busy,
-			)
-			.toBe(false);
-	}
+	for (let i = 1; i <= 24; i++)
+		await completedQuestion(page.request, app.url, chat.id, `Missed ${i}.`);
 	const missedGate = app.holdModel();
 	const missedPending = page.request.post(`${app.url}/api/chats/${chat.id}`, {
 		data: { modelId: "test", prompt: "Missed 25." },
@@ -275,9 +272,12 @@ test("an initially empty chat catches up every agent after more than one unseen 
 		offline ? route.abort() : route.continue(),
 	);
 	for (let i = 1; i <= 12; i++)
-		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { modelId: "test", prompt: `Initially unseen ${i}.` },
-		});
+		await completedQuestion(
+			page.request,
+			app.url,
+			chat.id,
+			`Initially unseen ${i}.`,
+		);
 	offline = false;
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 	await expect(page.getByRole("log")).toContainText("Initially unseen 1.");
