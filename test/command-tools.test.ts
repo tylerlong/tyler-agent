@@ -1183,6 +1183,7 @@ commandTest(
 						"create_sub_agent",
 						"exec_command",
 						"read_file",
+						"read_image",
 						"read_tool_output",
 					],
 				);
