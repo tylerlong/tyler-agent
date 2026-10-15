@@ -2,19 +2,14 @@ import { useTranslation } from "react-i18next";
 import { AgentCalls } from "./agent-calls.tsx";
 import { AgentOutput, type ReaderItem } from "./agent-output.tsx";
 import type { ImageInput } from "./image-attachments.tsx";
+import type { McpConnection } from "./mcp-client.ts";
 import { type ToolCall, ToolCallCard } from "./tool-calls.tsx";
 
 export type AgentDetail = {
 	id: number;
 	question: string;
 	images?: ImageInput[];
-	mcpConnections?: {
-		id: string;
-		name: string;
-		status: "connecting" | "connected" | "closed" | "error";
-		error?: string;
-		stderr?: string;
-	}[];
+	mcpConnections?: McpConnection[];
 	context: string;
 	status: string;
 	parentAgentId: number | null;

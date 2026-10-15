@@ -982,7 +982,28 @@ export function createServer(
 				(connections) => {
 					database
 						.prepare("UPDATE agents SET mcp_connections=? WHERE id=?")
-						.run(redactTool(JSON.stringify(connections)), agentId);
+						.run(
+							redactTool(
+								JSON.stringify(
+									connections.map((connection) => {
+										let stderr = connection.stderr;
+										if (stderr) {
+											let hold = 0;
+											for (const secret of secrets)
+												for (let size = 1; size < secret.length; size++)
+													if (stderr.endsWith(secret.slice(0, size)))
+														hold = Math.max(hold, size);
+											if (hold) stderr = stderr.slice(0, -hold);
+										}
+										return {
+											...connection,
+											...(stderr === undefined ? {} : { stderr }),
+										};
+									}),
+								),
+							),
+							agentId,
+						);
 					notifyAgent(id, agentId);
 				},
 			);
@@ -1653,7 +1674,9 @@ export function createServer(
 		} catch (error) {
 			failure = error;
 		}
-		await mcp?.close();
+		await mcp?.close().catch((error) => {
+			failure ??= error;
+		});
 		state.stopped = true;
 		await commands.closeAgent(scratchId(agentId));
 		if (closed) return;
@@ -1871,6 +1894,7 @@ export function createServer(
 			path === "/api/mcp-settings" &&
 			["GET", "PUT"].includes(request.method ?? "")
 		) {
+			response.setHeader("cache-control", "no-store");
 			try {
 				if (request.method === "PUT") {
 					const body = await readJson(request);

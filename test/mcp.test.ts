@@ -69,6 +69,8 @@ async function fixture(
 			method,
 			body: JSON.stringify(body),
 		});
+		if (route === "/api/mcp-settings")
+			assert.equal(response.headers.get("cache-control"), "no-store");
 		assert(
 			response.ok,
 			`${route}: ${response.status} ${await response.clone().text()}`,

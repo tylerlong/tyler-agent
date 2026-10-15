@@ -160,6 +160,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 		db.exec(`BEGIN;
         UPDATE tool_calls SET command_state=json_set(command_state,'$.running',json('false'),'$.interrupted',json('true'),'$.error','Service restarted before process completion') WHERE json_extract(command_state,'$.running')=1;
         UPDATE agents SET status='failed',error_code='agentInterrupted' WHERE status='pending';
+        UPDATE agents SET mcp_connections=(SELECT json_group_array(json(CASE WHEN json_extract(value,'$.status') IN ('connecting','connected') THEN json_set(value,'$.status','closed','$.error','Service restarted; connection is no longer active') ELSE value END)) FROM json_each(mcp_connections)) WHERE error_code='agentInterrupted' AND json_array_length(mcp_connections)>0;
         UPDATE tool_calls SET status='interrupted',reason='toolRestartInterrupted',approval=CASE WHEN json_extract(approval,'$.status')='pending' THEN json_set(approval,'$.status','interrupted') ELSE approval END WHERE status IN ('waiting','running');
         UPDATE model_calls SET status='failed',error_code='modelInterrupted',error='Service restarted before the call completed' WHERE status='pending';
         COMMIT;`);

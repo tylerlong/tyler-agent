@@ -256,6 +256,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				id: 1,
 				sidebar_width: 320,
 				language: "en",
+				mcp_services: "[]",
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
@@ -301,6 +302,11 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		for (const removed of ["assistant_content", "output_json", "error_details"])
 			assert(!agentColumns.includes(removed));
 		db.prepare("UPDATE model_calls SET output_json=? WHERE id=1").run(output);
+		db.prepare("UPDATE agents SET mcp_connections=? WHERE id=1").run(
+			JSON.stringify([
+				{ id: "old", name: "Previous", status: "connected", stderr: "kept" },
+			]),
+		);
 		assert.throws(
 			() => db.prepare("UPDATE model_calls SET output_json=?").run("{}"),
 			/CHECK/,
@@ -311,6 +317,23 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		}, path);
 		await new Promise<void>((resolve) => restarted.close(() => resolve()));
 		const saved = new DatabaseSync(path);
+		assert.deepEqual(
+			JSON.parse(
+				String(
+					saved.prepare("SELECT mcp_connections FROM agents WHERE id=1").get()
+						?.mcp_connections,
+				),
+			),
+			[
+				{
+					id: "old",
+					name: "Previous",
+					status: "closed",
+					stderr: "kept",
+					error: "Service restarted; connection is no longer active",
+				},
+			],
+		);
 		assert.deepEqual(
 			{
 				...saved.prepare("SELECT status,error_code FROM agents").get(),
@@ -342,6 +365,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				id: 1,
 				sidebar_width: 410.5,
 				language: "zh-CN",
+				mcp_services: "[]",
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
@@ -501,6 +525,7 @@ test("sidebar width validates bounds and preserves language across restart", asy
 				id: 1,
 				sidebar_width: 600,
 				language: "zh-CN",
+				mcp_services: "[]",
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",

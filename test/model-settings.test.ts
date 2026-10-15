@@ -354,13 +354,14 @@ test("fresh database has empty model settings with no environment fallback", asy
 		db.exec(
 			"INSERT INTO projects(id,name,created_at) VALUES(1,'Project',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1)",
 		);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 21);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 22);
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
 			{
 				id: 1,
 				sidebar_width: 320,
 				language: "en",
+				mcp_services: "[]",
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
