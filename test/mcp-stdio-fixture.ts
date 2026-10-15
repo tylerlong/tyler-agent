@@ -27,6 +27,9 @@ const schema = {
 	required: ["mode", "payload"],
 	additionalProperties: false,
 };
+const stderrSecret = process.env.WEFT_MCP_STDERR_TEST_SECRET;
+const stderrSplit = stderrSecret ? Math.floor(stderrSecret.length / 2) : 0;
+let stderrPrefixWritten = false;
 log("start");
 process.on("SIGTERM", () => {
 	log("stop");
@@ -45,12 +48,22 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`,
 		);
 	if (request.method === "initialize") {
+		if (stderrSecret) process.stderr.write(Buffer.from("界").subarray(0, 2));
 		respond({
 			protocolVersion: request.params.protocolVersion,
 			capabilities: { tools: {} },
 			serverInfo: { name: "controlled", version: "1" },
 		});
 	} else if (request.method === "tools/list") {
+		if (stderrSecret && !stderrPrefixWritten) {
+			stderrPrefixWritten = true;
+			process.stderr.write(
+				Buffer.concat([
+					Buffer.from("界").subarray(2),
+					Buffer.from(` stderr ${stderrSecret.slice(0, stderrSplit)}`),
+				]),
+			);
+		}
 		respond(
 			request.params?.cursor
 				? {
@@ -79,6 +92,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 		);
 	} else if (request.method === "tools/call") {
 		const mode = request.params.arguments.mode;
+		if (stderrSecret)
+			process.stderr.write(`${stderrSecret.slice(stderrSplit)}\n`);
 		if (mode === "protocol") {
 			process.stdout.write(
 				`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32603, message: "controlled protocol failure" } })}\n`,
@@ -103,7 +118,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 				},
 				isError: mode === "error",
 			};
-			if (mode === "wait") setTimeout(() => respond(result), 350);
+			if (mode === "wait" || stderrSecret)
+				setTimeout(() => respond(result), mode === "wait" ? 350 : 50);
 			else respond(result);
 		}
 	} else if (request.method === "ping") respond({});

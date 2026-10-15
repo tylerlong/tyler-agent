@@ -17,6 +17,7 @@ type Tool = {
 	parameters: Record<string, unknown>;
 };
 type Request = {
+	instructions?: string;
 	tools: Tool[];
 	input: {
 		type?: string;
@@ -674,6 +675,71 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		assert.equal(metadata.isError, false);
 		assert.equal(metadata.structuredContent.inherited, "[REDACTED]");
 	} finally {
+		await f.close();
+	}
+});
+
+test("stderr preserves split UTF8 and withholds incomplete credentials from diagnostics", async () => {
+	const secret = "stderr-credential-value";
+	const prefix = secret.slice(0, Math.floor(secret.length / 2));
+	let requests = 0;
+	let f!: Awaited<ReturnType<typeof fixture>>;
+	let id!: number;
+	let acceptModel!: () => void;
+	const accepted = new Promise<void>((resolve) => {
+		acceptModel = resolve;
+	});
+	let releaseModel!: () => void;
+	const released = new Promise<void>((resolve) => {
+		releaseModel = resolve;
+	});
+	f = await fixture(async (request) => {
+		requests++;
+		assert(!String(request.instructions).includes(prefix));
+		assert(!String(request.instructions).includes(secret));
+		if (requests === 1) {
+			acceptModel();
+			await released;
+			return [call(mcpTool(request, "stderr"), "finish-stderr")];
+		}
+		assert.match(String(request.instructions), /界 stderr \[REDACTED\]/);
+		return [answer];
+	});
+	const diagnostics = async () => {
+		const body = await (await fetch(`${f.base}/api/agents/${id}`)).json();
+		return body.agents[0].mcpConnections as { id: string; stderr?: string }[];
+	};
+	try {
+		const service = f.service("stderr");
+		service.env.push({ name: "WEFT_MCP_STDERR_TEST_SECRET", value: secret });
+		await f.settings([service]);
+		id = await f.start();
+		await accepted;
+		await eventually(
+			async () => (await diagnostics())[0]?.stderr?.includes("界") ?? false,
+		);
+		assert.equal((await diagnostics())[0].stderr, "界 stderr ");
+		releaseModel();
+		assert.equal((await waitForAgent(f.base, id)).status, "succeeded");
+		assert.equal(requests, 2);
+		assert.equal((await diagnostics())[0].stderr, "界 stderr [REDACTED]\n");
+		const db = new DatabaseSync(f.path);
+		const saved = db
+			.prepare("SELECT mcp_connections FROM agents WHERE id=?")
+			.get(id);
+		assert.equal(
+			JSON.parse(String(saved?.mcp_connections))[0].stderr,
+			"界 stderr [REDACTED]\n",
+		);
+		for (const record of db
+			.prepare("SELECT request_body FROM model_calls WHERE agent_id=?")
+			.all(id)) {
+			assert(!String(record.request_body).includes(prefix));
+			assert(!String(record.request_body).includes("�"));
+		}
+		db.close();
+	} finally {
+		releaseModel();
 		await f.close();
 	}
 });

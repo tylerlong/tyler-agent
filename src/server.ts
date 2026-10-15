@@ -38,7 +38,7 @@ import {
 	submittedImages,
 	userContent,
 } from "./image-content.ts";
-import { connectMcp } from "./mcp-client.ts";
+import { connectMcp, type McpConnection } from "./mcp-client.ts";
 import { type McpService, validateMcpServices } from "./mcp-config.ts";
 import { supportedReasoningEfforts } from "./model-options.ts";
 import { createModelSettings, ModelSettingsError } from "./model-settings.ts";
@@ -974,6 +974,26 @@ export function createServer(
 					text,
 				),
 			);
+		const safeMcpConnections = (connections: McpConnection[]) =>
+			redactTool(
+				JSON.stringify(
+					connections.map((connection) => {
+						let stderr = connection.stderr;
+						if (stderr && connection.status !== "closed") {
+							let hold = 0;
+							for (const secret of secrets)
+								for (let size = 1; size < secret.length; size++)
+									if (stderr.endsWith(secret.slice(0, size)))
+										hold = Math.max(hold, size);
+							if (hold) stderr = stderr.slice(0, -hold);
+						}
+						return {
+							...connection,
+							...(stderr === undefined ? {} : { stderr }),
+						};
+					}),
+				),
+			);
 		try {
 			mcp = await connectMcp(
 				readMcpServices(),
@@ -982,28 +1002,7 @@ export function createServer(
 				(connections) => {
 					database
 						.prepare("UPDATE agents SET mcp_connections=? WHERE id=?")
-						.run(
-							redactTool(
-								JSON.stringify(
-									connections.map((connection) => {
-										let stderr = connection.stderr;
-										if (stderr) {
-											let hold = 0;
-											for (const secret of secrets)
-												for (let size = 1; size < secret.length; size++)
-													if (stderr.endsWith(secret.slice(0, size)))
-														hold = Math.max(hold, size);
-											if (hold) stderr = stderr.slice(0, -hold);
-										}
-										return {
-											...connection,
-											...(stderr === undefined ? {} : { stderr }),
-										};
-									}),
-								),
-							),
-							agentId,
-						);
+						.run(safeMcpConnections(connections), agentId);
 					notifyAgent(id, agentId);
 				},
 			);
@@ -1153,7 +1152,7 @@ export function createServer(
 					return {
 						...next,
 						scratch,
-						instructions: `${instructions}\n\n${skillsContext}\nMCP connections for this Agent: ${redactTool(JSON.stringify(mcp?.connections))}. Enabled MCP services are trusted external integrations and are not constrained by built-in Target/file/network sandbox permissions. Resource links are not already-read resources. MCP failures are facts; choose subsequent action without assuming an operation can safely be replayed.`,
+						instructions: `${instructions}\n\n${skillsContext}\nMCP connections for this Agent: ${safeMcpConnections(mcp?.connections ?? [])}. Enabled MCP services are trusted external integrations and are not constrained by built-in Target/file/network sandbox permissions. Resource links are not already-read resources. MCP failures are facts; choose subsequent action without assuming an operation can safely be replayed.`,
 						additionalTools: mcp?.tools() ?? [],
 						secrets,
 					};
