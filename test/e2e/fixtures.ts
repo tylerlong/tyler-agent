@@ -334,3 +334,22 @@ export const test = base.extend<{
 	},
 });
 export { expect };
+
+export async function completedQuestion(
+	request: APIRequestContext,
+	url: string,
+	chatId: number,
+	prompt: string,
+) {
+	const response = await request.post(`${url}/api/chats/${chatId}`, {
+		data: { modelId: "test", prompt },
+	});
+	expect(response.status()).toBe(202);
+	const { agentId } = await response.json();
+	await expect
+		.poll(
+			async () =>
+				(await (await request.get(`${url}/api/agents/${agentId}`)).json()).busy,
+		)
+		.toBe(false);
+}

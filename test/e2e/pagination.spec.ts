@@ -1,24 +1,4 @@
-import type { APIRequestContext } from "@playwright/test";
-import { expect, test } from "./fixtures.ts";
-
-async function completedQuestion(
-	request: APIRequestContext,
-	url: string,
-	chatId: number,
-	prompt: string,
-) {
-	const response = await request.post(`${url}/api/chats/${chatId}`, {
-		data: { modelId: "test", prompt },
-	});
-	expect(response.status()).toBe(202);
-	const { agentId } = await response.json();
-	await expect
-		.poll(
-			async () =>
-				(await (await request.get(`${url}/api/agents/${agentId}`)).json()).busy,
-		)
-		.toBe(false);
-}
+import { completedQuestion, expect, test } from "./fixtures.ts";
 
 test("ten-agent pages retain history and drafts across chats and reset on refresh", async ({
 	page,

@@ -1,6 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { frame } from "../model-fixture.ts";
-import { expect, test } from "./fixtures.ts";
+import { completedQuestion, expect, test } from "./fixtures.ts";
 
 async function scrollState(content: Locator) {
 	return content.evaluate((el) => ({
@@ -27,12 +27,12 @@ test("composer stays visible while reading, paging and returning to a chat prese
 		data: { name: "Beta" },
 	});
 	for (let i = 1; i <= 25; i++)
-		await page.request.post(`${app.url}/api/chats/${alpha.id}`, {
-			data: {
-				modelId: "test",
-				prompt: `Question ${i}.\n${"long line\n".repeat(8)}`,
-			},
-		});
+		await completedQuestion(
+			page.request,
+			app.url,
+			alpha.id,
+			`Question ${i}.\n${"long line\n".repeat(8)}`,
+		);
 	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${alpha.id}`);
 	const content = page.getByRole("region", { name: "Chat", exact: true });
@@ -127,12 +127,12 @@ test("passive updates follow only at bottom and submitting follows pending and e
 		})
 	).json();
 	for (let i = 1; i <= 10; i++)
-		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: {
-				modelId: "test",
-				prompt: `Question ${i}.\n${"long line\n".repeat(8)}`,
-			},
-		});
+		await completedQuestion(
+			page.request,
+			app.url,
+			chat.id,
+			`Question ${i}.\n${"long line\n".repeat(8)}`,
+		);
 	await page.setViewportSize({ width: 1280, height: 720 });
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	const other = await context.newPage();
