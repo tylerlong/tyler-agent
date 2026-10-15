@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures.ts";
+import { completedQuestion, expect, test } from "./fixtures.ts";
 
 test("two pages show saved answer increments before completion using targeted agent reads", async ({
 	page,
@@ -85,9 +85,12 @@ test("a live agent arriving before initial history preserves load-earlier pagina
 		})
 	).json();
 	for (let index = 1; index <= 11; index++)
-		await page.request.post(`${app.url}/api/chats/${chat.id}`, {
-			data: { modelId: "test", prompt: `old question ${index}` },
-		});
+		await completedQuestion(
+			page.request,
+			app.url,
+			chat.id,
+			`old question ${index}`,
+		);
 	let releaseHistory!: () => void;
 	let historyStarted!: () => void;
 	const held = new Promise<void>((resolve) => {
