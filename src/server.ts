@@ -398,6 +398,7 @@ export function createServer(
 			suppressed: boolean;
 			stopped: boolean;
 			skillReadPaths: string[];
+			rootPrompt: string | null;
 			creationArguments: Record<string, unknown> | null;
 		}
 	>();
@@ -903,6 +904,7 @@ export function createServer(
 		agentId: number,
 		skillSources: string[] = [],
 		creationArguments: Record<string, unknown> | null = null,
+		rootPrompt: string | null = null,
 	) => {
 		const state = {
 			events: [] as unknown[],
@@ -912,6 +914,7 @@ export function createServer(
 			suppressed: false,
 			stopped: false,
 			skillReadPaths: [] as string[],
+			rootPrompt,
 			creationArguments,
 		};
 		running.set(agentId, state);
@@ -955,6 +958,7 @@ export function createServer(
 			controller: AbortController;
 			stopped: boolean;
 			skillReadPaths: string[];
+			rootPrompt: string | null;
 			creationArguments: Record<string, unknown> | null;
 		},
 		skillSources: string[],
@@ -1035,7 +1039,8 @@ export function createServer(
 			state.skillReadPaths = skills.readPaths;
 			const skillsContext = await skillInstructions(skills, skillSources);
 			const source = agentSource(agentId);
-			const prompt = (state.creationArguments?.prompt ??
+			const prompt = (state.rootPrompt ??
+				state.creationArguments?.prompt ??
 				source.question) as string;
 			const context = (state.creationArguments?.context ??
 				source.context) as string;
@@ -2806,8 +2811,15 @@ export function createServer(
 				let agentId: number;
 				database.exec("BEGIN");
 				try {
-					const key = config.apiKey;
-					const question = [key, JSON.stringify(key).slice(1, -1)].reduce(
+					const secrets = [
+						config.apiKey,
+						...readMcpServices().flatMap((service) =>
+							service.env.map(({ value }) => value),
+						),
+					]
+						.flatMap((key) => [key, JSON.stringify(key).slice(1, -1)])
+						.filter(Boolean);
+					const question = secrets.reduce(
 						(text, secret) => text.replaceAll(secret, "[REDACTED]"),
 						input.prompt,
 					);
@@ -2828,9 +2840,12 @@ export function createServer(
 				json(response, 202, { agentId });
 				notifyChange();
 
-				await startAgent(agentId, [
-					...new Set((input.skillSources ?? []) as string[]),
-				]);
+				await startAgent(
+					agentId,
+					[...new Set((input.skillSources ?? []) as string[])],
+					null,
+					input.prompt,
+				);
 			} catch (error) {
 				if (acceptedAgentId !== undefined) {
 					// Keep unsaved failures visible without claiming the result was persisted.

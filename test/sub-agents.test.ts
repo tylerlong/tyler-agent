@@ -2287,3 +2287,120 @@ for (const invalidRootStatus of [false, true]) {
 		}
 	});
 }
+
+test("Root submission masks configured env values without changing active execution or images", {
+	timeout: 10000,
+}, async () => {
+	const secret = 'quoted "credential"\nline';
+	const escaped = JSON.stringify(secret).slice(1, -1);
+	const prompt = `Inspect src/jira.ts false ${secret}\nLiteral ${escaped} delegation-api-key`;
+	const masked =
+		"Inspect src/[REDACTED].ts [REDACTED] [REDACTED]\nLiteral [REDACTED] [REDACTED]";
+	const image = {
+		type: "input_image",
+		image_url:
+			"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYioAAAAASUVORK5CYII=",
+	};
+	const child = {
+		prompt: "Inspect jira false",
+		context: "Background jira false",
+	};
+	const started = gate(),
+		releaseRoot = gate();
+	let initial: { input: unknown[] } | undefined;
+	let later: { input: unknown[] } | undefined;
+	const f = await fixture(async (_url, init) => {
+		const request = JSON.parse(String(init?.body));
+		if (!initial) {
+			initial = request;
+			started.release();
+			await releaseRoot.promise;
+			return completedResponse({ output: [childTool(child)] });
+		}
+		if (request.input.at(-1)?.content === "next") {
+			later = request;
+			return completedResponse({ output: [message("Next done")] });
+		}
+		if (
+			request.input.some(
+				(part: { type?: string }) => part.type === "function_call_output",
+			)
+		)
+			return completedResponse({ output: [message("Root done")] });
+		assert.deepEqual(request.input, [
+			{ role: "user", content: child.context },
+			{ role: "user", content: child.prompt },
+		]);
+		return completedResponse({ output: [message("Child done")] });
+	});
+	try {
+		const service = jiraMcpService();
+		service.env.push(
+			{ name: "ESCAPED", value: secret },
+			{ name: "PIXEL", value: "iVBOR" },
+		);
+		assert.equal(
+			(await f.put("/api/mcp-settings", { services: [service] })).status,
+			200,
+		);
+		const accepted = await f.post(`/api/chats/${f.chat.id}`, {
+			prompt,
+			images: [image],
+		});
+		assert.equal(accepted.status, 202);
+		const rootId = (await accepted.json()).agentId;
+		await Promise.race([
+			started.promise,
+			f.wait(rootId).then((agent) => assert.fail(JSON.stringify(agent))),
+		]);
+		const active = (await f.get(`/api/agents/${rootId}`)).agents[0];
+		assert.equal(active.status, "pending");
+		assert.equal(active.question, masked);
+		assert.equal(active.rootPrompt, undefined);
+		assert.equal(active.creationArguments, null);
+		assert.deepEqual(active.images, [image]);
+		assert.deepEqual(initial?.input, [
+			{ role: "user", content: [{ type: "input_text", text: prompt }, image] },
+		]);
+		const db = new DatabaseSync(f.path);
+		assert.equal(
+			db.prepare("SELECT prompt FROM agents WHERE id=?").get(rootId)?.prompt,
+			masked,
+		);
+		db.close();
+		const list = await f.get(`/api/chats/${f.chat.id}`);
+		assert.equal(list.agents[0].question, masked);
+		const calls = (await f.get(`/api/agents/${rootId}/calls`)).calls;
+		assert.deepEqual(JSON.parse(calls[0].requestBody).input, [
+			{ role: "user", content: [{ type: "input_text", text: masked }, image] },
+		]);
+		releaseRoot.release();
+		const finished = await f.wait(rootId);
+		assert.equal(finished.status, "succeeded");
+		assert.match(finished.answer, /Root done/);
+		const tree = await f.get(`/api/agents/${rootId}/tree`);
+		assert.equal(tree.agents.length, 2);
+		const childId = tree.agents.find(
+			(agent: { parentAgentId: number | null }) =>
+				agent.parentAgentId === rootId,
+		).id;
+		assert.equal(
+			(await f.get(`/api/agents/${childId}`)).agents[0].question,
+			"Inspect [REDACTED] [REDACTED]",
+		);
+		await f.restart();
+		assert.equal(
+			(await f.get(`/api/agents/${rootId}`)).agents[0].question,
+			masked,
+		);
+		assert.equal((await f.wait(await f.ask("next"))).status, "succeeded");
+		assert.deepEqual(later?.input, [
+			{ role: "user", content: [{ type: "input_text", text: masked }, image] },
+			{ role: "assistant", content: finished.answer },
+			{ role: "user", content: "next" },
+		]);
+	} finally {
+		releaseRoot.release();
+		await f.close();
+	}
+});
