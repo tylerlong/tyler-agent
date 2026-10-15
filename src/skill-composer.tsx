@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, appError } from "./api.ts";
 
@@ -41,7 +41,8 @@ export function SkillComposer({
 	const [active, setActive] = useState(0);
 	const listId = useId();
 	const open = query !== null;
-	useEffect(() => {
+	// Clear the previous catalog before a reopened picker can show selectable stale options.
+	useLayoutEffect(() => {
 		if (!open) return;
 		let cancelled = false;
 		setLoading(true);

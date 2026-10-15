@@ -58,7 +58,54 @@ test("skill picker distinguishes sources, filters and selects without submitting
 	await expect(selections).toHaveCount(0);
 	expect(posts).toHaveLength(0);
 	await expect(options).toHaveCount(0);
+	// Hold the reopened catalog: old options must not flash as selectable before refresh.
+	let releaseRefresh!: () => void;
+	let refreshStarted!: () => void;
+	const refresh = new Promise<void>((resolve) => {
+		releaseRefresh = resolve;
+	});
+	const started = new Promise<void>((resolve) => {
+		refreshStarted = resolve;
+	});
+	await page.route(`**/api/chats/${chat.id}/skills`, async (route) => {
+		refreshStarted();
+		await refresh;
+		await route.continue();
+	});
+	const observed = await page.evaluateHandle(() => {
+		const selectable: string[] = [];
+		const observer = new MutationObserver((changes) => {
+			for (const change of changes)
+				for (const node of change.addedNodes) {
+					if (
+						node instanceof HTMLElement &&
+						node.isConnected &&
+						(node.matches('[role="option"]') ||
+							node.querySelector('[role="option"]'))
+					)
+						selectable.push(node.textContent ?? "");
+				}
+		});
+		observer.observe(document.body, { childList: true, subtree: true });
+		return { selectable, observer };
+	});
 	await prompt.fill("Do work /shared");
+	await started;
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+	);
+	const stale = await observed.evaluate(({ selectable, observer }) => {
+		observer.disconnect();
+		return selectable;
+	});
+	const refreshed = page.waitForResponse((response) =>
+		response.url().endsWith(`/api/chats/${chat.id}/skills`),
+	);
+	releaseRefresh();
+	await refreshed;
+	await page.unroute(`**/api/chats/${chat.id}/skills`);
+	expect(stale).toEqual([]);
 	await expect(options).toHaveCount(2);
 	await prompt.press("ArrowDown");
 	await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
