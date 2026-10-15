@@ -141,6 +141,8 @@ test("skill picker distinguishes sources, filters and selects without submitting
 	await expect(
 		page.getByRole("button", { name: /^Send \((?:Ctrl|⌘)\+Enter\)$/ }),
 	).toBeVisible();
+	await expect(options).toHaveCount(1);
+	await expect(options).toContainText("Freshly installed");
 	await prompt.press("Enter");
 	await expect(prompt).toHaveValue("");
 	await expect(selections).toContainText("fresh");
