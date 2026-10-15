@@ -2391,12 +2391,12 @@ export function createServer(
 					database.exec("ROLLBACK");
 					throw error;
 				}
+				await recheckApprovals();
 				json(
 					response,
 					200,
 					listProjects(database).find((item) => item.id === id),
 				);
-				await recheckApprovals();
 				notifyChange();
 			} catch (error) {
 				json(
