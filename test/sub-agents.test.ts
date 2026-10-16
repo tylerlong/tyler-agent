@@ -1947,10 +1947,10 @@ test("selected Tool Call loads only its own Command Output and rejects wrong own
 				if (!sql.includes("FROM tool_output")) return statement;
 				return new Proxy(statement, {
 					get(target, key) {
-						if (key === "all")
-							return (...args: Parameters<typeof statement.all>) => {
+						if (key === "iterate")
+							return (...args: Parameters<typeof statement.iterate>) => {
 								reads.push(args[0]);
-								return target.all(...args);
+								return target.iterate(...args);
 							};
 						const value = Reflect.get(target, key);
 						return typeof value === "function" ? value.bind(target) : value;

@@ -15,7 +15,7 @@
 | 工具 | 实际来源与当前行为 | 差异与处理建议 |
 | --- | --- | --- |
 | `exec_command` | `src/command-tools.ts` 定义；`src/server.ts` 校验并调用 `CommandExecutor`；复用固定 `@openai/codex@0.162.0` 的 `exec-server`。 | 支持 `cmd/workdir`、`shell/login/tty/yield_time_ms/max_output_tokens`。默认交互模式；`session_id` 仅能由所属 Agent 使用。旧 `command/cwd/timeout_ms` 兼容为 OneShot，timeout 不能与 tty/yield 混用。 |
-| `read_tool_output` | 读取 SQLite 中归属当前 Agent 的实际命令日志，有界分页；保留 stdout/stderr/pty 顺序。 | 不是上游 `process/read` 的替代品：后者读取有限期进程缓冲，前者读取持久历史。完整解码文本、流标签和顺序持久保存，不另存原始字节／base64；无效或未完成 UTF-8 字节显示替换字符。 |
+| `read_tool_output` | 读取 SQLite 中归属当前 Agent 的实际命令日志，通过行迭代器有界分页；保留 stdout/stderr/pty 顺序和 JavaScript 字符串偏移。 | 总字符数仍扫描全部行，模型侧仅保留当前行和请求页；完整日志 UI／API 显式收集为完整有序数组。不是上游 `process/read` 的替代品：后者读取有限期进程缓冲，前者读取持久历史。完整解码文本、流标签和顺序持久保存，不另存原始字节／base64；无效或未完成 UTF-8 字节显示替换字符。 |
 | `read_file` | `fs/open` → `fs/readBlock` → `fs/close`；返回字节位置、base64、UTF-8 显示和 eof，单次最多 50 KiB。 | 没有发现被简化的同名上游模型工具。分页与句柄关闭有明确用途；不能将 base64 文件内容当作模型已看见图片。底层其他文件 RPC 的存在，也不意味着必须各注册一个 function tool：当前命令工具已承担发现、复制、移动和删除。 |
 | `apply_patch` | 原 patch 字符串直接传给 `codex --codex-run-as-apply-patch`；支持 Add、Update、Move、Delete，没有本地重写语法。 | 上游可用 freeform/lark；Weft 使用 JSON `{patch,cwd,...}`。这改变外层格式，但未删减补丁能力。OpenRouter 跨模型 freeform 兼容性未验证；保留 patch 原文，不能据此武断要求所有模型改用 freeform。 |
 | `create_sub_agent` | Weft 自己的 Agent 执行核心；支持明确背景、模型和 reasoning 覆盖，立即返回身份，终态主动通知父任务。 | 不是 Codex spawn-agent 工具的包装。上下文不自动继承、通知和等待规则是 ADR 0002 已确定的产品行为，不是第三方参数被删。没有依据为“直接 expose”而更换调度框架。 |

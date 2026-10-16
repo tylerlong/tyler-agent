@@ -14,6 +14,7 @@ import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
+import { outputPage } from "../src/command-tools.ts";
 import { waitForAgent } from "./agent-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch, managementTokens } from "./local-fetch.ts";
@@ -30,6 +31,44 @@ const commandTest = (name: string, run: () => Promise<void>) =>
 		},
 		run,
 	);
+
+test("output pages accept single-use iterators and preserve character offsets and totals", () => {
+	function* chunks() {
+		yield { ordinal: 1, stream: "stdout", text: "A🙂" };
+		yield { ordinal: 2, stream: "stderr", text: "中!" };
+		yield { ordinal: 3, stream: "pty", text: "\rZ" };
+	}
+	assert.deepEqual(outputPage(chunks(), 0, 3), {
+		chunks: [{ ordinal: 1, stream: "stdout", text: "A🙂" }],
+		next_offset: 3,
+		total_chars: 7,
+	});
+	assert.deepEqual(outputPage(chunks(), 2, 4), {
+		chunks: [
+			{ ordinal: 1, stream: "stdout", text: "\ude42" },
+			{ ordinal: 2, stream: "stderr", text: "中!" },
+			{ ordinal: 3, stream: "pty", text: "\r" },
+		],
+		next_offset: 6,
+		total_chars: 7,
+	});
+	for (const offset of [7, 9])
+		assert.deepEqual(outputPage(chunks(), offset), {
+			chunks: [],
+			next_offset: 7,
+			total_chars: 7,
+		});
+	assert.deepEqual(outputPage(chunks(), 2, 0), {
+		chunks: [],
+		next_offset: 2,
+		total_chars: 7,
+	});
+	assert.deepEqual(outputPage([][Symbol.iterator]()), {
+		chunks: [],
+		next_offset: 0,
+		total_chars: 0,
+	});
+});
 
 const call = (name: string, args: unknown, id = "command") => ({
 	id,
@@ -436,6 +475,7 @@ commandTest(
 			const saved = (
 				await f.request(`/api/agents/${id}/tools?toolId=${toolId}`)
 			).toolCalls[0];
+			assert(Array.isArray(saved.output));
 			assert.equal(stdout(saved.output), `${"x".repeat(40000)}tail`);
 			assert.equal(
 				text(

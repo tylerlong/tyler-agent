@@ -79,7 +79,7 @@ export const commandTools = [
 ];
 
 export function outputPage(
-	chunks: { ordinal: number; stream: string; text: string }[],
+	chunks: Iterable<{ ordinal: number; stream: string; text: string }>,
 	offset = 0,
 	limit = 16000,
 ) {

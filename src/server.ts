@@ -239,7 +239,11 @@ export function createServer(
 			.prepare(
 				"SELECT ordinal,stream,text FROM tool_output WHERE tool_call_id=? ORDER BY ordinal",
 			)
-			.all(toolId) as { ordinal: number; stream: string; text: string }[];
+			.iterate(toolId) as Iterable<{
+			ordinal: number;
+			stream: string;
+			text: string;
+		}>;
 	const home = homedir();
 	const busy = new Set<number>();
 	const unsavedAgents = new Set<number>();
@@ -298,7 +302,7 @@ export function createServer(
 				id: call.id,
 				...(content === true &&
 					["exec_command", "apply_patch"].includes(String(call.name)) && {
-						output: savedOutput(Number(call.id)),
+						output: [...savedOutput(Number(call.id))],
 					}),
 				...(!content && { child: childOverview(Number(call.id)) }),
 				...(unsavedTools.has(Number(call.id)) && {
@@ -1510,11 +1514,15 @@ export function createServer(
 										.run(toolId, ++ordinal, stream, text);
 								},
 							});
+							const output = outputPage(
+								savedOutput(toolId),
+								0,
+								value.max_output_tokens === undefined
+									? 16000
+									: value.max_output_tokens * 4,
+							);
 							if (result.session_id)
-								outputOffsets.set(
-									result.session_id,
-									outputPage(savedOutput(toolId)).total_chars,
-								);
+								outputOffsets.set(result.session_id, output.total_chars);
 							return {
 								status:
 									result.interrupted || result.cancelled
@@ -1527,13 +1535,7 @@ export function createServer(
 								result: JSON.stringify({
 									tool_call_id: toolId,
 									...result,
-									output: outputPage(
-										savedOutput(toolId),
-										0,
-										value.max_output_tokens === undefined
-											? 16000
-											: value.max_output_tokens * 4,
-									),
+									output,
 								}),
 							};
 						} catch (error) {
