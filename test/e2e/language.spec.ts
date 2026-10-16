@@ -479,3 +479,66 @@ test("directory network errors remain visible and translate while the picker sta
 		chinese.getByRole("button", { name: "重试", exact: true }),
 	).toBeVisible();
 });
+
+test("preference failures and drafts remain independent through refresh and another preference save", async ({
+	page,
+	app,
+}) => {
+	await page.goto(app.url);
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	const dialog = page.getByRole("dialog");
+	const failWrite = (route: import("@playwright/test").Route) =>
+		route.request().method() === "PUT"
+			? route.fulfill({ status: 500, json: { error: "failed" } })
+			: route.continue();
+	await page.route("**/api/language", failWrite);
+	await page.route("**/api/enter-behavior", failWrite);
+	await dialog
+		.getByRole("combobox", { name: "Interface language" })
+		.selectOption("zh-CN");
+	await expect(dialog.getByRole("alert")).toContainText(
+		"Unable to confirm language",
+	);
+	await dialog
+		.getByRole("combobox", { name: "Enter key behavior" })
+		.selectOption("newline");
+	await expect(dialog.getByRole("alert")).toHaveCount(2);
+	// A failed background read must not replace either unresolved save error.
+	let readFailed!: () => void;
+	const failedRead = new Promise<void>((resolve) => {
+		readFailed = resolve;
+	});
+	await page.route("**/api/enter-behavior", async (route) => {
+		await route.abort();
+		readFailed();
+	});
+	await page.request.put(`${app.url}/api/language`, {
+		data: { language: "en" },
+	});
+	await failedRead;
+	await expect(
+		dialog.getByRole("combobox", { name: "Interface language" }),
+	).toHaveValue("zh-CN");
+	await expect(
+		dialog.getByRole("combobox", { name: "Enter key behavior" }),
+	).toHaveValue("newline");
+	await page.unroute("**/api/language");
+	await dialog
+		.getByRole("button", { name: "Retry", exact: true })
+		.first()
+		.click();
+	await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+	await expect(dialog.getByRole("alert")).toHaveCount(1);
+	await expect(dialog.getByRole("alert")).toContainText(
+		"无法确认 Enter 键行为",
+	);
+	await expect(
+		dialog.getByRole("combobox", { name: "Enter 键行为" }),
+	).toHaveValue("newline");
+	await page.unroute("**/api/enter-behavior");
+	await dialog.getByRole("button", { name: "重试", exact: true }).click();
+	await expect(dialog.getByRole("alert")).toHaveCount(0);
+	await expect(
+		dialog.getByRole("combobox", { name: "Enter 键行为" }),
+	).toHaveValue("newline");
+});

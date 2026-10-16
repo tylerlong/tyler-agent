@@ -30,13 +30,13 @@ import {
 import { McpSettings } from "./mcp-settings.tsx";
 import { ModelConfiguration } from "./model-configuration.tsx";
 import type { ModelSettings } from "./model-settings.ts";
+import { usePreference } from "./preference.ts";
 import {
 	type EditorResult,
 	type EditorTarget,
 	type Project,
 	ProjectEditor,
 } from "./project-editor.tsx";
-import { createSettingState } from "./setting-state.ts";
 import { type ComposerSkill, SkillComposer } from "./skill-composer.tsx";
 import { TaskView, urlAgent } from "./task-view.tsx";
 
@@ -108,116 +108,60 @@ function App() {
 		error === null
 			? ""
 			: `${t(error.code, { defaultValue: t("requestFailed") })}${error.details ? `\n${error.details}` : ""}`;
-	const languageDraft = useRef<string | null>(null);
-	const languageSave = useRef<Promise<boolean> | null>(null);
-	const [languageSaved, setLanguageSaved] = useState(false);
-	const [language, setLanguage] = useState<string | null>(null);
 	const [languageReady, setLanguageReady] = useState(false);
-	const [languagePending, setLanguagePending] = useState(false);
-	const [languageError, setLanguageError] = useState("");
-	const [languageState] = useState(() =>
-		createSettingState<string>(
-			async () => {
-				const data = await api("/api/language");
-				if (data.language !== "en" && data.language !== "zh-CN")
-					throw new Error("Invalid server language");
-				return data.language;
-			},
-			async (language) => {
-				await api("/api/language", "PUT", { language });
-			},
-			(language) => {
-				if (languageDraft.current !== null) {
-					if (language !== null) {
-						void i18n.changeLanguage(language);
-						document.documentElement.lang = language;
-					}
-					return;
-				}
-				setLanguage(language);
-				setLanguageError(language === null ? "languageReadFailed" : "");
-				if (language !== null) {
-					void i18n.changeLanguage(language);
-					document.documentElement.lang = language;
-					setLanguageReady(true);
-				}
-			},
-		),
-	);
-	const enterDraft = useRef<string | null>(null);
-	const enterSave = useRef<Promise<boolean> | null>(null);
-	const [enterSaved, setEnterSaved] = useState(false);
-	const [enterBehavior, setEnterBehavior] = useState<string | null>(null);
-	const [enterPending, setEnterPending] = useState(false);
-	const [enterError, setEnterError] = useState("");
-	const [enterState] = useState(() =>
-		createSettingState<string>(
-			async () => {
-				const data = await api("/api/enter-behavior");
-				if (data.behavior !== "send" && data.behavior !== "newline")
-					throw new Error("Invalid Enter behavior");
-				return data.behavior;
-			},
-			async (behavior) => {
-				await api("/api/enter-behavior", "PUT", { behavior });
-			},
-			(behavior) => {
-				if (enterDraft.current !== null) return;
-				setEnterBehavior(behavior);
-				setEnterError(behavior === null ? "enterBehaviorReadFailed" : "");
-			},
-		),
-	);
-	async function commitLanguage(): Promise<boolean> {
-		if (languageSave.current) return languageSave.current;
-		const value = languageDraft.current;
-		if (value === null) return !languageError;
-		setLanguagePending(true);
-		setLanguageSaved(false);
-		const operation = (async () => {
-			const result = await languageState.save(value);
-			const succeeded = result === "saved";
-			setLanguageError(succeeded ? "" : "languageSaveFailed");
-			if (succeeded) {
-				languageDraft.current = null;
-				setLanguageSaved(true);
-				void i18n.changeLanguage(value);
-				document.documentElement.lang = value;
+	const languagePreference = usePreference({
+		read: async () => {
+			const data = await api("/api/language");
+			if (data.language !== "en" && data.language !== "zh-CN")
+				throw new Error("Invalid server language");
+			return data.language;
+		},
+		write: async (language) => {
+			await api("/api/language", "PUT", { language });
+		},
+		readError: "languageReadFailed",
+		saveError: "languageSaveFailed",
+		onRefresh: (language, retainedDraft) => {
+			if (language !== null) {
+				void i18n.changeLanguage(language);
+				document.documentElement.lang = language;
+				if (!retainedDraft) setLanguageReady(true);
 			}
-			return succeeded;
-		})();
-		languageSave.current = operation;
-		try {
-			return await operation;
-		} finally {
-			languageSave.current = null;
-			setLanguagePending(false);
-		}
-	}
-	async function commitEnter(): Promise<boolean> {
-		if (enterSave.current) return enterSave.current;
-		const value = enterDraft.current;
-		if (value === null) return !enterError;
-		setEnterPending(true);
-		setEnterSaved(false);
-		const operation = (async () => {
-			const result = await enterState.save(value);
-			const succeeded = result === "saved";
-			setEnterError(succeeded ? "" : "enterBehaviorSaveFailed");
-			if (succeeded) {
-				enterDraft.current = null;
-				setEnterSaved(true);
-			}
-			return succeeded;
-		})();
-		enterSave.current = operation;
-		try {
-			return await operation;
-		} finally {
-			enterSave.current = null;
-			setEnterPending(false);
-		}
-	}
+		},
+		onSaved: (language) => {
+			void i18n.changeLanguage(language);
+			document.documentElement.lang = language;
+		},
+	});
+	const {
+		value: language,
+		pending: languagePending,
+		saved: languageSaved,
+		error: languageError,
+		commit: commitLanguage,
+		state: languageState,
+	} = languagePreference;
+	const enterPreference = usePreference({
+		read: async () => {
+			const data = await api("/api/enter-behavior");
+			if (data.behavior !== "send" && data.behavior !== "newline")
+				throw new Error("Invalid Enter behavior");
+			return data.behavior;
+		},
+		write: async (behavior) => {
+			await api("/api/enter-behavior", "PUT", { behavior });
+		},
+		readError: "enterBehaviorReadFailed",
+		saveError: "enterBehaviorSaveFailed",
+	});
+	const {
+		value: enterBehavior,
+		pending: enterPending,
+		saved: enterSaved,
+		error: enterError,
+		commit: commitEnter,
+		state: enterState,
+	} = enterPreference;
 	const mac = navigator.platform.startsWith("Mac");
 	const submitName =
 		enterBehavior === null
@@ -1269,11 +1213,7 @@ function App() {
 						<button
 							type="button"
 							className={button}
-							onClick={() =>
-								void (languageDraft.current === null
-									? languageState.refresh()
-									: commitLanguage())
-							}
+							onClick={() => void languagePreference.retry()}
 						>
 							{t("retry")}
 						</button>
@@ -1870,9 +1810,7 @@ function App() {
 								value={language ?? i18n.language}
 								disabled={languagePending || language === null}
 								onChange={(event) => {
-									languageDraft.current = event.target.value;
-									setLanguage(event.target.value);
-									void commitLanguage();
+									void languagePreference.select(event.target.value);
 								}}
 							>
 								<option value="en">English</option>
@@ -1899,11 +1837,7 @@ function App() {
 									type="button"
 									className={button}
 									disabled={languagePending}
-									onClick={() =>
-										void (languageDraft.current === null
-											? languageState.refresh()
-											: commitLanguage())
-									}
+									onClick={() => void languagePreference.retry()}
 								>
 									{t("retry")}
 								</button>
@@ -1918,9 +1852,7 @@ function App() {
 								aria-describedby="enter-behavior-help"
 								disabled={enterPending || enterBehavior === null}
 								onChange={(event) => {
-									enterDraft.current = event.target.value;
-									setEnterBehavior(event.target.value);
-									void commitEnter();
+									void enterPreference.select(event.target.value);
 								}}
 							>
 								{enterBehavior === null && (
@@ -1953,11 +1885,7 @@ function App() {
 									type="button"
 									className={button}
 									disabled={enterPending}
-									onClick={() =>
-										void (enterDraft.current === null
-											? enterState.refresh()
-											: commitEnter())
-									}
+									onClick={() => void enterPreference.retry()}
 								>
 									{t("retry")}
 								</button>
