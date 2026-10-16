@@ -15,7 +15,6 @@ export function configureDatabase(
 		model,
 		JSON.stringify({
 			reasoningRequired: false,
-			catalogMissing: false,
 			supportedEfforts: ["low", "medium", "high"],
 		}),
 	);

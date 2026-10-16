@@ -33,7 +33,6 @@ import {
 import type { ToolExecutor } from "./file-tools.ts";
 import {
 	type InputImage,
-	MAX_IMAGE_BYTES,
 	redactInputContent,
 	redactJsonText,
 	submittedImages,
@@ -79,7 +78,6 @@ const errorMessages: Record<string, string> = {
 	agentCancelFailed: "Could not stop Agent",
 	invalidCancellationTarget:
 		"Only directly created sub-agents can be cancelled",
-	requestTooLarge: "Request is too large",
 	invalidInput: "Invalid input",
 	nameRequired: "Name must not be empty",
 	invalidFolders: "Folders must contain valid nonempty paths",
@@ -149,16 +147,13 @@ function caughtError(error: unknown, fallback: string) {
 }
 async function readJson(
 	request: IncomingMessage,
-	maxLength = 8192,
 ): Promise<Record<string, unknown>> {
 	let body = "";
 	const decoder = new StringDecoder("utf8");
 	for await (const chunk of request) {
 		body += decoder.write(chunk);
-		if (body.length > maxLength) throw new InputError("requestTooLarge");
 	}
 	body += decoder.end();
-	if (body.length > maxLength) throw new InputError("requestTooLarge");
 	try {
 		const input: unknown = JSON.parse(body);
 		if (!input || typeof input !== "object" || Array.isArray(input))
@@ -242,7 +237,7 @@ export function createServer(
 	const savedOutput = (toolId: number) =>
 		database
 			.prepare(
-				"SELECT ordinal,stream,text,data,byte_count AS byteCount FROM tool_output WHERE tool_call_id=? ORDER BY ordinal",
+				"SELECT ordinal,stream,text FROM tool_output WHERE tool_call_id=? ORDER BY ordinal",
 			)
 			.all(toolId) as { ordinal: number; stream: string; text: string }[];
 	const home = homedir();
@@ -1507,19 +1502,12 @@ export function createServer(
 									}
 								},
 								signal: state.controller.signal,
-								onOutput: (stream, text, data = "") => {
+								onOutput: (stream, text) => {
 									database
 										.prepare(
-											"INSERT INTO tool_output(tool_call_id,ordinal,stream,text,data,byte_count) VALUES(?,?,?,?,?,?)",
+											"INSERT INTO tool_output(tool_call_id,ordinal,stream,text) VALUES(?,?,?,?)",
 										)
-										.run(
-											toolId,
-											++ordinal,
-											stream,
-											text,
-											data,
-											Buffer.from(data, "base64").length,
-										);
+										.run(toolId, ++ordinal, stream, text);
 								},
 							});
 							if (result.session_id)
@@ -2771,10 +2759,7 @@ export function createServer(
 			let locked = false;
 			let acceptedAgentId: number | undefined;
 			try {
-				const input = await readJson(
-					request,
-					Math.ceil(MAX_IMAGE_BYTES / 3) * 4 * 10 + 8192,
-				);
+				const input = await readJson(request);
 				let images: InputImage[];
 				try {
 					images = submittedImages(input.images);

@@ -71,7 +71,7 @@ type Execution = {
 	toolCallId?: number;
 	onState?: (result: ExecutionResult) => void;
 	signal: AbortSignal;
-	onOutput: (stream: Stream, text: string, data?: string) => void;
+	onOutput: (stream: Stream, text: string) => void;
 };
 type Running = {
 	exitCode: number | null;
@@ -285,7 +285,6 @@ export class CommandExecutor {
 						proc.decoders[stream].write(
 							Buffer.from(message.params.chunk, "base64"),
 						),
-						message.params.chunk,
 					);
 				} else if (message.method === "process/exited") {
 					proc.exitCode = message.params.exitCode ?? null;
@@ -582,7 +581,7 @@ export class CommandExecutor {
 					try {
 						for (const stream of ["stdout", "stderr", "pty"] as const) {
 							const tail = proc.decoders[stream].end();
-							if (tail) proc.onOutput(stream, tail, "");
+							if (tail) proc.onOutput(stream, tail);
 						}
 					} catch (error) {
 						proc.error = `Command output persistence failed: ${String(error)}`;

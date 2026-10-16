@@ -131,7 +131,6 @@ test("database model metadata excludes credentials, durable anonymous lazy catal
 		assert.equal(settings.apiKeyConfigured, true);
 		assert.equal(settings.models[0].name, "Renamed");
 		assert.deepEqual(settings.models[0].supportedEfforts, ["low"]);
-		assert.equal(settings.models[1].catalogMissing, false);
 		assert.equal(settings.models[1].supportedEfforts, null);
 		fail = true;
 		const failure = await request("/api/model-catalog", "POST");
@@ -354,7 +353,7 @@ test("fresh database has empty model settings with no environment fallback", asy
 		db.exec(
 			"INSERT INTO projects(id,name,created_at) VALUES(1,'Project',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1)",
 		);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 22);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 23);
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
 			{
@@ -416,7 +415,6 @@ test("accepted call keeps captured key/model through replacement and removal, wi
 	const db = openDatabase(path, false);
 	const metadata = JSON.stringify({
 		reasoningRequired: false,
-		catalogMissing: false,
 	});
 	db.prepare("INSERT INTO managed_models(id,name,metadata) VALUES(?,?,?)").run(
 		"old-model",
@@ -577,7 +575,6 @@ test("popular discovery is bounded, preserves out-of-ranking default/history and
 		const saved = await (await request("/api/model-settings")).json();
 		assert.equal(saved.defaultModelId, "rank-1");
 		assert.equal(saved.models[0].name, "Rank 1");
-		assert.equal(saved.models[0].catalogMissing, false);
 		malformed = true;
 		assert.equal((await request("/api/model-catalog", "POST")).status, 502);
 		assert.deepEqual(

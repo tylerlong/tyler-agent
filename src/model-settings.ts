@@ -6,7 +6,6 @@ export type ManagedModel = {
 	supportedEfforts?: string[] | null;
 	inputModalities?: string[] | null;
 	reasoningRequired: boolean;
-	catalogMissing: boolean;
 };
 export type ModelSettings = {
 	apiKeyConfigured: boolean;
@@ -102,7 +101,6 @@ export function createModelSettings(
 						? { supportedEfforts: row.reasoning.supported_efforts }
 						: {}),
 					reasoningRequired: row.reasoning?.mandatory === true,
-					catalogMissing: false,
 				}));
 			database.exec("BEGIN");
 			try {

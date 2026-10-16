@@ -129,7 +129,6 @@ test("user and native tool images preserve exact protocol, record ownership and 
 		db.prepare("UPDATE managed_models SET metadata=?").run(
 			JSON.stringify({
 				reasoningRequired: false,
-				catalogMissing: false,
 				inputModalities: ["text"],
 			}),
 		);
@@ -193,7 +192,6 @@ test("known text-only model gets a tool error and chooses its next action withou
 	db.prepare("UPDATE managed_models SET metadata=?").run(
 		JSON.stringify({
 			reasoningRequired: false,
-			catalogMissing: false,
 			inputModalities: ["text"],
 		}),
 	);

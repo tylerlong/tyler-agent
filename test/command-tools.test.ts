@@ -298,6 +298,63 @@ commandTest(
 );
 
 commandTest(
+	"text-only command logs retain split UTF-8, invalid-byte markers and every stream",
+	async () => {
+		let root = "",
+			requests = 0,
+			toolId = 0;
+		const f = await fixture(async (_url, init) => {
+			if (++requests === 1)
+				return done([
+					call("exec_command", {
+						cmd: "node text.cjs",
+						workdir: root,
+						timeout_ms: 10000,
+					}),
+				]);
+			const result = JSON.parse(
+				JSON.parse(String(init?.body)).input.at(-1).output,
+			);
+			assert.equal(result.exitCode, 0);
+			assert.equal(stdout(result.output.chunks), "中��");
+			toolId = result.tool_call_id;
+			return done([answer]);
+		});
+		root = f.root;
+		try {
+			await writeFile(
+				join(root, "text.cjs"),
+				"process.stdout.write(Buffer.from([0xe4,0xb8]));setTimeout(()=>{process.stdout.write(Buffer.from([0xad,0xff,0xe2]));process.stderr.write('stderr\\n')},30)",
+			);
+			const id = await f.ask();
+			assert.equal((await f.wait(id)).status, "succeeded");
+			const saved = (
+				await f.request(`/api/agents/${id}/tools?toolId=${toolId}`)
+			).toolCalls[0].output;
+			assert.equal(stdout(saved), "中��");
+			assert.equal(
+				text(
+					saved.filter(
+						(chunk: { stream: string }) => chunk.stream === "stderr",
+					),
+				),
+				"stderr\n",
+			);
+			for (const [index, chunk] of saved.entries()) {
+				assert.deepEqual(Object.keys(chunk).sort(), [
+					"ordinal",
+					"stream",
+					"text",
+				]);
+				assert.equal(chunk.ordinal, index + 1);
+			}
+		} finally {
+			await f.close();
+		}
+	},
+);
+
+commandTest(
 	"command logs archive every stream and trailing chunk beyond bounded model output",
 	async () => {
 		let root = "",
@@ -388,14 +445,7 @@ commandTest(
 				),
 				"err\n",
 			);
-			assert.equal(
-				saved.output.reduce(
-					(bytes: number, chunk: { byteCount: number }) =>
-						bytes + chunk.byteCount,
-					0,
-				),
-				40008,
-			);
+			assert.equal(text(saved.output).length, 40008);
 			assert(
 				saved.output.some(
 					(chunk: { stream: string }) => chunk.stream === "stderr",
@@ -922,8 +972,6 @@ commandTest(
 					ordinal: number;
 					stream: string;
 					text: string;
-					data: string;
-					byteCount: number;
 				}[] = [],
 				toolId = 0;
 			for (let attempt = 0; attempt < 500; attempt++) {
@@ -939,14 +987,6 @@ commandTest(
 				await new Promise((resolve) => setTimeout(resolve, 10));
 			}
 			assert.equal(stdout(before), "before-restart");
-			assert.equal(
-				Buffer.concat(
-					before
-						.filter((chunk) => chunk.stream === "stdout")
-						.map((chunk) => Buffer.from(chunk.data, "base64")),
-				).toString(),
-				"before-restart",
-			);
 			child.kill("SIGKILL");
 			await exited;
 			let requests = 0;

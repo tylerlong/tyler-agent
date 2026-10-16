@@ -342,7 +342,7 @@ test("every API method and event stream requires the startup management token", 
 	}
 });
 
-test("JSON bodies decode split UTF-8 without changing validation or character limits", async () => {
+test("JSON bodies decode split UTF-8 and accept large valid requests", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-utf8-"));
 	const server = createTestServer(
 		async () => {
@@ -405,16 +405,14 @@ test("JSON bodies decode split UTF-8 without changing validation or character li
 			projects.projects.map((p: { name: string }) => p.name),
 			Array(5).fill(name),
 		);
-		assert.equal(
-			(await send(JSON.stringify({ name: "中".repeat(8150), folders: [] }), 12))
-				.status,
-			201,
+		const longName = "中🙂".repeat(10000);
+		const large = await send(
+			JSON.stringify({ name: longName, folders: [] }),
+			12,
 		);
+		assert.equal(large.status, 201);
+		assert.equal((large.body as { name: string }).name, longName);
 		for (const [body, code] of [
-			[
-				JSON.stringify({ name: "中".repeat(8192), folders: [] }),
-				"requestTooLarge",
-			],
 			["{", "invalidInput"],
 			["[]", "invalidInput"],
 		]) {
@@ -422,6 +420,48 @@ test("JSON bodies decode split UTF-8 without changing validation or character li
 			assert.equal(result.status, 400);
 			assert.equal((result.body as { code: string }).code, code);
 		}
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test("MCP settings save and read back configurations above the former request cap", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "agent-large-mcp-"));
+	const server = createTestServer(
+		async () => {
+			throw new Error("unused");
+		},
+		join(directory, "db.sqlite"),
+	).listen(0, "127.0.0.1");
+	await once(server, "listening");
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const base = `http://127.0.0.1:${address.port}`;
+	const headers = {
+		Origin: base,
+		"x-tyler-management-token": server.managementToken,
+	};
+	const services = [
+		{
+			id: "large",
+			name: "Large configuration",
+			enabled: false,
+			config: JSON.stringify({ command: "node", args: ["x".repeat(12000)] }),
+			env: [],
+		},
+	];
+	try {
+		const saved = await fetch(`${base}/api/mcp-settings`, {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({ services }),
+		});
+		assert.equal(saved.status, 200);
+		assert.deepEqual((await saved.json()).services, services);
+		const read = await fetch(`${base}/api/mcp-settings`, { headers });
+		assert.deepEqual((await read.json()).services, services);
 	} finally {
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));

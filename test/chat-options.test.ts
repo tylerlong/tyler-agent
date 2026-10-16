@@ -73,7 +73,6 @@ function addModel(
 		JSON.stringify({
 			supportedEfforts: efforts,
 			reasoningRequired: false,
-			catalogMissing: false,
 		}),
 	);
 }

@@ -92,7 +92,6 @@ export const test = base.extend<{
 				"Test",
 				JSON.stringify({
 					reasoningRequired: false,
-					catalogMissing: false,
 					supportedEfforts: ["low", "high"],
 				}),
 			);

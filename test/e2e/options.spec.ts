@@ -410,7 +410,6 @@ test("saved unsupported effort silently resets to Default and model capabilities
 			JSON.stringify({
 				supportedEfforts: ["low"],
 				reasoningRequired: false,
-				catalogMissing: false,
 			}),
 			"test",
 		);
@@ -422,7 +421,6 @@ test("saved unsupported effort silently resets to Default and model capabilities
 			JSON.stringify({
 				supportedEfforts: null,
 				reasoningRequired: true,
-				catalogMissing: false,
 			}),
 		);
 	} finally {

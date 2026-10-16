@@ -94,7 +94,7 @@ for (const unresponsive of [false, true])
 				prompt: "run",
 			});
 			let toolId = 0;
-			let received: { text: string; data: string; byteCount: number }[] = [];
+			let received: { text: string }[] = [];
 			let ready = false;
 			for (let i = 0; i < 500; i++) {
 				const tool = (await request(`/api/agents/${agentId}/tools`))
@@ -192,14 +192,9 @@ for (const unresponsive of [false, true])
 					text: chunk.text,
 				})),
 			);
-			for (const chunk of saved.output)
-				assert.equal(Buffer.from(chunk.data, "base64").length, chunk.byteCount);
 			assert.equal(
-				saved.output.reduce(
-					(sum: number, chunk: { byteCount: number }) => sum + chunk.byteCount,
-					0,
-				),
-				Buffer.byteLength(`ready:${commandPid}\n`),
+				saved.output.map((chunk: { text: string }) => chunk.text).join(""),
+				`ready:${commandPid}\n`,
 				JSON.stringify(saved.output),
 			);
 			assert.equal(
