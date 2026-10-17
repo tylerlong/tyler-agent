@@ -2153,7 +2153,11 @@ function App() {
 						>
 							{t("enterHelp", { shortcut: mac ? "⌘+Enter" : "Ctrl+Enter" })}
 						</p>
-						<p role="status" className="mt-2 min-h-5 text-sm text-neutral-600">
+						<p
+							aria-label={t("enterBehavior")}
+							role="status"
+							className="mt-2 min-h-5 text-sm text-neutral-600"
+						>
 							{(enterPending || enterSaved) &&
 								t(enterPending ? "settingsSaving" : "settingsSaved")}
 						</p>
@@ -2198,7 +2202,11 @@ function App() {
 						<p id="follow-up-help" className="mt-2 text-sm text-neutral-600">
 							{t("followUpHelp")}
 						</p>
-						<p role="status" className="mt-2 min-h-5 text-sm text-neutral-600">
+						<p
+							aria-label={t("followUpBehavior")}
+							role="status"
+							className="mt-2 min-h-5 text-sm text-neutral-600"
+						>
 							{(followUpPending || followUpSaved) &&
 								t(followUpPending ? "settingsSaving" : "settingsSaved")}
 						</p>

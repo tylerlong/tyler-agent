@@ -159,7 +159,9 @@ test("Close waits for an immediate dropdown save without duplicate writes", asyn
 	const originalPosition = await enterControl.boundingBox();
 	await enterControl.selectOption("newline");
 	await entered;
-	await expect(dialog.getByRole("status").last()).toHaveText("Saving…");
+	await expect(
+		dialog.getByRole("status", { name: "Enter key behavior", exact: true }),
+	).toHaveText("Saving…");
 	expect((await enterControl.boundingBox())?.y).toBe(originalPosition?.y);
 	await dialog.getByRole("tab", { name: "Execution", exact: true }).click();
 	await dialog.getByRole("button", { name: "Close", exact: true }).click();

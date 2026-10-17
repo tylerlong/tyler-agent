@@ -400,7 +400,7 @@ test("Queued images and explicit Skill sources survive pending time and load cur
 	}
 });
 
-for (const outcome of ["success", "failure", "stop"] as const) {
+for (const outcome of ["success", "failure", "stop", "limit"] as const) {
 	test(`Steer cancels A and prioritizes D before B/C; replacement ${outcome}`, async () => {
 		const f = await fixture();
 		try {
@@ -419,6 +419,8 @@ for (const outcome of ["success", "failure", "stop"] as const) {
 				"cancelled",
 			);
 			const replacement = await f.call(1);
+			if (outcome === "limit")
+				await f.json("/api/execution-limits", "PATCH", { modelCallLimit: 1 });
 			assert.equal(replacement.body.input.at(-1)?.content, "D");
 			assert.equal(f.calls[0].aborted, true);
 			assert.deepEqual(
@@ -435,8 +437,19 @@ for (const outcome of ["success", "failure", "stop"] as const) {
 				(await f.call(2)).finish();
 				(await f.call(3)).finish();
 			} else if (outcome === "failure") replacement.fail();
+			else if (outcome === "limit")
+				replacement.finish([
+					{
+						type: "function_call",
+						name: "read_file",
+						call_id: "limit",
+						arguments: JSON.stringify({ path: "/tmp/no-file" }),
+					},
+				]);
 			else await f.json(`/api/agents/${d.agentId}/cancel`, "POST", {});
-			await f.wait(d.agentId);
+			const terminal = await f.wait(d.agentId);
+			if (outcome === "limit")
+				assert.equal(terminal.errorCode, "modelCallLimit");
 			await until(async () => !(await f.state()).busy);
 			assert.deepEqual(
 				f.calls.map((call) => call.body.input.at(-1)?.content),
@@ -673,4 +686,56 @@ test("Steer revalidates configuration after held cancellation and retains pendin
 	} finally {
 		await f.close();
 	}
+});
+
+test("Steer and manual Stop then Send carry identical interrupted context and D/B/C progression", async () => {
+	const inputs = [];
+	for (const action of ["steer", "stop-send"] as const) {
+		const f = await fixture();
+		try {
+			const a = await f.ask("A");
+			await f.call(0);
+			await f.queue("B");
+			await f.queue("C");
+			if (action === "stop-send")
+				await f.json(`/api/agents/${a.agentId}/cancel`, "POST", {});
+			const d = await f.json(f.route, "POST", {
+				prompt: "D",
+				...(action === "steer"
+					? { intent: "steer", targetAgentId: a.agentId }
+					: {}),
+			});
+			const replacement = await f.call(1);
+			assert.equal(replacement.body.input[0].content, "A");
+			assert.equal(replacement.body.input.at(-1)?.content, "D");
+			assert.equal(
+				replacement.body.input.filter((item) => item.content === "A").length,
+				1,
+			);
+			assert.equal(replacement.body.input.length, 3);
+			const history = replacement.body.input[1].content;
+			assert.equal(typeof history, "string");
+			assert.match(String(history), /^\[Historical interrupted task records:/);
+			const records = JSON.parse(
+				String(history).slice(String(history).indexOf("] ") + 2),
+			);
+			assert.equal(records.length, 1);
+			assert.equal(records[0].status, "cancelled");
+			assert.equal(records[0].error, "agentCancelled");
+			replacement.finish();
+			(await f.call(2)).finish();
+			(await f.call(3)).finish();
+			await f.wait(d.agentId);
+			await until(async () => !(await f.state()).busy);
+			assert.deepEqual(
+				f.calls.map((call) => call.body.input.at(-1)?.content),
+				["A", "D", "B", "C"],
+			);
+			assert.deepEqual((await f.state()).queue, []);
+			inputs.push(f.calls.slice(1).map((call) => call.body.input));
+		} finally {
+			await f.close();
+		}
+	}
+	assert.deepEqual(inputs[0], inputs[1]);
 });
