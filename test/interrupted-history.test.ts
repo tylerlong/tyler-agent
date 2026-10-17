@@ -431,3 +431,74 @@ test("interrupted descendant work reaches later Roots before parent notification
 		await f.close();
 	}
 });
+
+test("cancelled child tool images are omitted from nested cancellation results in interrupted history", {
+	skip: process.platform !== "darwin",
+	timeout: 30000,
+}, async () => {
+	let root = "",
+		rootRequests = 0,
+		childRequests = 0;
+	let childReady!: () => void;
+	const ready = new Promise<void>((resolve) => {
+		childReady = resolve;
+	});
+	let nextInput: unknown;
+	const f = await fixture(async (_url, init) => {
+		const body = JSON.parse(String(init?.body));
+		if (body.input[0].content === "image child") {
+			if (++childRequests === 1)
+				return completedResponse({
+					output: [tool("read_image", { path: join(root, "image.png") })],
+				});
+			childReady();
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(
+							new TextEncoder().encode(
+								frame("response.output_text.delta", {
+									output_index: 0,
+									delta: "child still working",
+								}),
+							),
+						);
+					},
+				}),
+				{ headers: { "content-type": "text/event-stream" } },
+			);
+		}
+		if (body.input.at(-1).content === "after failure") {
+			nextInput = body.input;
+			return completedResponse({ output: [message("continued")] });
+		}
+		if (++rootRequests === 1)
+			return completedResponse({
+				output: [tool("create_sub_agent", { prompt: "image child" })],
+			});
+		if (rootRequests === 2) {
+			const childId = JSON.parse(body.input.at(-1).output).agent_id;
+			await ready;
+			return completedResponse({
+				output: [tool("cancel_sub_agent", { agent_id: childId })],
+			});
+		}
+		return new Response("parent failed after cancelling child", {
+			status: 500,
+		});
+	});
+	root = f.directory;
+	try {
+		await writeFile(join(root, "image.png"), png);
+		const interrupted = await f.ask("work with child image");
+		assert.equal((await waitForAgent(f.base, interrupted)).status, "failed");
+		const next = await f.ask("after failure");
+		assert.equal((await waitForAgent(f.base, next)).status, "succeeded");
+		assert(!JSON.stringify(nextInput).includes(imageFromBytes(png).image_url));
+		assert.match(JSON.stringify(nextInput), /Historical tool image/);
+		assert.equal(rootRequests, 3);
+		assert.equal(childRequests, 2);
+	} finally {
+		await f.close();
+	}
+});

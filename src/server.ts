@@ -592,33 +592,44 @@ export function createServer(
 		};
 	};
 
+	const historicalToolResult = (saved: unknown): unknown => {
+		if (typeof saved !== "string") return saved;
+		try {
+			const value = JSON.parse(saved);
+			if (Array.isArray(value))
+				return JSON.stringify(
+					value.map((part) =>
+						part?.type === "input_image"
+							? {
+									type: "input_image",
+									omitted: "Historical tool image; read again if needed",
+								}
+							: part,
+					),
+				);
+			// Cancellation returns a child's terminal result, including its own Tool Results.
+			if (value && Array.isArray(value.tool_calls))
+				return JSON.stringify({
+					...value,
+					tool_calls: value.tool_calls.map((call: Record<string, unknown>) => ({
+						...call,
+						result: historicalToolResult(call.result),
+					})),
+				});
+		} catch {
+			/* Plain-text Tool Results remain verbatim. */
+		}
+		return saved;
+	};
 	const interruptedHistory = (agentId: number) => {
 		const { output: _output, ...result } = terminalResult(agentId);
 		return {
 			...result,
 			parent_agent_id: agentSource(agentId).parentAgentId,
-			tool_calls: result.tool_calls.map((call) => {
-				let saved = (call as Record<string, unknown>).result;
-				if (typeof saved === "string") {
-					try {
-						const parts: unknown = JSON.parse(saved);
-						if (Array.isArray(parts))
-							saved = JSON.stringify(
-								parts.map((part) =>
-									part?.type === "input_image"
-										? {
-												type: "input_image",
-												omitted: "Historical tool image; read again if needed",
-											}
-										: part,
-								),
-							);
-					} catch {
-						/* Plain-text Tool Results remain verbatim. */
-					}
-				}
-				return { ...call, result: saved };
-			}),
+			tool_calls: result.tool_calls.map((call) => ({
+				...call,
+				result: historicalToolResult((call as Record<string, unknown>).result),
+			})),
 			model_calls: database
 				.prepare(
 					"SELECT id,status,error_code AS errorCode,error,response_body,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
