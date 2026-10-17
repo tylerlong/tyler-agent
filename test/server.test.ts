@@ -208,7 +208,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 		const server = createServer(fetch, path);
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 		const db = new DatabaseSync(path);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 23);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 24);
 		assert.deepEqual(
 			db
 				.prepare("PRAGMA table_info(tool_output)")
@@ -267,6 +267,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
+				follow_up_behavior: "queue",
 				model_call_limit: 16,
 				sub_agent_limit: 32,
 				default_file_access: "restricted",
@@ -376,6 +377,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
+				follow_up_behavior: "queue",
 				model_call_limit: 16,
 				sub_agent_limit: 32,
 				default_file_access: "restricted",
@@ -391,7 +393,7 @@ test("fresh schema initializes defaults and retains ordered partial output on re
 test("unsupported, invalid, corrupt and read-only databases fail without resetting data", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "agent-invalid-schema-"));
 	try {
-		for (const version of [0, 1, 7, 9, 22]) {
+		for (const version of [0, 1, 7, 9, 22, 23]) {
 			const path = join(directory, `unsupported-${version}.sqlite`);
 			const db = new DatabaseSync(path);
 			db.exec(
@@ -536,6 +538,7 @@ test("sidebar width validates bounds and preserves language across restart", asy
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
+				follow_up_behavior: "queue",
 				model_call_limit: 16,
 				sub_agent_limit: 32,
 				default_file_access: "restricted",

@@ -52,10 +52,12 @@ function ActionMenu({
 	id,
 	label,
 	children,
+	icon = "⋯",
 }: {
 	id: string;
 	label: string;
 	children: ReactNode;
+	icon?: ReactNode;
 }) {
 	const popover = useRef<HTMLDivElement>(null);
 	return (
@@ -67,7 +69,7 @@ function ActionMenu({
 				popoverTarget={id}
 				style={{ anchorName: `--${id}` }}
 			>
-				⋯
+				{icon}
 			</button>
 			<div
 				ref={popover}
@@ -162,6 +164,30 @@ function App() {
 		commit: commitEnter,
 		state: enterState,
 	} = enterPreference;
+	const followUpPreference = usePreference({
+		read: async () => {
+			const data = await api("/api/follow-up-behavior");
+			if (data.behavior !== "queue" && data.behavior !== "steer")
+				throw new Error("Invalid follow-up behavior");
+			return data.behavior;
+		},
+		write: async (behavior) => {
+			await api("/api/follow-up-behavior", "PUT", { behavior });
+		},
+		readError: "followUpBehaviorReadFailed",
+		saveError: "followUpBehaviorSaveFailed",
+	});
+	const {
+		value: followUpBehavior,
+		pending: followUpPending,
+		saved: followUpSaved,
+		error: followUpError,
+		commit: commitFollowUp,
+		state: followUpState,
+	} = followUpPreference;
+	const [followUpOverrides, setFollowUpOverrides] = useState<
+		Record<number, string>
+	>({});
 	const mac = navigator.platform.startsWith("Mac");
 	const sendName =
 		enterBehavior === null
@@ -262,10 +288,15 @@ function App() {
 	const [chatCache, setChatCache] = useState<Record<number, ChatState>>({});
 	const cacheRef = useRef(chatCache);
 	const chatState = selected === null ? null : (chatCache[selected] ?? null);
+	const followUpAction =
+		(selected === null ? undefined : followUpOverrides[selected]) ??
+		followUpBehavior;
+	const followUpUnavailable =
+		followUpPending || !!followUpError || followUpBehavior === null;
 	const submitName = chatState?.busy
 		? enterBehavior === null
-			? t("queue")
-			: t("queueShortcut", {
+			? t(followUpAction ?? "followUpBehavior")
+			: t(`${followUpAction ?? "followUpBehavior"}Shortcut`, {
 					shortcut:
 						enterBehavior === "send" ? "Enter" : mac ? "⌘+Enter" : "Ctrl+Enter",
 				})
@@ -436,6 +467,11 @@ function App() {
 	const reconciliationRequests = useRef(new Set<number>());
 	const [reconciling, setReconciling] = useState<Set<number>>(() => new Set());
 	const clearAcceptedDraft = useCallback((id: number, version: number) => {
+		setFollowUpOverrides((current) => {
+			const next = { ...current };
+			delete next[id];
+			return next;
+		});
 		if ((draftVersions.current[id] ?? 0) !== version) return;
 		setDrafts((current) => ({ ...current, [id]: "" }));
 		setImageDrafts((current) => ({ ...current, [id]: [] }));
@@ -658,6 +694,7 @@ function App() {
 			reconciliationReads.current.has(id) ||
 			optionRequests.current.has(id) ||
 			queueLocks.current.has(id) ||
+			(chatState.busy && followUpUnavailable) ||
 			!(drafts[id] ?? "").trim() ||
 			!modelSettings?.apiKeyConfigured ||
 			modelSettingsError !== null ||
@@ -692,7 +729,14 @@ function App() {
 		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
 			const acceptance = await api(`/api/chats/${id}`, "POST", {
-				intent: chatState.busy ? "queue" : "send",
+				intent: chatState.busy ? followUpAction : "send",
+				...(chatState.busy &&
+					followUpAction === "steer" && {
+						targetAgentId: chatState.agents.find(
+							(agent) =>
+								agent.parentAgentId === null && agent.status === "pending",
+						)?.id,
+					}),
 				submissionId,
 				prompt,
 				...(images.length ? { images } : {}),
@@ -818,6 +862,7 @@ function App() {
 		const settingsReads = Promise.all([
 			languageState.refresh(),
 			enterState.refresh(),
+			followUpState.refresh(),
 			refreshModelSettings(),
 		]);
 		const revision = ++refreshRevision.current;
@@ -849,7 +894,7 @@ function App() {
 				setProjectsError(appError(cause));
 		}
 		await settingsReads;
-	}, [languageState, enterState, refreshModelSettings]);
+	}, [languageState, enterState, followUpState, refreshModelSettings]);
 	useEffect(() => {
 		const sync = () => {
 			void refresh();
@@ -1167,16 +1212,24 @@ function App() {
 		closingSettings.current = true;
 		setSettingsClosing(true);
 		try {
-			const [languageOK, enterOK, executionOK, modelsOK, accessOK, mcpOK] =
-				await Promise.all([
-					commitLanguage(),
-					commitEnter(),
-					executionCommit.current?.() ?? false,
-					modelsCommit.current?.() ?? false,
-					accessDefaultsCommit.current?.() ?? false,
-					mcpCommit.current?.() ?? false,
-				]);
-			if (!languageOK || !enterOK) {
+			const [
+				languageOK,
+				enterOK,
+				followUpOK,
+				executionOK,
+				modelsOK,
+				accessOK,
+				mcpOK,
+			] = await Promise.all([
+				commitLanguage(),
+				commitEnter(),
+				commitFollowUp(),
+				executionCommit.current?.() ?? false,
+				modelsCommit.current?.() ?? false,
+				accessDefaultsCommit.current?.() ?? false,
+				mcpCommit.current?.() ?? false,
+			]);
+			if (!languageOK || !enterOK || !followUpOK) {
 				setSettingsTab("general");
 				return;
 			}
@@ -1860,11 +1913,14 @@ function App() {
 												submitting.has(chat.id) ||
 												reconciling.has(chat.id) ||
 												savingOptions.has(chat.id) ||
-												queueRequests.has(chat.id)
+												queueRequests.has(chat.id) ||
+												(chatState?.busy && followUpUnavailable)
 											}
 										>
 											{chatState?.busy && (
-												<span className="text-sm">{t("queue")}</span>
+												<span className="text-sm">
+													{t(followUpAction ?? "followUpBehavior")}
+												</span>
 											)}
 											<svg
 												aria-hidden="true"
@@ -1879,8 +1935,49 @@ function App() {
 												<path d="M8 12V4m-3.5 3.5L8 4l3.5 3.5" />
 											</svg>
 										</button>
+										{chatState?.busy && (
+											<ActionMenu
+												id={`follow-up-${chat.id}`}
+												label={t("followUpAction")}
+												icon="▾"
+											>
+												{["steer", "queue"].map((action) => (
+													<button
+														key={action}
+														type="button"
+														className="block w-full px-3 py-2 text-left hover:bg-neutral-100"
+														disabled={
+															submitting.has(chat.id) ||
+															reconciling.has(chat.id) ||
+															followUpUnavailable
+														}
+														onClick={() =>
+															setFollowUpOverrides((current) => ({
+																...current,
+																[chat.id]: action,
+															}))
+														}
+													>
+														{t(action)}
+													</button>
+												))}
+											</ActionMenu>
+										)}
 									</div>
 								</div>
+								{chatState?.busy && followUpError && (
+									<p role="alert" className="mt-4 text-red-700">
+										{t(followUpError)}{" "}
+										<button
+											type="button"
+											className={button}
+											disabled={followUpPending}
+											onClick={() => void followUpPreference.retry()}
+										>
+											{t("retry")}
+										</button>
+									</p>
+								)}
 								{modelSettingsError && (
 									<div role="alert" className="mt-4 text-red-700">
 										{t(
@@ -2074,6 +2171,47 @@ function App() {
 									className={button}
 									disabled={enterPending}
 									onClick={() => void enterPreference.retry()}
+								>
+									{t("retry")}
+								</button>
+							</div>
+						)}
+						<h3 className="mt-6 font-semibold">{t("followUpBehavior")}</h3>
+						<label className="block">
+							<span className="sr-only">{t("followUpBehavior")}</span>
+							<select
+								className={control}
+								value={followUpBehavior ?? ""}
+								aria-describedby="follow-up-help"
+								disabled={followUpPending || followUpBehavior === null}
+								onChange={(event) =>
+									void followUpPreference.select(event.target.value)
+								}
+							>
+								{followUpBehavior === null && (
+									<option value="">{t("loading")}</option>
+								)}
+								<option value="queue">{t("queue")}</option>
+								<option value="steer">{t("steer")}</option>
+							</select>
+						</label>
+						<p id="follow-up-help" className="mt-2 text-sm text-neutral-600">
+							{t("followUpHelp")}
+						</p>
+						<p role="status" className="mt-2 min-h-5 text-sm text-neutral-600">
+							{(followUpPending || followUpSaved) &&
+								t(followUpPending ? "settingsSaving" : "settingsSaved")}
+						</p>
+						{followUpError && (
+							<div className="mt-4">
+								<p role="alert" className="text-red-700">
+									{t(followUpError)}
+								</p>
+								<button
+									type="button"
+									className={button}
+									disabled={followUpPending}
+									onClick={() => void followUpPreference.retry()}
 								>
 									{t("retry")}
 								</button>

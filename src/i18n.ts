@@ -172,6 +172,21 @@ export const resources = {
 			noSkills: "No matching skills.",
 			submit: "Send",
 			queue: "Queue",
+			steer: "Steer",
+			steerShortcut: "Steer ({{shortcut}})",
+			followUpAction: "Follow-up action",
+			followUpBehavior: "Follow-up behavior",
+			followUpBehaviorShortcut: "Follow-up behavior ({{shortcut}})",
+			followUpHelp:
+				"Queue waits for the current task. Steer stops it and starts a new task. The sending menu overrides this default for one message.",
+			followUpBehaviorReadFailed:
+				"Unable to read follow-up behavior. Retry to confirm the sending action.",
+			followUpBehaviorSaveFailed:
+				"Unable to confirm follow-up behavior. Please retry.",
+			followUpBehaviorWriteFailed: "Unable to save follow-up behavior.",
+			invalidFollowUpBehavior: "Choose Queue or Steer.",
+			steerTargetChanged:
+				"The active task changed. Review the refreshed Chat and submit again.",
 			queueShortcut: "Queue ({{shortcut}})",
 			pendingQueue: "Pending queue",
 			continueQueue: "Continue queue",
@@ -516,6 +531,19 @@ export const resources = {
 			noSkills: "没有匹配的 Skills。",
 			submit: "发送",
 			queue: "排队",
+			steer: "转向",
+			steerShortcut: "转向 ({{shortcut}})",
+			followUpAction: "后续发送操作",
+			followUpBehavior: "后续发送行为",
+			followUpBehaviorShortcut: "后续发送行为 ({{shortcut}})",
+			followUpHelp:
+				"排队会等待当前任务；转向会停止当前任务并启动新任务。发送菜单可仅覆盖本次消息的默认行为。",
+			followUpBehaviorReadFailed:
+				"读取后续发送行为失败，请重试以确认发送操作。",
+			followUpBehaviorSaveFailed: "无法确认后续发送行为，请重试。",
+			followUpBehaviorWriteFailed: "保存后续发送行为失败。",
+			invalidFollowUpBehavior: "请选择排队或转向。",
+			steerTargetChanged: "当前任务已变化，请检查刷新的对话后重新提交。",
 			queueShortcut: "排队 ({{shortcut}})",
 			pendingQueue: "待执行队列",
 			continueQueue: "继续队列",

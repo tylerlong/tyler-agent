@@ -21,7 +21,7 @@ async function until(check: () => Promise<boolean>) {
 	}
 	assert.fail("Queue state did not settle");
 }
-async function fixture() {
+async function fixture(holdCancellation = false) {
 	const directory = await realpath(
 		await mkdtemp(join(tmpdir(), "queue-lifecycle-")),
 	);
@@ -34,6 +34,7 @@ async function fixture() {
 		};
 		finish: (output?: unknown[]) => void;
 		fail: () => void;
+		aborted: boolean;
 	}[] = [];
 	const model: typeof fetch = async (_url, init) =>
 		new Promise<Response>((resolve, reject) => {
@@ -43,10 +44,16 @@ async function fixture() {
 				body: JSON.parse(String(init?.body)),
 				finish,
 				fail: () => reject(new Error("controlled model failure")),
+				aborted: false,
 			});
+			const call = calls.at(-1);
+			assert(call);
 			init?.signal?.addEventListener(
 				"abort",
-				() => reject(init.signal?.reason),
+				() => {
+					call.aborted = true;
+					if (!holdCancellation) reject(init.signal?.reason);
+				},
 				{ once: true },
 			);
 		});
@@ -388,6 +395,281 @@ test("Queued images and explicit Skill sources survive pending time and load cur
 		queued.finish();
 		await until(async () => !(await f.state()).busy);
 		assert.deepEqual((await f.state()).queue, []);
+	} finally {
+		await f.close();
+	}
+});
+
+for (const outcome of ["success", "failure", "stop"] as const) {
+	test(`Steer cancels A and prioritizes D before B/C; replacement ${outcome}`, async () => {
+		const f = await fixture();
+		try {
+			const a = await f.ask("A");
+			await f.call(0);
+			await f.queue("B");
+			await f.queue("C");
+			const d = await f.json(f.route, "POST", {
+				prompt: "D",
+				intent: "steer",
+				targetAgentId: a.agentId,
+				submissionId: "D",
+			});
+			assert.equal(
+				(await f.json(`/api/agents/${a.agentId}`)).agents[0].status,
+				"cancelled",
+			);
+			const replacement = await f.call(1);
+			assert.equal(replacement.body.input.at(-1)?.content, "D");
+			assert.equal(f.calls[0].aborted, true);
+			assert.deepEqual(
+				await f.json(f.route, "POST", {
+					prompt: "D",
+					intent: "steer",
+					targetAgentId: a.agentId,
+					submissionId: "D",
+				}),
+				d,
+			);
+			if (outcome === "success") {
+				replacement.finish();
+				(await f.call(2)).finish();
+				(await f.call(3)).finish();
+			} else if (outcome === "failure") replacement.fail();
+			else await f.json(`/api/agents/${d.agentId}/cancel`, "POST", {});
+			await f.wait(d.agentId);
+			await until(async () => !(await f.state()).busy);
+			assert.deepEqual(
+				f.calls.map((call) => call.body.input.at(-1)?.content),
+				outcome === "success" ? ["A", "D", "B", "C"] : ["A", "D"],
+			);
+			assert.deepEqual(
+				(await f.state()).queue.map((item: { prompt: string }) => item.prompt),
+				outcome === "success" ? [] : ["B", "C"],
+			);
+		} finally {
+			await f.close();
+		}
+	});
+}
+
+test("Steer validates before Stop, binds the observed Root and sends after target finished", async () => {
+	const f = await fixture();
+	try {
+		const a = await f.ask("A");
+		const first = await f.call(0);
+		assert.equal(
+			(
+				await f.request(f.route, "POST", {
+					prompt: "",
+					intent: "steer",
+					targetAgentId: a.agentId,
+				})
+			).status,
+			400,
+		);
+		assert.equal(first.aborted, false);
+		assert.equal(
+			(
+				await f.request(f.route, "POST", {
+					prompt: "wrong target",
+					intent: "steer",
+					targetAgentId: a.agentId + 100,
+				})
+			).status,
+			409,
+		);
+		assert.equal(first.aborted, false);
+		first.finish();
+		await f.wait(a.agentId);
+		const d = await f.json(f.route, "POST", {
+			prompt: "D",
+			intent: "steer",
+			targetAgentId: a.agentId,
+		});
+		const next = await f.call(1);
+		assert.equal(
+			(
+				await f.request(f.route, "POST", {
+					prompt: "stale",
+					intent: "steer",
+					targetAgentId: a.agentId,
+				})
+			).status,
+			409,
+		);
+		assert.equal(next.aborted, false);
+		next.finish();
+		await f.wait(d.agentId);
+		assert.equal(f.calls.length, 2);
+	} finally {
+		await f.close();
+	}
+});
+
+test("Steer reserves priority through cancellation; duplicate and reconciliation await one admission", async () => {
+	const f = await fixture(true);
+	try {
+		const a = await f.ask("A");
+		const first = await f.call(0);
+		await f.queue("B");
+		const payload = {
+			prompt: "D",
+			intent: "steer",
+			targetAgentId: a.agentId,
+			submissionId: "D",
+		};
+		const pending = f.request(f.route, "POST", payload);
+		await until(async () => first.aborted);
+		const duplicate = f.request(f.route, "POST", payload);
+		const reconcile = f.request(`${f.route}/submissions/D`, "POST", {});
+		assert.equal((await f.request(`${f.route}/queue`, "POST", {})).status, 409);
+		assert.equal(
+			(await f.request(f.route, "POST", { prompt: "competing" })).status,
+			409,
+		);
+		assert.equal(f.calls.length, 1);
+		assert.equal((await f.state()).queue.length, 1);
+		first.fail();
+		const accepted = await (await pending).json();
+		assert.deepEqual(await (await duplicate).json(), accepted);
+		assert.deepEqual(await (await reconcile).json(), accepted);
+		(await f.call(1)).finish();
+		(await f.call(2)).finish();
+		await until(async () => !(await f.state()).busy);
+		assert.deepEqual(
+			f.calls.map((call) => call.body.input.at(-1)?.content),
+			["A", "D", "B"],
+		);
+	} finally {
+		await f.close();
+	}
+});
+
+test("Steer cancels the whole descendant tree before admitting the replacement", async () => {
+	const f = await fixture(true);
+	try {
+		const a = await f.ask("A");
+		await f.queue("B");
+		(await f.call(0)).finish([
+			{
+				type: "function_call",
+				name: "create_sub_agent",
+				call_id: "child",
+				arguments: JSON.stringify({ prompt: "child", context: "background" }),
+			},
+		]);
+		await f.call(2);
+		const active = f.calls.slice(1);
+		const pending = f.request(f.route, "POST", {
+			prompt: "D",
+			intent: "steer",
+			targetAgentId: a.agentId,
+		});
+		await until(async () => active.every((call) => call.aborted));
+		active
+			.find((call) => call.body.input.some((item) => item.content === "child"))
+			?.fail();
+		assert.equal(f.calls.length, 3);
+		active.forEach((call) => {
+			call.fail();
+		});
+		const d = await (await pending).json();
+		const tree = await f.json(`/api/agents/${a.agentId}/tree`);
+		assert.equal(tree.agents.length, 2);
+		assert(
+			tree.agents.every(
+				(agent: { status: string }) => agent.status === "cancelled",
+			),
+		);
+		(await f.call(3)).finish();
+		(await f.call(4)).finish();
+		await f.wait(d.agentId);
+		await until(async () => !(await f.state()).busy);
+		assert.deepEqual(
+			f.calls.slice(3).map((call) => call.body.input.at(-1)?.content),
+			["D", "B"],
+		);
+	} finally {
+		await f.close();
+	}
+});
+
+test("Steer cancellation persistence failure admits no replacement and retains B/C", async () => {
+	const f = await fixture();
+	try {
+		await f.ask("A");
+		await f.call(0);
+		await f.queue("B");
+		await f.queue("C");
+		const a = (await f.state()).agents[0];
+		f.db.exec(`CREATE TRIGGER fail_terminal BEFORE UPDATE OF status ON agents
+			WHEN NEW.status='cancelled' BEGIN SELECT RAISE(FAIL, 'controlled terminal write failure'); END`);
+		const payload = {
+			prompt: "D",
+			intent: "steer",
+			targetAgentId: a.id,
+			submissionId: "failed-D",
+		};
+		assert.equal((await f.request(f.route, "POST", payload)).status, 500);
+		assert.equal((await f.request(f.route, "POST", payload)).status, 409);
+		assert.equal(
+			(await f.request(`${f.route}/submissions/failed-D`, "POST", {})).status,
+			404,
+		);
+		assert.equal(f.calls.length, 1);
+		assert.deepEqual(
+			(await f.state()).queue.map((item: { prompt: string }) => item.prompt),
+			["B", "C"],
+		);
+		assert.equal((await f.state()).agents.length, 1);
+		f.db.exec("DROP TRIGGER fail_terminal");
+	} finally {
+		await f.close();
+	}
+});
+
+test("Concurrent duplicate Queue requests admit only one pending input", async () => {
+	const f = await fixture();
+	try {
+		await f.ask("A");
+		await f.call(0);
+		const payload = { prompt: "B", intent: "queue", submissionId: "same-B" };
+		const responses = await Promise.all([
+			f.json(f.route, "POST", payload),
+			f.json(f.route, "POST", payload),
+		]);
+		assert.deepEqual(responses[0], responses[1]);
+		assert.equal((await f.state()).queue.length, 1);
+		f.calls[0].finish();
+		(await f.call(1)).finish();
+		await until(async () => !(await f.state()).busy);
+		assert.equal(f.calls.length, 2);
+	} finally {
+		await f.close();
+	}
+});
+
+test("Steer revalidates configuration after held cancellation and retains pending work on failure", async () => {
+	const f = await fixture(true);
+	try {
+		const a = await f.ask("A");
+		const first = await f.call(0);
+		await f.queue("B");
+		const payload = {
+			prompt: "D",
+			intent: "steer",
+			targetAgentId: a.agentId,
+			submissionId: "D",
+		};
+		const pending = f.request(f.route, "POST", payload);
+		await until(async () => first.aborted);
+		await f.json("/api/model-settings", "PUT", { apiKey: "" });
+		first.fail();
+		assert.equal((await pending).status, 400);
+		assert.equal((await f.request(f.route, "POST", payload)).status, 409);
+		assert.equal(f.calls.length, 1);
+		assert.equal((await f.state()).queue[0].prompt, "B");
+		assert.equal((await f.state()).agents.length, 1);
 	} finally {
 		await f.close();
 	}

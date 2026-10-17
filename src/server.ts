@@ -73,6 +73,8 @@ const defaultDatabasePath = fileURLToPath(
 	new URL("../data/tyler-agent.sqlite", import.meta.url),
 );
 const errorMessages: Record<string, string> = {
+	steerTargetChanged:
+		"The active task changed; refresh the chat before submitting",
 	invalidAccessMode: "Choose restricted or full access",
 	agentCancelled: "Agent cancelled",
 	agentCancelFailed: "Could not stop Agent",
@@ -89,6 +91,9 @@ const errorMessages: Record<string, string> = {
 	executionLimitsFailed: "Could not read or save execution limits",
 	invalidSidebarWidth: "Invalid sidebar width",
 	sidebarWidthFailed: "Could not read or save sidebar width",
+	invalidFollowUpBehavior: "Unsupported follow-up behavior",
+	followUpBehaviorReadFailed: "Could not read follow-up behavior",
+	followUpBehaviorWriteFailed: "Could not save follow-up behavior",
 	invalidEnterBehavior: "Unsupported Enter key behavior",
 	enterBehaviorReadFailed: "Could not read Enter key behavior",
 	enterBehaviorWriteFailed: "Could not save Enter key behavior",
@@ -246,6 +251,9 @@ export function createServer(
 		}>;
 	const home = homedir();
 	const busy = new Set<number>();
+	const steering = new Set<number>();
+	const cleanupFailures = new Set<number>();
+	const pendingSubmissions = new Map<number, Map<string, Promise<void>>>();
 	type QueuedInput = {
 		id: string;
 		prompt: string;
@@ -274,7 +282,7 @@ export function createServer(
 			...project,
 			chats: project.chats.map((chat) => ({
 				...chat,
-				busy: busy.has(Number(chat.id)),
+				busy: busy.has(Number(chat.id)) || steering.has(Number(chat.id)),
 			})),
 		}));
 	const callOutput = (call: Record<string, unknown>): OutputItem[] =>
@@ -960,6 +968,8 @@ export function createServer(
 			}
 		}
 		await Promise.all(targets.map((id) => running.get(id)?.done));
+		if (targets.some((id) => cleanupFailures.has(id) || unsavedAgents.has(id)))
+			throw new Error("Agent cancellation cleanup failed");
 		if (callerId !== undefined) {
 			const parent = running.get(callerId);
 			if (parent)
@@ -1788,6 +1798,7 @@ export function createServer(
 			failure = error;
 		}
 		await mcp?.close().catch((error) => {
+			cleanupFailures.add(agentId);
 			failure ??= error;
 		});
 		state.stopped = true;
@@ -1911,7 +1922,7 @@ export function createServer(
 	const advanceQueue = (id: number) => {
 		const queue = queues.get(id);
 		const item = queue?.[0];
-		if (!item || busy.has(id) || closed) return;
+		if (!item || busy.has(id) || steering.has(id) || closed) return;
 		try {
 			const accepted = createRoot(id, item);
 			queue?.shift();
@@ -2402,6 +2413,42 @@ export function createServer(
 			}
 			return;
 		}
+		if (
+			path === "/api/follow-up-behavior" &&
+			(request.method === "GET" || request.method === "PUT")
+		) {
+			try {
+				if (request.method === "PUT") {
+					const { behavior } = await readJson(request);
+					if (behavior !== "queue" && behavior !== "steer")
+						throw new InputError("invalidFollowUpBehavior");
+					database
+						.prepare("UPDATE settings SET follow_up_behavior=? WHERE id=1")
+						.run(behavior);
+				}
+				const behavior = database
+					.prepare("SELECT follow_up_behavior FROM settings WHERE id=1")
+					.get()?.follow_up_behavior;
+				if (behavior !== "queue" && behavior !== "steer")
+					throw new Error("Invalid saved follow-up behavior");
+				json(response, 200, { behavior });
+				if (request.method === "PUT") notifyChange();
+			} catch (error) {
+				if (!(error instanceof InputError))
+					console.error("follow-up behavior setting read/write failed", error);
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(
+						error,
+						request.method === "PUT"
+							? "followUpBehaviorWriteFailed"
+							: "followUpBehaviorReadFailed",
+					),
+				);
+			}
+			return;
+		}
 		if (path === "/api/directories" && request.method === "GET") {
 			try {
 				const paths = url.searchParams.getAll("path");
@@ -2731,7 +2778,9 @@ export function createServer(
 			json(response, 200, {
 				agents,
 				messages: agentMessages(agents),
-				busy: busy.has(agentSource(Number(row.id)).chatId),
+				busy:
+					busy.has(agentSource(Number(row.id)).chatId) ||
+					steering.has(agentSource(Number(row.id)).chatId),
 				agentBusy: agents[0]?.status === "pending",
 				hasMore: false,
 			});
@@ -2829,6 +2878,7 @@ export function createServer(
 			try {
 				const id = Number(submissionRoute[1]);
 				const submissionId = decodeURIComponent(submissionRoute[2]);
+				await pendingSubmissions.get(id)?.get(submissionId);
 				const accepted = submissions.get(id)?.get(submissionId);
 				if (!accepted && request.method === "POST") {
 					// Seal a negative confirmation before a delayed original request can arrive.
@@ -2862,9 +2912,11 @@ export function createServer(
 					notifyChange();
 				} else if (request.method === "POST" && !queueRoute[2]) {
 					const input = await readJson(request);
+					if (typeof input.submissionId === "string")
+						await pendingSubmissions.get(id)?.get(input.submissionId);
 					if (replyToKnownSubmission(response, id, input.submissionId)) return;
 					assertChatWritable(id);
-					if (busy.has(id)) {
+					if (busy.has(id) || steering.has(id)) {
 						json(response, 409, errorBody("chatBusy"));
 						return;
 					}
@@ -2935,7 +2987,7 @@ export function createServer(
 					messages: agentMessages(page.agents),
 					chatOptions: chatOptions(id),
 					queue: queues.get(id) ?? [],
-					busy: busy.has(id),
+					busy: busy.has(id) || steering.has(id),
 				});
 				return;
 			}
@@ -3031,11 +3083,14 @@ export function createServer(
 			}
 			try {
 				const input = await readJson(request);
+				if (typeof input.submissionId === "string")
+					await pendingSubmissions.get(id)?.get(input.submissionId);
 				if (replyToKnownSubmission(response, id, input.submissionId)) return;
 				if (
 					input.intent !== undefined &&
 					input.intent !== "send" &&
-					input.intent !== "queue"
+					input.intent !== "queue" &&
+					input.intent !== "steer"
 				)
 					throw new InputError("invalidInput");
 				let images: InputImage[];
@@ -3062,7 +3117,56 @@ export function createServer(
 					skillSources: [...new Set((input.skillSources ?? []) as string[])],
 				};
 				let accepted: SubmissionAcceptance;
-				if (busy.has(id)) {
+				if (steering.has(id)) {
+					json(response, 409, errorBody("chatBusy"));
+					return;
+				}
+				if (input.intent === "steer") {
+					if (
+						!Number.isSafeInteger(input.targetAgentId) ||
+						Number(input.targetAgentId) <= 0
+					)
+						throw new InputError("invalidInput");
+					validateRoot(id, images);
+					const current = [...running.keys()].find((agentId) => {
+						const source = agentSource(agentId);
+						return source.chatId === id && source.parentAgentId === null;
+					});
+					if (current !== undefined && current !== input.targetAgentId) {
+						json(response, 409, errorBody("steerTargetChanged"));
+						return;
+					}
+					// Reserve priority before cancellation yields to completion or other requests.
+					steering.add(id);
+					let finish!: () => void;
+					if (typeof input.submissionId === "string") {
+						const records =
+							pendingSubmissions.get(id) ?? new Map<string, Promise<void>>();
+						records.set(
+							input.submissionId,
+							new Promise<void>((resolve) => {
+								finish = resolve;
+							}),
+						);
+						pendingSubmissions.set(id, records);
+					}
+					try {
+						if (current !== undefined) await cancelAgent(current);
+						accepted = createRoot(id, item);
+						rememberSubmission(id, input.submissionId, accepted);
+					} catch (error) {
+						if (typeof input.submissionId === "string") {
+							const rejected = rejectedSubmissions.get(id) ?? new Set<string>();
+							rejected.add(input.submissionId);
+							rejectedSubmissions.set(id, rejected);
+						}
+						throw error;
+					} finally {
+						steering.delete(id);
+						pendingSubmissions.get(id)?.delete(String(input.submissionId));
+						finish?.();
+					}
+				} else if (busy.has(id)) {
 					if (input.intent !== "queue") {
 						json(response, 409, errorBody("chatBusy"));
 						return;

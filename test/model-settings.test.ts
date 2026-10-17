@@ -353,7 +353,7 @@ test("fresh database has empty model settings with no environment fallback", asy
 		db.exec(
 			"INSERT INTO projects(id,name,created_at) VALUES(1,'Project',1); INSERT INTO chats(id,project_id,name,created_at) VALUES(1,1,'Chat',1)",
 		);
-		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 23);
+		assert.equal(db.prepare("PRAGMA user_version").get()?.user_version, 24);
 		assert.deepEqual(
 			{ ...db.prepare("SELECT * FROM settings").get() },
 			{
@@ -364,6 +364,7 @@ test("fresh database has empty model settings with no environment fallback", asy
 				api_key: null,
 				default_model_id: null,
 				enter_behavior: "send",
+				follow_up_behavior: "queue",
 				model_call_limit: 16,
 				sub_agent_limit: 32,
 				default_file_access: "restricted",

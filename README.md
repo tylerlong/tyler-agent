@@ -22,7 +22,7 @@ Open the management URL printed in the terminal. Keep it private: it authorizes 
 2. Create a **Project** and select folders on the machine running the service.
 3. Create a **Chat**, choose a model and reasoning level, and submit a task.
 
-While a Chat is running, **Queue** saves the next message without interrupting it. View or remove pending messages near the composer. Success starts the next message after cleanup; failure, Stop or an execution limit leaves the queue waiting. **Continue queue** or a new Send resumes the chain. Pending messages survive browser refresh but are lost when the service restarts, including watch restarts.
+While a Chat is running, the send menu offers **Queue** to save the next message, or **Steer** to stop the current Root and its descendants, wait for cleanup, and start the new message ahead of the queue. **Settings → General → Follow-up behavior** saves the global default (Queue initially); a send-menu choice applies once. Idle Chats show **Send**. Steer starts a separate Root with the interrupted task’s history, just like Stop followed by Send. View or remove pending messages near the composer. Success starts the next message after cleanup; failure, Stop or an execution limit leaves the queue waiting. **Continue queue** or a new Send resumes the chain. Pending messages survive browser refresh but are lost when the service restarts, including watch restarts.
 
 Stop with **Ctrl+C**. The default port is 3000; use `pnpm start --port 3001` to change it. Startup stops existing listeners on the selected port, so choose an unused port.
 

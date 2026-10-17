@@ -85,9 +85,9 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
                 CREATE TABLE managed_models (id TEXT PRIMARY KEY CHECK(length(trim(id))>0), name TEXT NOT NULL, metadata TEXT NOT NULL CHECK(json_valid(metadata)));
                 CREATE TABLE tool_calls (id INTEGER PRIMARY KEY, model_call_id INTEGER NOT NULL REFERENCES model_calls(id), call_id TEXT NOT NULL, name TEXT NOT NULL, arguments TEXT NOT NULL, ordinal INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('waiting','running','succeeded','failed','not_executed','interrupted')), result TEXT, reason TEXT, command_state TEXT CHECK(command_state IS NULL OR json_valid(command_state)), approval TEXT CHECK(approval IS NULL OR json_valid(approval)), UNIQUE(model_call_id,ordinal));
                 CREATE TABLE tool_output (tool_call_id INTEGER NOT NULL REFERENCES tool_calls(id), ordinal INTEGER NOT NULL, stream TEXT NOT NULL CHECK(stream IN ('stdout','stderr','pty')), text TEXT NOT NULL, PRIMARY KEY(tool_call_id,ordinal));
-                CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')), mcp_services TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(mcp_services)), api_key TEXT, default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline')), model_call_limit INTEGER NOT NULL DEFAULT 16 CHECK(typeof(model_call_limit)='integer' AND model_call_limit>0), sub_agent_limit INTEGER NOT NULL DEFAULT 32 CHECK(typeof(sub_agent_limit)='integer' AND sub_agent_limit>0), default_file_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_file_access IN ('restricted','full')), default_network_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_network_access IN ('restricted','full')));
+                CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), sidebar_width REAL NOT NULL DEFAULT 320 CHECK(sidebar_width BETWEEN 240 AND 600), language TEXT NOT NULL DEFAULT 'en' CHECK(language IN ('en','zh-CN')), mcp_services TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(mcp_services)), api_key TEXT, default_model_id TEXT REFERENCES managed_models(id) ON DELETE SET NULL, enter_behavior TEXT NOT NULL DEFAULT 'send' CHECK(enter_behavior IN ('send','newline')), follow_up_behavior TEXT NOT NULL DEFAULT 'queue' CHECK(follow_up_behavior IN ('queue','steer')), model_call_limit INTEGER NOT NULL DEFAULT 16 CHECK(typeof(model_call_limit)='integer' AND model_call_limit>0), sub_agent_limit INTEGER NOT NULL DEFAULT 32 CHECK(typeof(sub_agent_limit)='integer' AND sub_agent_limit>0), default_file_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_file_access IN ('restricted','full')), default_network_access TEXT NOT NULL DEFAULT 'restricted' CHECK(default_network_access IN ('restricted','full')));
                 INSERT INTO settings(id) VALUES(1);
-                PRAGMA user_version=23;
+                PRAGMA user_version=24;
                 COMMIT;
             `);
 			} catch (error) {
@@ -95,7 +95,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				throw error;
 			}
 		} else if (
-			version !== 23 ||
+			version !== 24 ||
 			tables.join(",") !==
 				"agents,chats,folders,managed_models,model_calls,projects,settings,tool_calls,tool_output"
 		) {
@@ -117,7 +117,7 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 			model_calls:
 				"id,agent_id,url,method,requested_at,request_body,status,http_status,response_body,duration_ms,error,error_code,output_json",
 			settings:
-				"id,sidebar_width,language,mcp_services,api_key,default_model_id,enter_behavior,model_call_limit,sub_agent_limit,default_file_access,default_network_access",
+				"id,sidebar_width,language,mcp_services,api_key,default_model_id,enter_behavior,follow_up_behavior,model_call_limit,sub_agent_limit,default_file_access,default_network_access",
 			managed_models: "id,name,metadata",
 			tool_output: "tool_call_id,ordinal,stream,text",
 			tool_calls:
@@ -145,6 +145,16 @@ export function openDatabase(path: string, createDefaultDirectory: boolean) {
 				String(
 					db.prepare("SELECT enter_behavior FROM settings WHERE id=1").get()
 						?.enter_behavior,
+				),
+			)
+		)
+			throw new Error("Corrupt database");
+
+		if (
+			!["queue", "steer"].includes(
+				String(
+					db.prepare("SELECT follow_up_behavior FROM settings WHERE id=1").get()
+						?.follow_up_behavior,
 				),
 			)
 		)
