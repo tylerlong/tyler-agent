@@ -64,7 +64,7 @@ export const commandTools = [
 		type: "function",
 		name: "read_tool_output",
 		description:
-			"Read saved command output from your own Tool Call using character offsets, preserving stream and chunk order. Defaults: offset 0, limit 16000; maximum 16000.",
+			"Read saved command output from your own Tool Call (Root Agents may also read any same-Chat Agent, including historical descendants) using character offsets, preserving stream and chunk order. Defaults: offset 0, limit 16000; maximum 16000.",
 		parameters: {
 			type: "object",
 			properties: {

@@ -143,13 +143,23 @@ test("chat histories are isolated; busy rejects duplicates and allows parallel c
 			).status,
 			"succeeded",
 		);
+		assert.equal(
+			JSON.stringify(inputs.at(-1)).includes('"content":"failure"'),
+			true,
+		);
 		assert.deepEqual(inputs.at(-1), [
 			{ role: "user", content: "first" },
 			{ role: "assistant", content: "Answer" },
 			{ role: "user", content: "followup" },
 			{ role: "assistant", content: "Answer" },
+			{ role: "user", content: "failure" },
+			(inputs.at(-1) as unknown[])[5],
 			{ role: "user", content: "retry" },
 		]);
+		assert.match(
+			JSON.stringify((inputs.at(-1) as unknown[])[5]),
+			/failed|broken/,
+		);
 	} finally {
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));

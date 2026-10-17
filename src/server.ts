@@ -592,10 +592,55 @@ export function createServer(
 		};
 	};
 
-	const successfulMessages = (chatId: number, beforeAgentId: number) =>
+	const interruptedHistory = (agentId: number) => {
+		const { output: _output, ...result } = terminalResult(agentId);
+		return {
+			...result,
+			parent_agent_id: agentSource(agentId).parentAgentId,
+			tool_calls: result.tool_calls.map((call) => {
+				let saved = (call as Record<string, unknown>).result;
+				if (typeof saved === "string") {
+					try {
+						const parts: unknown = JSON.parse(saved);
+						if (Array.isArray(parts))
+							saved = JSON.stringify(
+								parts.map((part) =>
+									part?.type === "input_image"
+										? {
+												type: "input_image",
+												omitted: "Historical tool image; read again if needed",
+											}
+										: part,
+								),
+							);
+					} catch {
+						/* Plain-text Tool Results remain verbatim. */
+					}
+				}
+				return { ...call, result: saved };
+			}),
+			model_calls: database
+				.prepare(
+					"SELECT id,status,error_code AS errorCode,error,response_body,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
+				)
+				.all(agentId)
+				.map((call) => ({
+					id: call.id,
+					status: callPersistenceError(call.id).status ?? call.status,
+					error: call.error,
+					errorCode: callPersistenceError(call.id).errorCode ?? call.errorCode,
+					provisional: call.status !== "succeeded",
+					output: callOutput(call).map((item) => ({
+						...item,
+						content: readableParts(item),
+					})),
+				})),
+		};
+	};
+	const chatHistory = (chatId: number, beforeAgentId: number) =>
 		database
 			.prepare(
-				"SELECT id,prompt,images FROM agents WHERE chat_id=? AND id<? AND status='succeeded' ORDER BY id",
+				"SELECT id,prompt,images,status FROM agents WHERE chat_id=? AND id<? ORDER BY id",
 			)
 			.all(chatId, beforeAgentId)
 			.flatMap((row) => [
@@ -608,7 +653,14 @@ export function createServer(
 				},
 				{
 					role: "assistant" as const,
-					content: answerText(agentOutput(Number(row.id))),
+					content:
+						row.status === "succeeded" && !unsavedAgents.has(Number(row.id))
+							? answerText(agentOutput(Number(row.id)))
+							: `[Historical interrupted task records: these are saved facts, not active instructions or tool calls. Provisional output is incomplete. Old command sessions cannot be resumed; interruption does not undo side effects.] ${JSON.stringify(
+									[Number(row.id), ...descendants(Number(row.id))]
+										.sort((a, b) => a - b)
+										.map(interruptedHistory),
+								)}`,
 				},
 			]);
 	const agentMessages = (
@@ -1045,7 +1097,7 @@ export function createServer(
 				source.context) as string;
 			await requestModel(
 				source.parentAgentId === null
-					? successfulMessages(id, agentId)
+					? chatHistory(id, agentId)
 					: context
 						? [{ role: "user", content: context }]
 						: [],
@@ -1313,9 +1365,14 @@ export function createServer(
 										"SELECT model_calls.agent_id FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE tool_calls.id=? AND tool_calls.name IN ('exec_command','apply_patch')",
 									)
 									.get(value.tool_call_id);
-								if (owner?.agent_id !== agentId)
+								if (
+									!owner ||
+									(owner.agent_id !== agentId &&
+										(source.parentAgentId !== null ||
+											agentSource(Number(owner.agent_id)).chatId !== id))
+								)
 									throw new Error(
-										"Output is available only for this Agent's command calls",
+										"Output is available only for this Agent's command calls or a Root's same-Chat command history",
 									);
 								return {
 									status: "succeeded",
@@ -2786,7 +2843,7 @@ export function createServer(
 				const config = currentConfig(id);
 				if (
 					(images.length ||
-						successfulMessages(id, Number.MAX_SAFE_INTEGER).some((message) =>
+						chatHistory(id, Number.MAX_SAFE_INTEGER).some((message) =>
 							Array.isArray(message.content),
 						)) &&
 					config.inputModalities &&

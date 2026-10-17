@@ -19,6 +19,9 @@ export type OutputItem = {
 	id: string;
 	index: number;
 	type: string;
+	name?: string;
+	arguments?: string;
+	call_id?: string;
 	content: OutputPart[];
 };
 export const answerText = (output: OutputItem[]) =>
@@ -96,6 +99,11 @@ const readableItem = (data: unknown, index: number): OutputItem => {
 		id: String(source.id ?? ""),
 		type: protocolType(source.type, "message"),
 		content,
+		...(source.type === "function_call" && {
+			name: String(source.name ?? ""),
+			arguments: String(source.arguments ?? ""),
+			call_id: String(source.call_id ?? ""),
+		}),
 	};
 };
 export function responseOutput(responseBody: string | null): OutputItem[] {
@@ -497,6 +505,11 @@ async function requestOnce(
 		const source = readableItem(data, index);
 		const value = item(index, source.id, source.type);
 		value.type = source.type;
+		if (source.type === "function_call") {
+			value.name = source.name;
+			value.arguments = source.arguments;
+			value.call_id = source.call_id;
+		}
 		for (const p of source.content) part(value, p.index, p.type).text = p.text;
 	};
 	const output = (final = false) =>
@@ -506,6 +519,11 @@ async function requestOnce(
 				...value,
 				id: redact(value.id),
 				type: itemType(value.type),
+				...(value.type === "function_call" && {
+					name: redact(value.name ?? ""),
+					arguments: safe(value.arguments ?? "", final),
+					call_id: redact(value.call_id ?? ""),
+				}),
 				content: value.content
 					.sort((a, b) => a.index - b.index)
 					.map((part) => ({
@@ -578,6 +596,13 @@ async function requestOnce(
 					Number(data.content_index ?? 0),
 					protocolType(p.type, "output_text"),
 				).text = text;
+		}
+		if (
+			type === "response.function_call_arguments.delta" &&
+			typeof data.delta === "string"
+		) {
+			const value = item(index, String(data.item_id ?? ""), "function_call");
+			value.arguments = (value.arguments ?? "") + data.delta;
 		}
 		const kinds: Record<string, string> = {
 			"response.output_text.delta": "output_text",
