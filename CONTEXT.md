@@ -18,6 +18,7 @@
 | --- | --- |
 | Agent | 一次被接纳的任务执行，可包含多次模型和工具调用。统一使用 Agent，避免 Turn／Agent Run。 |
 | Root Agent（主 Agent） | 用户在 Chat 中提交的任务，是任务树起点。 |
+| Queue（排队） | Chat 服务端内存中的未开始输入；不是 Agent，成功 Root 清理后按 FIFO 启动，失败／Stop／上限后等待新 Root 或继续队列。服务重启清空。 |
 | Sub-agent（子 Agent） | 父 Agent 通过工具创建的任务；与根任务使用同一种执行主体。 |
 | Background（委派背景） | 显式交给子任务的背景，区别于任务 prompt；空背景称为 blind。 |
 | User Instructions（用户级指令） | 用户为所有 Project 的 Root Agent 与 Sub-agent 提供的共同工作规则，区别于某次任务的具体要求。 |

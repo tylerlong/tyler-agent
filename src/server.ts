@@ -246,6 +246,19 @@ export function createServer(
 		}>;
 	const home = homedir();
 	const busy = new Set<number>();
+	type QueuedInput = {
+		id: string;
+		prompt: string;
+		images: InputImage[];
+		skillSources: string[];
+		error?: ReturnType<typeof caughtError>;
+	};
+	const queues = new Map<number, QueuedInput[]>();
+	const submissions = new Map<
+		number,
+		Map<string, { agentId: number } | { queueId: string }>
+	>();
+	const rejectedSubmissions = new Map<number, Set<string>>();
 	const unsavedAgents = new Set<number>();
 	const unsavedCalls = new Set<number>();
 	const unsavedTools = new Set<number>();
@@ -991,8 +1004,22 @@ export function createServer(
 			.finally(() => {
 				running.delete(agentId);
 				if (closed) return;
-				if (source.parentAgentId === null) busy.delete(source.chatId);
-				else {
+				if (source.parentAgentId === null) {
+					busy.delete(source.chatId);
+					if (
+						!state.controller.signal.aborted &&
+						!unsavedAgents.has(agentId) &&
+						database
+							.prepare("SELECT status FROM agents WHERE id=?")
+							.get(agentId)?.status === "succeeded"
+					) {
+						try {
+							advanceQueue(source.chatId);
+						} catch {
+							/* Queue item retains the admission error. */
+						}
+					}
+				} else {
 					const parent = running.get(source.parentAgentId);
 					if (parent) {
 						if (
@@ -1821,6 +1848,80 @@ export function createServer(
 			database.exec("COMMIT");
 		} catch (error) {
 			database.exec("ROLLBACK");
+			throw error;
+		}
+	};
+
+	const assertChatWritable = (id: number) => {
+		const state = database
+			.prepare(
+				"SELECT chats.archived,projects.archived AS projectArchived FROM chats JOIN projects ON projects.id=chats.project_id WHERE chats.id=?",
+			)
+			.get(id);
+		if (!state) throw new InputError("chatNotFound");
+		if (state.archived || state.projectArchived)
+			throw new InputError(
+				state.projectArchived ? "projectArchivedChatReadOnly" : "chatArchived",
+			);
+	};
+	const validateRoot = (id: number, images: InputImage[]) => {
+		assertChatWritable(id);
+		const config = currentConfig(id);
+		if (
+			(images.length ||
+				chatHistory(id, Number.MAX_SAFE_INTEGER).some((message) =>
+					Array.isArray(message.content),
+				)) &&
+			config.inputModalities &&
+			!config.inputModalities.includes("image")
+		)
+			throw new InputError("modelImageUnsupported");
+		return config;
+	};
+	// Admission and queue transitions stay synchronous, so completion and HTTP requests share one order.
+	const createRoot = (
+		id: number,
+		input: Pick<QueuedInput, "prompt" | "images" | "skillSources">,
+	) => {
+		const config = validateRoot(id, input.images);
+		if (busy.has(id)) throw new InputError("chatBusy");
+		const secrets = [
+			config.apiKey,
+			...readMcpServices().flatMap((service) =>
+				service.env.map(({ value }) => value),
+			),
+		]
+			.flatMap((key) => [key, JSON.stringify(key).slice(1, -1)])
+			.filter(Boolean);
+		const question = secrets.reduce(
+			(text, secret) => text.replaceAll(secret, "[REDACTED]"),
+			input.prompt,
+		);
+		const agentId = Number(
+			database
+				.prepare(
+					"INSERT INTO agents(chat_id,prompt,images,status,created_at) VALUES (?,?,?,'pending',?)",
+				)
+				.run(id, question, JSON.stringify(input.images), Date.now())
+				.lastInsertRowid,
+		);
+		busy.add(id);
+		void startAgent(agentId, input.skillSources, null, input.prompt);
+		notifyChange();
+		return { agentId };
+	};
+	const advanceQueue = (id: number) => {
+		const queue = queues.get(id);
+		const item = queue?.[0];
+		if (!item || busy.has(id) || closed) return;
+		try {
+			const accepted = createRoot(id, item);
+			queue?.shift();
+			notifyChange();
+			return accepted;
+		} catch (error) {
+			item.error = caughtError(error, "answerWriteFailed");
+			notifyChange();
 			throw error;
 		}
 	};
@@ -2691,6 +2792,105 @@ export function createServer(
 			});
 			return;
 		}
+		const submissionRoute = path.match(
+			/^\/api\/chats\/(\d+)\/submissions\/([^/]+)$/,
+		);
+		if (
+			submissionRoute &&
+			(request.method === "GET" || request.method === "POST")
+		) {
+			try {
+				const id = Number(submissionRoute[1]);
+				const submissionId = decodeURIComponent(submissionRoute[2]);
+				const accepted = submissions.get(id)?.get(submissionId);
+				if (!accepted && request.method === "POST") {
+					// Seal a negative confirmation before a delayed original request can arrive.
+					const rejected = rejectedSubmissions.get(id) ?? new Set<string>();
+					rejected.add(submissionId);
+					rejectedSubmissions.set(id, rejected);
+				}
+				json(response, accepted ? 200 : 404, accepted ?? errorBody("notFound"));
+			} catch {
+				json(response, 400, errorBody("invalidInput"));
+			}
+			return;
+		}
+		const queueRoute = path.match(/^\/api\/chats\/(\d+)\/queue(?:\/([^/]+))?$/);
+		if (
+			queueRoute &&
+			(request.method === "POST" || request.method === "DELETE")
+		) {
+			const id = Number(queueRoute[1]);
+			try {
+				assertChatWritable(id);
+				if (request.method === "DELETE" && queueRoute[2]) {
+					const queue = queues.get(id) ?? [];
+					const index = queue.findIndex((item) => item.id === queueRoute[2]);
+					if (index < 0) {
+						json(response, 404, errorBody("notFound"));
+						return;
+					}
+					queue.splice(index, 1);
+					json(response, 200, {});
+					notifyChange();
+				} else if (request.method === "POST" && !queueRoute[2]) {
+					const input = await readJson(request);
+					if (
+						input.submissionId !== undefined &&
+						(typeof input.submissionId !== "string" ||
+							!input.submissionId ||
+							input.submissionId.includes("\0"))
+					)
+						throw new InputError("invalidInput");
+					if (
+						typeof input.submissionId === "string" &&
+						rejectedSubmissions.get(id)?.has(input.submissionId)
+					) {
+						json(response, 409, errorBody("notFound"));
+						return;
+					}
+					const previous =
+						typeof input.submissionId === "string"
+							? submissions.get(id)?.get(input.submissionId)
+							: undefined;
+					if (previous) {
+						json(response, 202, previous);
+						return;
+					}
+					assertChatWritable(id);
+					if (busy.has(id)) {
+						json(response, 409, errorBody("chatBusy"));
+						return;
+					}
+					if (
+						input.queueId !== undefined &&
+						input.queueId !== queues.get(id)?.[0]?.id
+					) {
+						json(response, 409, errorBody("notFound"));
+						return;
+					}
+					const accepted = advanceQueue(id);
+					if (accepted && typeof input.submissionId === "string") {
+						const records = submissions.get(id) ?? new Map();
+						records.set(input.submissionId, accepted);
+						submissions.set(id, records);
+					}
+					json(
+						response,
+						accepted ? 202 : 404,
+						accepted ?? errorBody("notFound"),
+					);
+				} else json(response, 404, errorBody("notFound"));
+			} catch (error) {
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "answerWriteFailed"),
+				);
+			}
+			return;
+		}
+
 		const chatRoute = path.match(/^\/api\/chats\/(\d+)$/);
 		if (
 			chatRoute &&
@@ -2732,6 +2932,7 @@ export function createServer(
 					...page,
 					messages: agentMessages(page.agents),
 					chatOptions: chatOptions(id),
+					queue: queues.get(id) ?? [],
 					busy: busy.has(id),
 				});
 				return;
@@ -2826,10 +3027,36 @@ export function createServer(
 				}
 				return;
 			}
-			let locked = false;
-			let acceptedAgentId: number | undefined;
 			try {
 				const input = await readJson(request);
+				if (
+					input.submissionId !== undefined &&
+					(typeof input.submissionId !== "string" ||
+						!input.submissionId ||
+						input.submissionId.includes("\0"))
+				)
+					throw new InputError("invalidInput");
+				if (
+					typeof input.submissionId === "string" &&
+					rejectedSubmissions.get(id)?.has(input.submissionId)
+				) {
+					json(response, 409, errorBody("notFound"));
+					return;
+				}
+				const previous =
+					typeof input.submissionId === "string"
+						? submissions.get(id)?.get(input.submissionId)
+						: undefined;
+				if (previous) {
+					json(response, 202, previous);
+					return;
+				}
+				if (
+					input.intent !== undefined &&
+					input.intent !== "send" &&
+					input.intent !== "queue"
+				)
+					throw new InputError("invalidInput");
 				let images: InputImage[];
 				try {
 					images = submittedImages(input.images);
@@ -2838,10 +3065,6 @@ export function createServer(
 				}
 				if (typeof input.prompt !== "string" || !input.prompt.trim())
 					throw new InputError("promptRequired");
-				if (busy.has(id)) {
-					json(response, 409, errorBody("chatBusy"));
-					return;
-				}
 				if (
 					input.skillSources !== undefined &&
 					(!Array.isArray(input.skillSources) ||
@@ -2851,77 +3074,41 @@ export function createServer(
 						))
 				)
 					throw new InputError("invalidInput");
-				const config = currentConfig(id);
-				if (
-					(images.length ||
-						chatHistory(id, Number.MAX_SAFE_INTEGER).some((message) =>
-							Array.isArray(message.content),
-						)) &&
-					config.inputModalities &&
-					!config.inputModalities.includes("image")
-				)
-					throw new InputError("modelImageUnsupported");
-				busy.add(id);
-				locked = true;
-				let agentId: number;
-				database.exec("BEGIN");
-				try {
-					const secrets = [
-						config.apiKey,
-						...readMcpServices().flatMap((service) =>
-							service.env.map(({ value }) => value),
-						),
-					]
-						.flatMap((key) => [key, JSON.stringify(key).slice(1, -1)])
-						.filter(Boolean);
-					const question = secrets.reduce(
-						(text, secret) => text.replaceAll(secret, "[REDACTED]"),
-						input.prompt,
-					);
-					agentId = Number(
-						database
-							.prepare(
-								"INSERT INTO agents(chat_id,prompt,images,status,created_at) VALUES (?,?,?,'pending',?)",
-							)
-							.run(id, question, JSON.stringify(images), Date.now())
-							.lastInsertRowid,
-					);
-					database.exec("COMMIT");
-				} catch (error) {
-					database.exec("ROLLBACK");
-					throw error;
+				const item = {
+					id: randomUUID(),
+					prompt: input.prompt,
+					images,
+					skillSources: [...new Set((input.skillSources ?? []) as string[])],
+				};
+				let accepted: { agentId: number } | { queueId: string };
+				if (busy.has(id)) {
+					if (input.intent !== "queue") {
+						json(response, 409, errorBody("chatBusy"));
+						return;
+					}
+					validateRoot(id, images);
+					const queue = queues.get(id) ?? [];
+					queue.push(item);
+					queues.set(id, queue);
+					accepted = { queueId: item.id };
+				} else accepted = createRoot(id, item);
+				if (typeof input.submissionId === "string") {
+					const records = submissions.get(id) ?? new Map();
+					records.set(input.submissionId, accepted);
+					submissions.set(id, records);
 				}
-				acceptedAgentId = agentId;
-				json(response, 202, { agentId });
+				json(response, 202, accepted);
 				notifyChange();
-
-				await startAgent(
-					agentId,
-					[...new Set((input.skillSources ?? []) as string[])],
-					null,
-					input.prompt,
-				);
 			} catch (error) {
-				if (acceptedAgentId !== undefined) {
-					// Keep unsaved failures visible without claiming the result was persisted.
-					unsavedAgents.add(acceptedAgentId);
-					console.error("Accepted Agent persistence failed", error);
-				} else
-					json(
-						response,
-						error instanceof InputError
-							? 400
-							: error instanceof ModelError
-								? 502
-								: 500,
-						caughtError(error, "answerWriteFailed"),
-					);
-			} finally {
-				if (locked) {
-					busy.delete(id);
-					if (!closed && acceptedAgentId !== undefined)
-						notifyAgent(id, acceptedAgentId);
-				}
+				json(
+					response,
+					error instanceof InputError
+						? 400
+						: error instanceof ModelError
+							? 502
+							: 500,
+					caughtError(error, "answerWriteFailed"),
+				);
 			}
 			return;
 		}

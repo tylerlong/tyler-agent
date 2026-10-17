@@ -163,7 +163,7 @@ function App() {
 		state: enterState,
 	} = enterPreference;
 	const mac = navigator.platform.startsWith("Mac");
-	const submitName =
+	const sendName =
 		enterBehavior === null
 			? t("submit")
 			: t("submitShortcut", {
@@ -248,6 +248,13 @@ function App() {
 			revision?: number;
 		}[];
 		chatOptions?: ChatOptions;
+		queue?: {
+			id: string;
+			prompt: string;
+			images?: ImageInput[];
+			skillSources?: string[];
+			error?: { error: string; code?: string; details?: string };
+		}[];
 		busy: boolean;
 		hasMore: boolean;
 		historyLoaded?: boolean;
@@ -255,6 +262,14 @@ function App() {
 	const [chatCache, setChatCache] = useState<Record<number, ChatState>>({});
 	const cacheRef = useRef(chatCache);
 	const chatState = selected === null ? null : (chatCache[selected] ?? null);
+	const submitName = chatState?.busy
+		? enterBehavior === null
+			? t("queue")
+			: t("queueShortcut", {
+					shortcut:
+						enterBehavior === "send" ? "Enter" : mac ? "⌘+Enter" : "Ctrl+Enter",
+				})
+		: sendName;
 	const chatContent = useRef<HTMLElement>(null);
 	const readingPositions = useRef<
 		Record<
@@ -301,6 +316,7 @@ function App() {
 	const readSequence = useRef(0);
 	const agentReads = useRef<Record<number, number>>({});
 	const busyReads = useRef<Record<number, number>>({});
+	const queueReads = useRef<Record<number, number>>({});
 	const [historyErrors, setHistoryErrors] = useState<
 		Record<number, ApiError | null>
 	>({});
@@ -362,6 +378,11 @@ function App() {
 						Number(a.id.split("-")[0]) - Number(b.id.split("-")[0]) ||
 						(a.role === "user" ? -1 : 1),
 				),
+				queue:
+					previous &&
+					(older || targeted || (queueReads.current[id] ?? 0) > read)
+						? previous.queue
+						: data.queue,
 				busy:
 					previous && (older || (busyReads.current[id] ?? 0) > read)
 						? previous.busy
@@ -371,6 +392,8 @@ function App() {
 				historyLoaded: !targeted || previous?.historyLoaded === true,
 			};
 			if (!older) updateBusy(id, data.busy, read);
+			if (!older && !targeted && (queueReads.current[id] ?? 0) <= read)
+				queueReads.current[id] = read;
 			cacheRef.current = { ...cacheRef.current, [id]: next };
 			setChatCache(cacheRef.current);
 		},
@@ -407,14 +430,46 @@ function App() {
 	const [stopErrors, setStopErrors] = useState<Record<number, ApiError | null>>(
 		{},
 	);
-	const reconciliationReads = useRef(new Map<number, number>());
+	const reconciliationReads = useRef(
+		new Map<number, { submissionId: string; version?: number }>(),
+	);
+	const reconciliationRequests = useRef(new Set<number>());
 	const [reconciling, setReconciling] = useState<Set<number>>(() => new Set());
-	const confirmBusy = useCallback((id: number, read: number) => {
-		const uncertainRead = reconciliationReads.current.get(id);
-		if (uncertainRead === undefined || read <= uncertainRead) return;
-		reconciliationReads.current.delete(id);
-		setReconciling(new Set(reconciliationReads.current.keys()));
+	const clearAcceptedDraft = useCallback((id: number, version: number) => {
+		if ((draftVersions.current[id] ?? 0) !== version) return;
+		setDrafts((current) => ({ ...current, [id]: "" }));
+		setImageDrafts((current) => ({ ...current, [id]: [] }));
+		setSelectedSkills((current) => ({ ...current, [id]: [] }));
 	}, []);
+	const confirmBusy = useCallback(
+		async (id: number, _read: number) => {
+			const pending = reconciliationReads.current.get(id);
+			if (!pending || reconciliationRequests.current.has(id)) return;
+			reconciliationRequests.current.add(id);
+			try {
+				const accepted = await api(
+					`/api/chats/${id}/submissions/${pending.submissionId}`,
+					"POST",
+				);
+				if (
+					typeof accepted.agentId !== "number" &&
+					typeof accepted.queueId !== "string"
+				)
+					throw new ApiError("invalidResponse");
+				if (pending.version !== undefined)
+					clearAcceptedDraft(id, pending.version);
+				setChatErrors((current) => ({ ...current, [id]: null }));
+				reconciliationReads.current.delete(id);
+			} catch (cause) {
+				const error = appError(cause);
+				if (error.code === "notFound") reconciliationReads.current.delete(id);
+			} finally {
+				reconciliationRequests.current.delete(id);
+				setReconciling(new Set(reconciliationReads.current.keys()));
+			}
+		},
+		[clearAcceptedDraft],
+	);
 	const changeSelectedChat = useCallback((id: number | null) => {
 		const previous = selectedRef.current;
 		if (
@@ -599,10 +654,10 @@ function App() {
 			id === null ||
 			readOnly ||
 			chatState?.id !== id ||
-			chatState.busy ||
 			submissionRequests.current.has(id) ||
 			reconciliationReads.current.has(id) ||
 			optionRequests.current.has(id) ||
+			queueLocks.current.has(id) ||
 			!(drafts[id] ?? "").trim() ||
 			!modelSettings?.apiKeyConfigured ||
 			modelSettingsError !== null ||
@@ -631,20 +686,30 @@ function App() {
 		}
 		const prompt = drafts[id] ?? "";
 		const version = draftVersions.current[id] ?? 0;
+		const submissionId = crypto.randomUUID();
 		submissionRequests.current.add(id);
 		setSubmitting(new Set(submissionRequests.current));
 		setChatErrors((current) => ({ ...current, [id]: null }));
 		try {
-			const { agentId } = await api(`/api/chats/${id}`, "POST", {
+			const acceptance = await api(`/api/chats/${id}`, "POST", {
+				intent: chatState.busy ? "queue" : "send",
+				submissionId,
 				prompt,
 				...(images.length ? { images } : {}),
 				...(selectedSkills[id]?.length && {
 					skillSources: selectedSkills[id].map((skill) => skill.source),
 				}),
 			});
+			const { agentId, queueId } = acceptance;
+			if (typeof agentId !== "number" && typeof queueId !== "string")
+				throw new ApiError("invalidResponse");
 			const current = cacheRef.current[id];
 			const accepted = current?.agents.find((agent) => agent.id === agentId);
-			if (current && (!accepted || accepted.status === "pending")) {
+			if (
+				typeof agentId === "number" &&
+				current &&
+				(!accepted || accepted.status === "pending")
+			) {
 				// Establish execution ownership before releasing the submission lock.
 				updateBusy(id, true, ++readSequence.current);
 				cacheRef.current = {
@@ -653,17 +718,13 @@ function App() {
 				};
 				setChatCache(cacheRef.current);
 			}
-			void refreshAgent(id, agentId);
-			if ((draftVersions.current[id] ?? 0) === version) {
-				setDrafts((current) => ({ ...current, [id]: "" }));
-				setImageDrafts((current) => ({ ...current, [id]: [] }));
-				setSelectedSkills((current) => ({ ...current, [id]: [] }));
-			}
+			if (typeof agentId === "number") void refreshAgent(id, agentId);
+			clearAcceptedDraft(id, version);
 		} catch (cause) {
 			const error = appError(cause);
 			if (error.code === "networkFailed" || error.code === "invalidResponse") {
-				// Missing confirmation is ambiguous: keep Send locked until a newer read.
-				reconciliationReads.current.set(id, ++readSequence.current);
+				// Reconcile this identity; observing busy alone cannot confirm a queue item.
+				reconciliationReads.current.set(id, { submissionId, version });
 				setReconciling(new Set(reconciliationReads.current.keys()));
 			}
 			setChatErrors((current) => ({
@@ -676,6 +737,48 @@ function App() {
 			void refreshChat(id);
 		}
 	}
+	const [queueRequests, setQueueRequests] = useState<Set<number>>(
+		() => new Set(),
+	);
+	const queueLocks = useRef(new Set<number>());
+	async function changeQueue(id: number, queueId?: string) {
+		if (
+			queueLocks.current.has(id) ||
+			readOnly ||
+			(!queueId &&
+				(submissionRequests.current.has(id) ||
+					reconciliationReads.current.has(id)))
+		)
+			return;
+		const submissionId = crypto.randomUUID();
+		const head = cacheRef.current[id]?.queue?.[0];
+		if (!queueId && !head) return;
+		queueLocks.current.add(id);
+		setQueueRequests(new Set(queueLocks.current));
+		setChatErrors((current) => ({ ...current, [id]: null }));
+		try {
+			await api(
+				`/api/chats/${id}/queue${queueId ? `/${queueId}` : ""}`,
+				queueId ? "DELETE" : "POST",
+				queueId ? undefined : { queueId: head?.id, submissionId },
+			);
+		} catch (cause) {
+			const error = appError(cause);
+			if (
+				!queueId &&
+				(error.code === "networkFailed" || error.code === "invalidResponse")
+			) {
+				reconciliationReads.current.set(id, { submissionId });
+				setReconciling(new Set(reconciliationReads.current.keys()));
+			}
+			setChatErrors((current) => ({ ...current, [id]: error }));
+		} finally {
+			await refreshChat(id);
+			queueLocks.current.delete(id);
+			setQueueRequests(new Set(queueLocks.current));
+		}
+	}
+
 	const [collapsed, setCollapsed] = useState<Set<number>>(() => new Set());
 	const [error, setError] = useState<ApiError | null>(null);
 	const settingsDialog = useRef<HTMLDialogElement>(null);
@@ -1609,126 +1712,211 @@ function App() {
 						}}
 					/>
 				)}
-				{project && chat && !readOnly && selectedAgent === null && (
+				{project && chat && selectedAgent === null && (
 					<div className="shrink-0 border-t border-neutral-200 px-6 py-4">
-						<form className="mx-auto max-w-2xl" onSubmit={submit}>
-							<div className="rounded-2xl border border-neutral-300 bg-white p-3 focus-within:border-neutral-500">
-								<ImageAttachments
-									key={chat.id}
-									images={imageDrafts[chat.id] ?? []}
-									disabled={submitting.has(chat.id)}
-									onReading={(reading) =>
-										setReadingImages((current) => ({
-											...current,
-											[chat.id]: reading,
-										}))
-									}
-									onChange={(images) => {
-										draftVersions.current[chat.id] =
-											(draftVersions.current[chat.id] ?? 0) + 1;
-										setImageDrafts((current) => ({
-											...current,
-											[chat.id]: images,
-										}));
-									}}
-								>
-									<SkillComposer
-										key={chat.id}
-										chatId={chat.id}
-										disabled={submitting.has(chat.id)}
-										enterBehavior={enterBehavior}
-										value={drafts[chat.id] ?? ""}
-										selected={selectedSkills[chat.id] ?? []}
-										select={(skills) => {
-											draftVersions.current[chat.id] =
-												(draftVersions.current[chat.id] ?? 0) + 1;
-											setSelectedSkills((current) => ({
-												...current,
-												[chat.id]: skills,
-											}));
-										}}
-										change={(value) => {
-											draftVersions.current[chat.id] =
-												(draftVersions.current[chat.id] ?? 0) + 1;
-											setDrafts((current) => ({
-												...current,
-												[chat.id]: value,
-											}));
-										}}
-									/>
-								</ImageAttachments>
-								<div className="flex min-h-11 items-center justify-end gap-2 pt-2">
-									{options && (
-										<div className="mr-auto flex min-w-0 flex-1 flex-wrap gap-1">
-											<ChatOptionPicker
-												options={options}
-												models={modelSettings?.models ?? []}
-												change={changeChatOptions}
-												saving={savingOptions.has(chat.id)}
-												disabled={modelSettingsError !== null}
-											/>
-										</div>
-									)}
-									<button
-										type="submit"
-										aria-label={submitName}
-										title={submitName}
-										className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-										disabled={
-											readingImages[chat.id] ||
-											!(drafts[chat.id] ?? "").trim() ||
-											modelSettingsError !== null ||
-											!modelSettings?.apiKeyConfigured ||
-											!options ||
-											!validChatOptions(options, modelSettings.models) ||
-											chatState?.id !== chat.id ||
-											chatState.busy ||
-											submitting.has(chat.id) ||
-											reconciling.has(chat.id) ||
-											savingOptions.has(chat.id)
-										}
-									>
-										<svg
-											aria-hidden="true"
-											className="h-4 w-4"
-											viewBox="0 0 16 16"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="1.75"
-											strokeLinecap="round"
-											strokeLinejoin="round"
+						{!!chatState?.queue?.length && (
+							<section
+								aria-label={t("pendingQueue")}
+								className="mx-auto mb-3 max-w-2xl space-y-2"
+							>
+								<div className="flex items-center justify-between gap-2">
+									<h2 className="text-sm font-medium">
+										{t("pendingQueue")} ({chatState.queue.length})
+									</h2>
+									{!chatState.busy && !readOnly && (
+										<button
+											type="button"
+											className={button}
+											disabled={
+												queueRequests.has(chat.id) ||
+												submitting.has(chat.id) ||
+												reconciling.has(chat.id)
+											}
+											onClick={() => void changeQueue(chat.id)}
 										>
-											<path d="M8 12V4m-3.5 3.5L8 4l3.5 3.5" />
-										</svg>
-									</button>
+											{t("continueQueue")}
+										</button>
+									)}
 								</div>
-							</div>
-							{modelSettingsError && (
-								<div role="alert" className="mt-4 text-red-700">
-									{t(
-										modelSettingsError.code ===
-											"managementAuthorizationRequired"
-											? modelSettingsError.code
-											: "configurationReadFailed",
-									)}{" "}
-									<button
-										type="button"
-										className={button}
-										onClick={() => void refreshModelSettings()}
-									>
-										{t("retry")}
-									</button>
-								</div>
-							)}
-							{chatErrors[chat.id] && (
-								<p
-									role="alert"
-									className="mt-4 whitespace-pre-wrap break-words text-red-700"
-								>
-									{errorText(chatErrors[chat.id])}
+								<p className="text-xs text-neutral-600">
+									{t("queueMemoryOnly")}
 								</p>
-							)}
-						</form>
+								<ol className="max-h-48 space-y-2 overflow-y-auto">
+									{chatState.queue.map((item) => (
+										<li
+											key={item.id}
+											className="rounded-lg border border-neutral-200 p-2 text-sm"
+										>
+											<p className="whitespace-pre-wrap break-words">
+												{item.prompt}
+											</p>
+											<ImagePreviews images={item.images ?? []} />
+											{item.skillSources?.map((source) => (
+												<p
+													key={source}
+													className="break-words text-xs text-neutral-600"
+												>
+													{source}
+												</p>
+											))}
+											{item.error && (
+												<p role="alert" className="text-red-700">
+													{item.error.code
+														? errorText(
+																new ApiError(
+																	item.error.code,
+																	item.error.details,
+																),
+															)
+														: item.error.error}
+												</p>
+											)}
+											<button
+												type="button"
+												className={button}
+												disabled={readOnly || queueRequests.has(chat.id)}
+												onClick={() => void changeQueue(chat.id, item.id)}
+											>
+												{t("removeQueued")}
+											</button>
+										</li>
+									))}
+								</ol>
+							</section>
+						)}
+
+						{!readOnly && (
+							<form className="mx-auto max-w-2xl" onSubmit={submit}>
+								<div className="rounded-2xl border border-neutral-300 bg-white p-3 focus-within:border-neutral-500">
+									<ImageAttachments
+										key={chat.id}
+										images={imageDrafts[chat.id] ?? []}
+										disabled={submitting.has(chat.id)}
+										onReading={(reading) =>
+											setReadingImages((current) => ({
+												...current,
+												[chat.id]: reading,
+											}))
+										}
+										onChange={(images) => {
+											draftVersions.current[chat.id] =
+												(draftVersions.current[chat.id] ?? 0) + 1;
+											setImageDrafts((current) => ({
+												...current,
+												[chat.id]: images,
+											}));
+										}}
+									>
+										<SkillComposer
+											key={chat.id}
+											chatId={chat.id}
+											disabled={submitting.has(chat.id)}
+											enterBehavior={enterBehavior}
+											value={drafts[chat.id] ?? ""}
+											selected={selectedSkills[chat.id] ?? []}
+											select={(skills) => {
+												draftVersions.current[chat.id] =
+													(draftVersions.current[chat.id] ?? 0) + 1;
+												setSelectedSkills((current) => ({
+													...current,
+													[chat.id]: skills,
+												}));
+											}}
+											change={(value) => {
+												draftVersions.current[chat.id] =
+													(draftVersions.current[chat.id] ?? 0) + 1;
+												setDrafts((current) => ({
+													...current,
+													[chat.id]: value,
+												}));
+											}}
+										/>
+									</ImageAttachments>
+									<div className="flex min-h-11 items-center justify-end gap-2 pt-2">
+										{options && (
+											<div className="mr-auto flex min-w-0 flex-1 flex-wrap gap-1">
+												<ChatOptionPicker
+													options={options}
+													models={modelSettings?.models ?? []}
+													change={changeChatOptions}
+													saving={savingOptions.has(chat.id)}
+													disabled={modelSettingsError !== null}
+												/>
+											</div>
+										)}
+										<button
+											type="submit"
+											aria-label={submitName}
+											title={submitName}
+											className="flex h-8 min-w-8 shrink-0 items-center justify-center gap-1 rounded-full bg-neutral-950 px-2 text-white enabled:hover:bg-neutral-700 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+											disabled={
+												readingImages[chat.id] ||
+												!(drafts[chat.id] ?? "").trim() ||
+												modelSettingsError !== null ||
+												!modelSettings?.apiKeyConfigured ||
+												!options ||
+												!validChatOptions(options, modelSettings.models) ||
+												chatState?.id !== chat.id ||
+												submitting.has(chat.id) ||
+												reconciling.has(chat.id) ||
+												savingOptions.has(chat.id) ||
+												queueRequests.has(chat.id)
+											}
+										>
+											{chatState?.busy && (
+												<span className="text-sm">{t("queue")}</span>
+											)}
+											<svg
+												aria-hidden="true"
+												className="h-4 w-4"
+												viewBox="0 0 16 16"
+												fill="none"
+												stroke="currentColor"
+												strokeWidth="1.75"
+												strokeLinecap="round"
+												strokeLinejoin="round"
+											>
+												<path d="M8 12V4m-3.5 3.5L8 4l3.5 3.5" />
+											</svg>
+										</button>
+									</div>
+								</div>
+								{modelSettingsError && (
+									<div role="alert" className="mt-4 text-red-700">
+										{t(
+											modelSettingsError.code ===
+												"managementAuthorizationRequired"
+												? modelSettingsError.code
+												: "configurationReadFailed",
+										)}{" "}
+										<button
+											type="button"
+											className={button}
+											onClick={() => void refreshModelSettings()}
+										>
+											{t("retry")}
+										</button>
+									</div>
+								)}
+								{chatErrors[chat.id] && (
+									<p
+										role="alert"
+										className="mt-4 whitespace-pre-wrap break-words text-red-700"
+									>
+										{errorText(chatErrors[chat.id])}
+										{reconciling.has(chat.id) && (
+											<button
+												type="button"
+												className={button}
+												onClick={() => void refreshChat(chat.id)}
+											>
+												{t("retry")}
+											</button>
+										)}
+									</p>
+								)}
+							</form>
+						)}
 					</div>
 				)}
 			</div>

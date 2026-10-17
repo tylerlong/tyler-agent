@@ -116,8 +116,8 @@ test("pending submission stays in original chat and does not clear later drafts 
 	await pending.entered;
 	await expect(other.getByRole("log")).toContainText("Working");
 	await expect(
-		other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-	).toBeDisabled();
+		other.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+	).toBeEnabled();
 	await expect(
 		page
 			.getByRole("listitem")

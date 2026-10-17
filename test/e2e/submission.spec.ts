@@ -1,7 +1,7 @@
 import { frame } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
-test("ambiguous acknowledgement keeps Send disabled while busy reconciliation is delayed", async ({
+test("ambiguous acknowledgement stays locked until its identity is confirmed", async ({
 	page,
 	app,
 }) => {
@@ -52,16 +52,21 @@ test("ambiguous acknowledgement keeps Send disabled while busy reconciliation is
 			await route.continue();
 		} else await route.continue();
 	});
+	await page.route(`**/api/chats/${chat.id}/submissions/*`, async (route) => {
+		await readGate;
+		await route.continue();
+	});
 	await send.click();
 	await held.entered;
 	await reading;
 	await expect(page.getByRole("alert")).toBeVisible();
 	await expect(prompt).toBeEditable();
 	await expect(prompt).toHaveValue("Preserve ambiguous draft");
-	await expect(send).toBeDisabled();
+	await expect(page.locator("button[type=submit][aria-label]")).toBeDisabled();
 	releaseRead();
 	await expect(page.getByRole("log")).toContainText("Preserve ambiguous draft");
-	await expect(send).toBeDisabled();
+	await expect(prompt).toHaveValue("");
+	await expect(page.locator("button[type=submit][aria-label]")).toBeDisabled();
 	held.release();
 	await expect
 		.poll(
@@ -75,8 +80,8 @@ test("ambiguous acknowledgement keeps Send disabled while busy reconciliation is
 		.toBe(false);
 	await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 	await expect(page.getByRole("log")).toContainText("Test answer");
-	await expect(send).toBeEnabled();
-	await expect(prompt).toHaveValue("Preserve ambiguous draft");
+	await expect(page.locator("button[type=submit][aria-label]")).toBeDisabled();
+	await expect(prompt).toHaveValue("");
 	expect(posts).toBe(1);
 });
 
@@ -120,15 +125,14 @@ for (const outcome of ["success", "failure"] as const) {
 		await expect(page.getByRole("log")).toContainText("Accepted question");
 		await expect(prompt).toBeDisabled();
 		await expect(prompt).toHaveValue("Accepted question");
-		await expect(send).toBeDisabled();
+		await expect(
+			page.locator("button[type=submit][aria-label]"),
+		).toBeDisabled();
 		release();
 		await expect(prompt).toBeEditable();
 		await expect(prompt).toHaveValue("");
 		await prompt.fill("Next local draft");
-		await expect(send).toBeDisabled();
-		await prompt.evaluate((input: HTMLTextAreaElement) =>
-			input.form?.requestSubmit(),
-		);
+		await expect(page.getByRole("button", { name: /^Queue/ })).toBeEnabled();
 		expect(posts).toBe(1);
 		if (outcome === "success")
 			stream.push(
@@ -182,6 +186,14 @@ for (const failure of ["rejection", "network"] as const) {
 		const prompt = page.getByLabel("Prompt", { exact: true });
 		const send = page.getByRole("button", { name: /^Send(?: \(.+\))?$/ });
 		let posts = 0;
+		let releaseLookup!: () => void;
+		const lookupGate = new Promise<void>((resolve) => {
+			releaseLookup = resolve;
+		});
+		await page.route(`**/api/chats/${chat.id}/submissions/*`, async (route) => {
+			await lookupGate;
+			await route.continue();
+		});
 		const held = failure === "network" ? app.holdModel() : undefined;
 		await page.route(`**/api/chats/${chat.id}`, async (route) => {
 			if (route.request().method() !== "POST") return route.continue();
@@ -202,16 +214,19 @@ for (const failure of ["rejection", "network"] as const) {
 		await expect(prompt).toBeEditable();
 		await expect(page.getByRole("alert")).toBeVisible();
 		await expect(prompt).toHaveValue("Keep this draft");
+		releaseLookup();
 		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
 		if (held) {
 			await held.entered;
 			await expect(page.getByRole("log")).toContainText("Keep this draft");
-			await expect(send).toBeDisabled();
+			await expect(prompt).toHaveValue("");
 			held.release();
 			await expect(page.getByRole("log")).toContainText("Test answer");
 		} else await expect(page.getByRole("log")).toBeEmpty();
-		await expect(send).toBeEnabled();
-		await expect(prompt).toHaveValue("Keep this draft");
+		await expect(send).toBeEnabled({ enabled: failure === "rejection" });
+		await expect(prompt).toHaveValue(
+			failure === "rejection" ? "Keep this draft" : "",
+		);
 		expect(posts).toBe(1);
 	});
 }
@@ -248,7 +263,7 @@ test("terminal event before acknowledgement cannot leave Send disabled", async (
 	await send.click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await expect(prompt).toBeDisabled();
-	await expect(send).toBeDisabled();
+	await expect(page.locator("button[type=submit][aria-label]")).toBeDisabled();
 	release();
 	await expect(prompt).toBeEditable();
 	await expect(prompt).toHaveValue("");
