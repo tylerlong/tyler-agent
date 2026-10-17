@@ -254,10 +254,8 @@ export function createServer(
 		error?: ReturnType<typeof caughtError>;
 	};
 	const queues = new Map<number, QueuedInput[]>();
-	const submissions = new Map<
-		number,
-		Map<string, { agentId: number } | { queueId: string }>
-	>();
+	type SubmissionAcceptance = { agentId: number } | { queueId: string };
+	const submissions = new Map<number, Map<string, SubmissionAcceptance>>();
 	const rejectedSubmissions = new Map<number, Set<string>>();
 	const unsavedAgents = new Set<number>();
 	const unsavedCalls = new Set<number>();
@@ -1926,6 +1924,35 @@ export function createServer(
 		}
 	};
 
+	const replyToKnownSubmission = (
+		response: ServerResponse,
+		chatId: number,
+		identity: unknown,
+	) => {
+		if (identity === undefined) return false;
+		if (typeof identity !== "string" || !identity || identity.includes("\0"))
+			throw new InputError("invalidInput");
+		if (rejectedSubmissions.get(chatId)?.has(identity)) {
+			json(response, 409, errorBody("notFound"));
+			return true;
+		}
+		const previous = submissions.get(chatId)?.get(identity);
+		if (!previous) return false;
+		json(response, 202, previous);
+		return true;
+	};
+	const rememberSubmission = (
+		chatId: number,
+		identity: unknown,
+		accepted: SubmissionAcceptance,
+	) => {
+		if (typeof identity !== "string") return;
+		const records =
+			submissions.get(chatId) ?? new Map<string, SubmissionAcceptance>();
+		records.set(identity, accepted);
+		submissions.set(chatId, records);
+	};
+
 	const server = createHttpServer(async (request, response) => {
 		const host = request.headers.host;
 		// Only canonical loopback aliases and this listener's actual port are valid.
@@ -2835,28 +2862,7 @@ export function createServer(
 					notifyChange();
 				} else if (request.method === "POST" && !queueRoute[2]) {
 					const input = await readJson(request);
-					if (
-						input.submissionId !== undefined &&
-						(typeof input.submissionId !== "string" ||
-							!input.submissionId ||
-							input.submissionId.includes("\0"))
-					)
-						throw new InputError("invalidInput");
-					if (
-						typeof input.submissionId === "string" &&
-						rejectedSubmissions.get(id)?.has(input.submissionId)
-					) {
-						json(response, 409, errorBody("notFound"));
-						return;
-					}
-					const previous =
-						typeof input.submissionId === "string"
-							? submissions.get(id)?.get(input.submissionId)
-							: undefined;
-					if (previous) {
-						json(response, 202, previous);
-						return;
-					}
+					if (replyToKnownSubmission(response, id, input.submissionId)) return;
 					assertChatWritable(id);
 					if (busy.has(id)) {
 						json(response, 409, errorBody("chatBusy"));
@@ -2870,11 +2876,7 @@ export function createServer(
 						return;
 					}
 					const accepted = advanceQueue(id);
-					if (accepted && typeof input.submissionId === "string") {
-						const records = submissions.get(id) ?? new Map();
-						records.set(input.submissionId, accepted);
-						submissions.set(id, records);
-					}
+					if (accepted) rememberSubmission(id, input.submissionId, accepted);
 					json(
 						response,
 						accepted ? 202 : 404,
@@ -3029,28 +3031,7 @@ export function createServer(
 			}
 			try {
 				const input = await readJson(request);
-				if (
-					input.submissionId !== undefined &&
-					(typeof input.submissionId !== "string" ||
-						!input.submissionId ||
-						input.submissionId.includes("\0"))
-				)
-					throw new InputError("invalidInput");
-				if (
-					typeof input.submissionId === "string" &&
-					rejectedSubmissions.get(id)?.has(input.submissionId)
-				) {
-					json(response, 409, errorBody("notFound"));
-					return;
-				}
-				const previous =
-					typeof input.submissionId === "string"
-						? submissions.get(id)?.get(input.submissionId)
-						: undefined;
-				if (previous) {
-					json(response, 202, previous);
-					return;
-				}
+				if (replyToKnownSubmission(response, id, input.submissionId)) return;
 				if (
 					input.intent !== undefined &&
 					input.intent !== "send" &&
@@ -3080,7 +3061,7 @@ export function createServer(
 					images,
 					skillSources: [...new Set((input.skillSources ?? []) as string[])],
 				};
-				let accepted: { agentId: number } | { queueId: string };
+				let accepted: SubmissionAcceptance;
 				if (busy.has(id)) {
 					if (input.intent !== "queue") {
 						json(response, 409, errorBody("chatBusy"));
@@ -3092,11 +3073,7 @@ export function createServer(
 					queues.set(id, queue);
 					accepted = { queueId: item.id };
 				} else accepted = createRoot(id, item);
-				if (typeof input.submissionId === "string") {
-					const records = submissions.get(id) ?? new Map();
-					records.set(input.submissionId, accepted);
-					submissions.set(id, records);
-				}
+				rememberSubmission(id, input.submissionId, accepted);
 				json(response, 202, accepted);
 				notifyChange();
 			} catch (error) {
