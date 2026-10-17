@@ -72,7 +72,13 @@ test("model and effort choices save immediately while busy and persist across re
 		);
 		await peer.reload();
 		await expectModel(peer, "second");
-		expect(submitted).toEqual([{ prompt: "First question" }]);
+		expect(submitted).toEqual([
+			{
+				prompt: "First question",
+				intent: "send",
+				submissionId: expect.any(String),
+			},
+		]);
 	} finally {
 		hold.release();
 	}
