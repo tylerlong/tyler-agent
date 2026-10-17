@@ -41,7 +41,9 @@ test("two pages share activity, busy and history while keeping selections, folds
 	await submit(page).click();
 	await first.entered;
 	for (const p of [page, other]) {
-		await expect(submit(p)).toBeDisabled();
+		await expect(
+			p.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+		).toBeEnabled({ enabled: p === other });
 		await expect(nav(p).getByRole("heading").first()).toHaveText("Work");
 		await expect(
 			nav(p)
@@ -92,7 +94,9 @@ test("two pages share activity, busy and history while keeping selections, folds
 	await expect(submit(other)).toBeEnabled();
 	await expect(page.getByRole("log")).toContainText("alpha question");
 	await expect(page.getByRole("log")).toContainText("Working");
-	await expect(submit(page)).toBeDisabled();
+	await expect(
+		page.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+	).toBeEnabled();
 	first.release();
 	await expect(page.getByRole("log")).toContainText("alpha question");
 	await expect(submit(page)).toBeEnabled();

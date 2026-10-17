@@ -180,7 +180,7 @@ test("passive updates follow only at bottom and submitting follows pending and e
 			.poll(async () => (await scrollState(content)).bottom)
 			.toBeLessThan(2);
 		await expect(
-			page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
+			page.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
 		).toBeDisabled();
 		await page
 			.getByRole("log")

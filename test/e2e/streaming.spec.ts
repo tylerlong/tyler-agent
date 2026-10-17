@@ -32,8 +32,8 @@ test("two pages show saved answer increments before completion using targeted ag
 		await expect(browserPage.getByRole("log")).toContainText("Test ");
 		await expect(browserPage.getByRole("log")).not.toContainText("Test answer");
 		await expect(
-			browserPage.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-		).toBeDisabled();
+			browserPage.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+		).toBeEnabled({ enabled: browserPage === other });
 	}
 	const reads: string[] = [];
 	other.on("request", (request) => {
@@ -58,8 +58,8 @@ test("two pages show saved answer increments before completion using targeted ag
 		"continue after closing this page",
 	);
 	await expect(
-		other.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-	).toBeDisabled();
+		other.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+	).toBeEnabled();
 	await page.close();
 	closingStream.release();
 	await expect(

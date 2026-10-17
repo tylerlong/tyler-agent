@@ -166,7 +166,14 @@ test("skill picker distinguishes sources, filters and selects without submitting
 	await expect(prompt).toHaveValue("Do work ");
 	await expect(selections).toContainText(join(projectSkill, "SKILL.md"));
 	expect(posts).toEqual([
-		{ prompt: "Do work ", skillSources: [join(projectSkill, "SKILL.md")] },
+		{
+			prompt: "Do work ",
+			skillSources: [join(projectSkill, "SKILL.md")],
+			intent: "send",
+			submissionId: expect.stringMatching(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			),
+		},
 	]);
 	await page.unroute(`**/api/chats/${chat.id}`);
 	await send.click();
