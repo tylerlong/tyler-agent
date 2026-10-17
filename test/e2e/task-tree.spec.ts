@@ -488,7 +488,7 @@ for (const language of ["en", "zh-CN"]) {
 			if (archived) await expect(page.getByRole("textbox")).toHaveCount(0);
 			else
 				await expect(
-					page.getByRole("button", { name: /^(Send|发送)/ }),
+					page.getByRole("button", { name: /^(Queue|排队)/ }),
 				).toBeDisabled();
 			await page.request.post(
 				`${app.url}/api/agents/${accepted.agentId}/cancel`,

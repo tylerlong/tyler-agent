@@ -61,8 +61,8 @@ test("model and effort choices save immediately while busy and persist across re
 		await expect(chatPicker(page)).not.toContainText(" · ");
 		await page.getByLabel("Prompt", { exact: true }).fill("Next draft");
 		await expect(
-			page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-		).toBeDisabled();
+			page.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+		).toBeEnabled();
 		await page.getByRole("button", { name: "Other", exact: true }).click();
 		await expectModel(page, "test");
 		await page.getByRole("button", { name: /^First/ }).click();

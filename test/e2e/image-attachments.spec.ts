@@ -67,6 +67,10 @@ test("uploaded and pasted images preview, remove, submit and persist in history 
 	await page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }).click();
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	expect(submitted).toEqual({
+		intent: "send",
+		submissionId: expect.stringMatching(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		),
 		prompt: "Describe this image",
 		images: [
 			{ type: "input_image", image_url: `data:image/png;base64,${png}` },

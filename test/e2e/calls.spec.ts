@@ -346,8 +346,8 @@ test("provisional content stays lazy, updates live, retains cached reads and cop
 	await expect(response.locator("pre")).toContainText('"text": "early later"');
 	await page.getByLabel("Prompt").fill("next draft");
 	await expect(
-		page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-	).toBeDisabled();
+		page.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+	).toBeEnabled();
 	await response.locator("summary").click();
 	await page.getByRole("button", { name: "Other", exact: true }).click();
 	const hidden = frame("response.output_text.delta", {

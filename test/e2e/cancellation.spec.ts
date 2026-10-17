@@ -47,8 +47,8 @@ for (const archived of [false, true]) {
 		await expect(stop).toBeDisabled();
 		if (!archived)
 			await expect(
-				page.getByRole("button", { name: /^Send(?: \(.+\))?$/ }),
-			).toBeDisabled();
+				page.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+			).toBeEnabled();
 		release();
 		await expect(page.getByRole("log")).toContainText("Agent cancelled.");
 		await expect(stop).toHaveCount(0);

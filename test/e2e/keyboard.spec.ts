@@ -23,11 +23,23 @@ test("Enter sends once by default and the persisted newline preference keeps bot
 	await prompt.press("Enter");
 	await held.entered;
 	await expect(
-		page.getByRole("button", { name: "Send (Enter)", exact: true }),
+		page.getByRole("button", { name: "Queue (Enter)", exact: true }),
 	).toBeDisabled();
 	await prompt.fill("next");
 	await prompt.press("Enter");
+	await expect(
+		page.getByRole("region", { name: "Pending queue" }),
+	).toContainText("next");
+	await expect(prompt).toHaveValue("");
 	held.release();
+	await expect(page.getByRole("region", { name: "Pending queue" })).toHaveCount(
+		0,
+	);
+	await expect(page.getByRole("log")).toContainText("next");
+	await expect(
+		page.getByRole("button", { name: "Send (Enter)", exact: true }),
+	).toBeDisabled();
+	await prompt.fill("next");
 	await expect(
 		page.getByRole("button", { name: "Send (Enter)", exact: true }),
 	).toBeEnabled();
@@ -166,13 +178,28 @@ for (const [platform, primary, wrong] of [
 		const held = app.holdModel();
 		await prompt.press(`${primary}+Enter`);
 		await held.entered;
-		await expect(send).toBeDisabled();
-		await prompt.fill("next local draft");
-		await prompt.press(`${primary}+Enter`);
-		expect(posts).toBe(1);
-		held.release();
-		await expect(send).toBeEnabled();
-		await expect(prompt).toHaveValue("next local draft");
+		try {
+			await expect(prompt).toHaveValue("");
+			await expect(
+				page.getByRole("button", {
+					name:
+						platform === "MacIntel" ? "Queue (⌘+Enter)" : "Queue (Ctrl+Enter)",
+					exact: true,
+				}),
+			).toBeDisabled();
+			await prompt.fill("next local draft");
+			await prompt.press(`${primary}+Enter`);
+			await expect(
+				page.getByRole("region", { name: "Pending queue" }),
+			).toContainText("next local draft");
+			expect(posts).toBe(2);
+			await expect(prompt).toHaveValue("");
+			held.release();
+			await expect(send).toBeDisabled();
+			await expect(page.getByRole("log")).toContainText("next local draft");
+		} finally {
+			held.release();
+		}
 	});
 }
 

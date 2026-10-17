@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { completedBody, frame } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
-test("a tool agent retains output and exposes both communications while Send stays busy", async ({
+test("a tool agent retains output and exposes both communications while the chat stays busy", async ({
 	page,
 	context,
 	app,
@@ -82,7 +82,9 @@ test("a tool agent retains output and exposes both communications while Send sta
 		.toBe(2);
 	await continuation.entered;
 	await page.getByLabel("Prompt").fill("next draft");
-	await expect(send).toBeDisabled();
+	await expect(
+		page.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+	).toBeEnabled();
 	await expect(log.getByRole("button", { name: /Reasoning/ })).toHaveAttribute(
 		"aria-expanded",
 		"false",
@@ -207,7 +209,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await expect(inspect.getByRole("status")).toHaveCount(2);
 	await expect(cards.nth(1).locator("summary")).toContainText("Waiting");
 	await expect(cards.nth(2).locator("summary")).toContainText("Waiting");
-	await expect(page.getByRole("button", { name: /^Send/ })).toBeDisabled();
+	await expect(page.getByRole("button", { name: /^Queue/ })).toBeDisabled();
 	await inspect.locator("summary").click();
 	await expect(inspect).not.toHaveAttribute("open");
 	success.release();

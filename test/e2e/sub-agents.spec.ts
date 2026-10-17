@@ -94,7 +94,9 @@ test("parallel delegation exposes complete creation cards and preserves root his
 		await expect(cards.nth(index)).toContainText('"status": "pending"');
 	}
 	await page.getByLabel("Prompt").fill("next request");
-	await expect(send).toBeDisabled();
+	await expect(
+		page.getByRole("button", { name: /^Queue(?: \(.+\))?$/ }),
+	).toBeEnabled();
 	const afterEvents = app.rawStreamModel();
 	first.push(completedBody({ output: [answer("3")] }));
 	first.end();
