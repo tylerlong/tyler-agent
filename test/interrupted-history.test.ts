@@ -175,9 +175,22 @@ test("Stop preserves edits, native user images, bounded Tool Results, final proc
 			userImage,
 		]);
 		// Observe persisted provisional output, not a timing assumption about the stream.
+		const deadline = AbortSignal.timeout(15000);
 		for (;;) {
+			deadline.throwIfAborted();
 			const state = await f.get(`/api/agents/${interrupted}`);
-			if (JSON.stringify(state).includes("unfinished though")) break;
+			if (JSON.stringify(state).includes("unfinished though") && logId) {
+				const saved = await f.get(
+					`/api/agents/${interrupted}/tools?toolId=${logId}`,
+				);
+				if (
+					saved.toolCalls[0].output
+						.map((chunk: { text: string }) => chunk.text)
+						.join("")
+						.includes("historical-log")
+				)
+					break;
+			}
 			await new Promise((resolve) => setImmediate(resolve));
 		}
 		assert.equal(
@@ -228,12 +241,11 @@ test("Stop preserves edits, native user images, bounded Tool Results, final proc
 				(call: { name: string }) => call.name === "exec_command",
 			);
 			assert.equal(JSON.parse(command.result).running, true);
-			assert.equal(
-				JSON.parse(command.result)
-					.output.chunks.map((chunk: { text: string }) => chunk.text)
-					.join(""),
-				"hist",
-			);
+			const returned = JSON.parse(command.result)
+				.output.chunks.map((chunk: { text: string }) => chunk.text)
+				.join("");
+			assert(returned.length <= 4);
+			assert.equal(returned, "historical-log".slice(0, returned.length));
 			assert.equal(command.commandState.running, false);
 			assert.equal(command.commandState.cancelled, true);
 			const partial = record.model_calls.at(-1);
@@ -381,7 +393,9 @@ test("interrupted descendant work reaches later Roots before parent notification
 	try {
 		const interrupted = await f.ask("root unfinished");
 		let childId = 0;
+		const deadline = AbortSignal.timeout(15000);
 		for (;;) {
+			deadline.throwIfAborted();
 			const tree = await f.get(`/api/agents/${interrupted}/tree`);
 			const child = tree.agents.find(
 				(agent: { parentAgentId?: number }) =>

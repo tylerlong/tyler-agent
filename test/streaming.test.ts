@@ -268,7 +268,7 @@ test("two clients read committed ordered UTF-8 increments before protocol comple
 	}
 });
 
-test("failed, incomplete, DONE and truncated streams retain partial data and stay out of future context without retries", async () => {
+test("failed, incomplete, DONE and truncated streams retain marked partial history without retries", async () => {
 	let raw = "";
 	const inputs: unknown[] = [];
 	const f = await fixture(async (_url, options) => {
@@ -341,7 +341,21 @@ test("failed, incomplete, DONE and truncated streams retain partial data and sta
 				"succeeded",
 			);
 		}
-		assert.deepEqual(inputs.at(-1), [
+		const lastInput = inputs.at(-1) as { role: string; content: string }[];
+		assert.equal(lastInput.length, 13);
+		for (let index = 0; index < 10; index += 2) {
+			assert.deepEqual(lastInput[index], {
+				role: "user",
+				content: "failed question",
+			});
+			assert.match(
+				lastInput[index + 1].content,
+				/Historical interrupted task records:/,
+			);
+			assert.match(lastInput[index + 1].content, /"provisional":true/);
+			assert.match(lastInput[index + 1].content, /partial/);
+		}
+		assert.deepEqual(lastInput.slice(-3), [
 			{ role: "user", content: "success" },
 			{ role: "assistant", content: "saved" },
 			{ role: "user", content: "followup" },
