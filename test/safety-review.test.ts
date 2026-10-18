@@ -103,6 +103,7 @@ async function fixture(model: typeof fetch, execute?: ToolExecutor) {
 	});
 	return {
 		request,
+		chatId: chat.id,
 		databasePath: path,
 		raw: (body: unknown) =>
 			localFetch(`${base}/api/safety-review`, {
@@ -378,42 +379,84 @@ test("live model-call limit stops reviews part way through a tool list without f
 	}
 });
 
-test("Stop cancels a pending review and a late allow cannot start its tool", async () => {
-	const entered = gate();
-	const late = gate();
-	const aborted = gate();
-	let executed = 0;
-	let signal: AbortSignal | null | undefined;
-	const f = await fixture(
-		async (url, init) => {
-			if (String(url) !== decisionUrl) return tools();
-			signal = init?.signal;
-			signal?.addEventListener("abort", aborted.release, { once: true });
-			entered.release();
-			await late.promise;
-			return decision();
-		},
-		async () => {
-			executed++;
-			return { status: "succeeded", result: "done" };
-		},
-	);
-	try {
-		const id = await f.ask();
-		await entered.promise;
-		const cancelled = f.request(`/api/agents/${id}/cancel`, "POST", {});
-		await aborted.promise;
-		assert.equal(signal?.aborted, true);
-		late.release();
-		await cancelled;
-		assert.equal((await f.wait(id)).status, "cancelled");
-		assert.equal(executed, 0);
-		assert.equal((await f.request(`/api/agents/${id}/calls`)).calls.length, 2);
-	} finally {
-		late.release();
-		await f.close();
-	}
-});
+for (const action of ["Stop", "Steer", "restart"] as const) {
+	test(`${action} cancels a pending review and a late allow cannot execute or replay its tool`, async () => {
+		const entered = gate();
+		const late = gate();
+		const aborted = gate();
+		let executed = 0;
+		let requests = 0;
+		let signal: AbortSignal | null | undefined;
+		const f = await fixture(
+			async (url, init) => {
+				requests++;
+				if (String(url) !== decisionUrl) {
+					assert.equal(String(url), "https://openrouter.ai/api/v1/responses");
+					return requests === 1 ? tools() : answer();
+				}
+				signal = init?.signal;
+				signal?.addEventListener("abort", aborted.release, { once: true });
+				entered.release();
+				await late.promise;
+				return decision();
+			},
+			async () => {
+				executed++;
+				return { status: "succeeded", result: "done" };
+			},
+		);
+		try {
+			const id = await f.ask();
+			await entered.promise;
+			const cancelled =
+				action === "restart"
+					? f.restart()
+					: action === "Steer"
+						? f.request(`/api/chats/${f.chatId}`, "POST", {
+								prompt: "replacement",
+								intent: "steer",
+								targetAgentId: id,
+								submissionId: "held-review-steer",
+							})
+						: f.request(`/api/agents/${id}/cancel`, "POST", {});
+			await aborted.promise;
+			assert.equal(signal?.aborted, true);
+			late.release();
+			const replacement = await cancelled;
+			const stopped = await f.wait(id);
+			assert.equal(
+				stopped.status,
+				action === "restart" ? "failed" : "cancelled",
+			);
+			if (action === "restart")
+				assert.equal(stopped.errorCode, "agentInterrupted");
+			if (action === "Steer") {
+				assert.equal((await f.wait(replacement.agentId)).status, "succeeded");
+			}
+			assert.equal(executed, 0);
+			const calls = (await f.request(`/api/agents/${id}/calls`)).calls;
+			assert.equal(calls.length, 2);
+			assert.deepEqual(
+				calls.map((call: { status: string }) => call.status),
+				["succeeded", "failed"],
+			);
+			assert.equal(
+				calls[1].errorCode,
+				action === "restart" ? "modelInterrupted" : "agentCancelled",
+			);
+			const savedTools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
+			assert.equal(savedTools.length, 1);
+			assert.equal(savedTools[0].status, "interrupted");
+			const beforeRestart = requests;
+			await f.restart();
+			assert.equal(requests, beforeRestart);
+			assert.equal(executed, 0);
+		} finally {
+			late.release();
+			await f.close();
+		}
+	});
+}
 
 test("a settings change affects the next tool while an in-flight review retains its starting state", async () => {
 	const entered = gate();

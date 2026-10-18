@@ -7,9 +7,10 @@ import { test } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import type { ToolExecutor } from "../src/file-tools.ts";
 import { jiraMcpService } from "../src/mcp-config.ts";
+import { createServer as createProductionServer } from "../src/server.ts";
 import { waitForAgent } from "./agent-fixture.ts";
-import { createTestServer } from "./config-fixture.ts";
-import { localFetch as fetch } from "./local-fetch.ts";
+import { configureDatabase, createTestServer } from "./config-fixture.ts";
+import { localFetch as fetch, managementTokens } from "./local-fetch.ts";
 import { completedBody, completedResponse, frame } from "./model-fixture.ts";
 
 const message = (text: string) => ({
@@ -2354,5 +2355,161 @@ test("Root submission masks configured env values without changing active execut
 	} finally {
 		releaseRoot.release();
 		await f.close();
+	}
+});
+
+test("Sub-agent failed reviews consume only its own model-call budget while parent and sibling continue", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "child-review-budget-"));
+	const path = join(directory, "db.sqlite");
+	configureDatabase(path, "mock-key", "mock-model");
+	const db = new DatabaseSync(path);
+	db.prepare("UPDATE settings SET model_call_limit=6 WHERE id=1").run();
+	db.close();
+	const taskRequests = new Map<string, number>();
+	const reviews = new Map<string, number>();
+	const executed: string[] = [];
+	const read = (owner: string, index: number) => ({
+		type: "function_call",
+		name: "read_file",
+		call_id: `${owner}-${index}`,
+		arguments: JSON.stringify({ path: `/${owner}-${index}` }),
+	});
+	const model: typeof fetch = async (url, init) => {
+		const request = JSON.parse(String(init?.body));
+		if (String(url) === "https://openrouter.ai/api/alpha/decisions") {
+			const operation = request.state;
+			const owner =
+				operation.name === "create_sub_agent"
+					? "parent"
+					: operation.arguments.path.split("-")[0].slice(1);
+			const count = (reviews.get(owner) ?? 0) + 1;
+			reviews.set(owner, count);
+			if (owner === "limited" && count === 2)
+				return Response.json(
+					{ error: { message: "controlled failed child review" } },
+					{ status: 503 },
+				);
+			return Response.json({
+				answers: { safety: { type: "choice", choice: "allow" } },
+			});
+		}
+		assert.equal(String(url), "https://openrouter.ai/api/v1/responses");
+		const owner = userPrompt(request.input) as string;
+		const count = (taskRequests.get(owner) ?? 0) + 1;
+		taskRequests.set(owner, count);
+		if (owner === "parent" && count === 1)
+			return completedResponse({
+				output: [
+					childTool({ prompt: "limited" }, "limited"),
+					childTool({ prompt: "sibling" }, "sibling"),
+				],
+			});
+		if (owner === "limited") {
+			assert.equal(
+				count,
+				1,
+				"exhausted child cannot send another task request",
+			);
+			return completedResponse({
+				output: Array.from({ length: 6 }, (_, index) => read(owner, index)),
+			});
+		}
+		if (owner === "sibling" && count === 1)
+			return completedResponse({ output: [read(owner, 0)] });
+		return completedResponse({ output: [message(`${owner} finished`)] });
+	};
+	const server = createProductionServer(
+		model,
+		path,
+		undefined,
+		async (_name, args) => {
+			executed.push(JSON.parse(args).path);
+			return { status: "succeeded", result: "controlled read" };
+		},
+		undefined,
+		join(directory, "empty-user-home"),
+	).listen(0, "127.0.0.1");
+	await new Promise<void>((resolve) => server.once("listening", resolve));
+	const address = server.address();
+	assert(address && typeof address !== "string");
+	const base = `http://127.0.0.1:${address.port}`;
+	managementTokens.set(base, server.managementToken);
+	const request = async (route: string, body?: unknown) => {
+		const response = await fetch(
+			base + route,
+			body === undefined
+				? undefined
+				: { method: "POST", body: JSON.stringify(body) },
+		);
+		assert(response.ok, `${route}: ${response.status}`);
+		return response.json();
+	};
+	try {
+		const project = await request("/api/projects", { name: "P", folders: [] });
+		const chat = await request(`/api/projects/${project.id}/chats`, {
+			name: "C",
+		});
+		const root = await request(`/api/chats/${chat.id}`, { prompt: "parent" });
+		const parent = await waitForAgent(base, root.agentId);
+		assert.equal(parent.status, "succeeded");
+		const rootTools = (await request(`/api/agents/${root.agentId}`)).agents[0]
+			.toolCalls;
+		assert.equal(rootTools.length, 2);
+		const limited = (await request(`/api/agents/${rootTools[0].child.id}`))
+			.agents[0];
+		const sibling = (await request(`/api/agents/${rootTools[1].child.id}`))
+			.agents[0];
+		assert(limited && sibling);
+		assert.equal(limited.status, "failed");
+		assert.equal(limited.errorCode, "modelCallLimit");
+		assert.equal(sibling.status, "succeeded");
+		const limitedCalls = (await request(`/api/agents/${limited.id}/calls`))
+			.calls;
+		assert.equal(limitedCalls.length, 6);
+		assert.deepEqual(
+			limitedCalls.map((call: { status: string }) => call.status),
+			[
+				"succeeded",
+				"succeeded",
+				"failed",
+				"succeeded",
+				"succeeded",
+				"succeeded",
+			],
+		);
+		assert.equal(reviews.get("limited"), 5);
+		assert.equal(taskRequests.get("limited"), 1);
+		assert.equal(reviews.get("parent"), 2);
+		assert.equal(
+			(await request(`/api/agents/${root.agentId}/calls`)).calls.length,
+			(taskRequests.get("parent") ?? 0) + 2,
+		);
+		assert.equal(reviews.get("sibling"), 1);
+		assert.equal(
+			(await request(`/api/agents/${sibling.id}/calls`)).calls.length,
+			3,
+		);
+		assert.deepEqual(
+			executed.filter((path) => path.startsWith("/limited")),
+			["/limited-0", "/limited-2", "/limited-3", "/limited-4"],
+		);
+		assert(executed.includes("/sibling-0"));
+		const tools = (await request(`/api/agents/${limited.id}/tools`)).toolCalls;
+		assert.deepEqual(
+			tools.map((tool: { status: string }) => tool.status),
+			[
+				"succeeded",
+				"failed",
+				"succeeded",
+				"succeeded",
+				"succeeded",
+				"interrupted",
+			],
+		);
+	} finally {
+		server.closeAllConnections();
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+		managementTokens.delete(base);
+		await rm(directory, { recursive: true, force: true });
 	}
 });
