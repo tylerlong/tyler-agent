@@ -415,7 +415,7 @@ test("remote continuation failure retains saved prior and partial output without
 	}
 });
 
-test("each tool and subsequent Model Call reads current scope and credentials", {
+test("folder context and credentials refresh without restricting full-access tool reads", {
 	skip: process.platform !== "darwin",
 }, async () => {
 	const base = await mkdtemp(join(tmpdir(), "tool-capture-"));
@@ -452,10 +452,7 @@ test("each tool and subsequent Model Call reads current scope and credentials", 
 					]),
 				);
 			}
-			assert.match(
-				JSON.parse(body.input.at(-1).output).error,
-				/Operation not permitted|denied/i,
-			);
+			assert.equal(JSON.parse(body.input.at(-1).output).text, "keep");
 			assert.match(JSON.stringify(body.input), /tool-secret/);
 			return new Response(
 				completed([message("tool-secret changed-secret captured")]),
