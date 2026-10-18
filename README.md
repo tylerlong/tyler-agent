@@ -48,6 +48,14 @@ Commands use the native unsandboxed execution path. The model starts and checks 
 
 Sessions, profiles and connections retain upstream behavior. Ordinary commands retain the normal user `HOME`. The `playwright-cli` wrapper alone sets `HOME` to Agent scratch so CLI daemon state, caches and temporary browser profiles remain independent; scratch also supplies temporary files and `XDG_CACHE_HOME`. The model should close its browser with `playwright-cli close` (or `-s=<name> close` for a named session); upstream detached browsers may outlive the launching command and retain their normal idle timeout. No Chat lifetime policy or personal browser takeover is added. [Compatibility and validation](docs/browser-tools.md) records the actual tested boundary.
 
+## Reading local text
+
+`read_file` reads complete lines as the current system user, with the same Full Access and global safety review as other tools. Pass an absolute `path`; `start_line` is a positive safe integer (default 1), and `max_lines` is a positive safe integer (default 2,000). Old `offset`/`limit` parameters and unknown fields fail. A successful result contains exactly `path`, `text`, `encoding` and `next_line`. Continue with `start_line: next_line`; only actual EOF returns `next_line: null`.
+
+Each page contains at most 51,200 UTF-8 bytes of text, including original line endings. Lines and characters are never split; an oversized first requested line fails, while a page with earlier complete lines returns those and points to the remaining line. LF, CRLF, CR, Unicode content and an unterminated final line remain unchanged. UTF-8, UTF-8 with BOM and BOM-marked UTF-16 LE/BE are supported (`utf-8`, `utf-8-bom`, `utf-16le`, `utf-16be`); only the opening BOM is removed. Empty and BOM-only files return empty text and `null`; a starting line beyond nonempty content fails.
+
+Binary, unsupported or malformed text fails explicitly. The model chooses any further command or MCP tool; images use `read_image`. Reads scan from the beginning without retaining skipped content, so later lines cost more scanning. Only decoded content is validated, with limited lookahead for EOF; unread tails have no validation guarantee, and edits between calls have no snapshot guarantee. Text results contain no duplicate base64. See [the text-reading decision](docs/adr/0010-readable-file-content.md) for details.
+
 ## Images
 
 Attach PNG, JPEG, GIF or WebP files with **Attach images**, or paste an image into the prompt. Preview and remove attachments before sending a text task. Up to ten images are accepted, each at most 10 MiB. A model known to lack image input is rejected without discarding the draft; unknown capabilities are left to the provider, whose failures are recorded without automatic retries or model changes.

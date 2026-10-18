@@ -30,11 +30,9 @@ test("a tool agent retains output and exposes task and safety communications whi
 		status: "succeeded",
 		result: JSON.stringify({
 			path: join(folder, "first"),
-			content: "b25l",
 			text: "one",
-			bytes_read: 3,
-			next_offset: null,
-			eof: true,
+			encoding: "utf-8",
+			next_line: null,
 		}),
 	});
 	read.release();
@@ -100,7 +98,7 @@ test("a tool agent retains output and exposes task and safety communications whi
 	await response.locator("summary").click();
 	await expect(request).toContainText("function_call_output");
 	await expect(request).toContainText("count-1");
-	await expect(request).toContainText('\\"bytes_read\\"');
+	await expect(request).toContainText('\\"next_line\\"');
 	await expect(response).toContainText("read_file");
 	await expect(
 		request.getByRole("button", { name: "Copy", exact: true }),

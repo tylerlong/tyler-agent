@@ -36,11 +36,11 @@ test("bundled official CLI and skill work outside the application repository", {
 					skill.source === join(browserSkill, "SKILL.md"),
 			),
 		);
-		const content = await executor.read({
+		const content = await executor.readText({
 			signal: options.signal,
 			path: join(browserSkill, "SKILL.md"),
-			offset: 0,
-			limit: 20000,
+			start_line: 1,
+			max_lines: 2000,
 		});
 		assert.match(JSON.stringify(content), /playwright-cli run-code/);
 		let output = "";

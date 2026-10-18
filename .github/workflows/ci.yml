@@ -45,7 +45,7 @@ jobs:
         run: |
           set -o pipefail
           pnpm build
-          node --test --test-timeout=60000 test/command-tools.test.ts test/command-image.test.ts test/images.test.ts test/database-ownership.test.ts test/tool-loop.test.ts test/sub-agents.test.ts test/interrupted-history.test.ts test/project-instructions.test.ts test/skills.test.ts test/decisions.test.ts test/safety-review.test.ts test/tool-review.test.ts test/model-fixture.test.ts 2>&1 | tee native-tools.log
+          node --test --test-timeout=60000 test/command-tools.test.ts test/command-file.test.ts test/command-image.test.ts test/images.test.ts test/database-ownership.test.ts test/tool-loop.test.ts test/sub-agents.test.ts test/interrupted-history.test.ts test/project-instructions.test.ts test/skills.test.ts test/decisions.test.ts test/safety-review.test.ts test/tool-review.test.ts test/model-fixture.test.ts 2>&1 | tee native-tools.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

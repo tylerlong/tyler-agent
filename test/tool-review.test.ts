@@ -219,15 +219,20 @@ test("built-in tool reviews contain the validated operation before execution, in
 	};
 	t.mock.method(
 		CommandExecutor.prototype,
-		"read",
-		async (options: Parameters<CommandExecutor["read"]>[0]) => {
+		"readText",
+		async (options: Parameters<CommandExecutor["readText"]>[0]) => {
 			assertReviewed("read_file");
 			assert.deepEqual(f.reviews.at(-1)?.arguments, {
 				path: options.path,
-				offset: options.offset,
-				limit: options.limit,
+				start_line: options.start_line,
+				max_lines: options.max_lines,
 			});
-			return { text: "file contents", base64: "", next_offset: 13, eof: true };
+			return {
+				path: options.path,
+				text: "file contents",
+				encoding: "utf-8",
+				next_line: null,
+			};
 		},
 	);
 	t.mock.method(CommandExecutor.prototype, "readImage", async () => {
@@ -298,8 +303,8 @@ test("built-in tool reviews contain the validated operation before execution, in
 				return [
 					call("read_file", {
 						path: join(root, "source.txt"),
-						offset: 2,
-						limit: 7,
+						start_line: 2,
+						max_lines: 7,
 					}),
 				];
 			case 2:

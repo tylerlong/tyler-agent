@@ -4,13 +4,13 @@ export const fileTools = [
 		type: "function",
 		name: "read_file",
 		description:
-			"Read a bounded native file block as the current system user. Byte offsets; defaults offset 0, limit 51200, maximum 51200 bytes. Returns exact base64 content and decoded UTF-8 text (partial codepoints/invalid bytes may display replacement characters). Continue at next_offset until eof; each call opens and closes its own handle.",
+			"Read complete text lines as the current system user. start_line is 1-based (default 1); max_lines defaults to 2000 and is adjustable. Returns only path, text, encoding and next_line (null only at EOF), preserving original Unicode and LF/CRLF/CR endings. UTF-8 and BOM-marked UTF-16 LE/BE only; invalid encoding and binary content fail. Text is limited to 51200 UTF-8 bytes; an oversized first line fails. Continue at next_line. Each call scans from the beginning without caching; skipped prefixes cost reads and file changes between calls may change positions. Only decoded blocks are validated. Use read_image for images, existing commands or MCP for other formats.",
 		parameters: {
 			type: "object",
 			properties: {
 				path: { type: "string", description: "Absolute file path" },
-				offset: { type: "integer", minimum: 0 },
-				limit: { type: "integer", minimum: 1, maximum: 51200 },
+				start_line: { type: "integer", minimum: 1 },
+				max_lines: { type: "integer", minimum: 1 },
 			},
 			required: ["path"],
 			additionalProperties: false,

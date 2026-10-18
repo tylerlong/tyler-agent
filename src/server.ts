@@ -1221,59 +1221,44 @@ export function createServer(
 								};
 							}
 							if (name === "read_file" || name === "read_image") {
-								if (
-									name === "read_image" &&
-									(Object.hasOwn(value, "offset") ||
-										Object.hasOwn(value, "limit"))
-								)
-									throw new InputError("invalidInput");
-								const offset = value.offset ?? 0,
-									limit = value.limit ?? 51200;
+								const text = name === "read_file";
 								if (
 									Object.keys(value).some(
-										(key) => !["path", "offset", "limit"].includes(key),
+										(key) =>
+											!(
+												text ? ["path", "start_line", "max_lines"] : ["path"]
+											).includes(key),
 									) ||
 									typeof value.path !== "string" ||
 									!isAbsolute(value.path) ||
-									value.path.includes("\0") ||
-									!Number.isSafeInteger(offset) ||
-									offset < 0 ||
-									!Number.isSafeInteger(limit) ||
-									limit < 1 ||
-									limit > 51200 ||
-									!Number.isSafeInteger(offset + limit)
+									value.path.includes("\0")
 								)
 									throw new InputError("invalidInput");
-								await reviewOperation(
-									name === "read_image" ? value : { ...value, offset, limit },
-								);
+								if (text) {
+									if (value.start_line === undefined) value.start_line = 1;
+									if (value.max_lines === undefined) value.max_lines = 2000;
+									if (
+										![value.start_line, value.max_lines].every(
+											(n) => Number.isSafeInteger(n) && n > 0,
+										)
+									)
+										throw new InputError("invalidInput");
+								}
+								await reviewOperation(value);
 								if (runTool)
-									return runTool(
-										name,
-										JSON.stringify(
-											name === "read_image"
-												? value
-												: { ...value, offset, limit },
-										),
-										roots,
-										signal,
-									);
-								const result = await commands[
-									name === "read_image" ? "readImage" : "read"
-								]({
-									path: value.path,
-									offset,
-									limit,
+									return runTool(name, JSON.stringify(value), roots, signal);
+								const result = await commands[text ? "readText" : "readImage"]({
+									...value,
 									signal: state.controller.signal,
 								});
 								return {
 									status: "succeeded",
-									result:
-										name === "read_image"
-											? (result as InputImage[])
-											: JSON.stringify(result),
+									result: text
+										? JSON.stringify(result)
+										: (result as InputImage[]),
 								};
 							}
+
 							if (name === "exec_command") {
 								if (
 									(value.cmd !== undefined && value.command !== undefined) ||

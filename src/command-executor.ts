@@ -7,9 +7,9 @@ import { dirname, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
-
 import { browserCacheDirectory, playwrightRoot } from "./browser-tools.ts";
 import { imageFromBytes, MAX_IMAGE_BYTES } from "./image-content.ts";
+import { readTextPage } from "./text-file.ts";
 
 export class ExecutionInterruptedError extends Error {}
 
@@ -274,73 +274,68 @@ export class CommandExecutor {
 		}
 	}
 
-	async read(
-		options: Pick<Execution, "signal"> & {
-			path: string;
-			offset: number;
-			limit: number;
-		},
+	private async *fileBlocks(
+		path: string,
+		signal: AbortSignal,
+		limit = Number.MAX_SAFE_INTEGER,
 	) {
 		const handleId = randomUUID().replaceAll("-", "");
 		let opened = false;
 		try {
-			options.signal.throwIfAborted();
+			signal.throwIfAborted();
 			this.initialized ??= this.initialize();
 			await this.initialized;
-			options.signal.throwIfAborted();
+			signal.throwIfAborted();
 			await this.rpc("fs/open", {
 				handleId,
-				path: uri(options.path),
+				path: uri(path),
 				mode: "read",
 				sandbox: null,
 			});
 			opened = true;
-			const chunks: Buffer[] = [];
-			let bytes = 0,
-				eof = false;
-			while (bytes < options.limit && !eof) {
-				options.signal.throwIfAborted();
+			let offset = 0;
+			while (offset < limit) {
+				signal.throwIfAborted();
+				const len = Math.min(16384, limit - offset);
 				const block = (await this.rpc("fs/readBlock", {
 					handleId,
-					offset: options.offset + bytes,
-					len: Math.min(16384, options.limit - bytes),
+					offset,
+					len,
 				})) as { chunk: string; eof: boolean };
 				const chunk = Buffer.from(block.chunk, "base64");
-				if (
-					chunk.length > options.limit - bytes ||
-					(!chunk.length && !block.eof)
-				)
+				if (chunk.length > len || (!chunk.length && !block.eof))
 					throw new Error("Invalid native file block");
-				chunks.push(chunk);
-				bytes += chunk.length;
-				eof = block.eof;
+				signal.throwIfAborted();
+				yield chunk;
+				offset += chunk.length;
+				if (block.eof) return;
 			}
-			options.signal.throwIfAborted();
-			const content = Buffer.concat(chunks);
-			return {
-				path: options.path,
-				content: content.toString("base64"),
-				text: content.toString("utf8"),
-				bytes_read: bytes,
-				next_offset: options.offset + bytes,
-				eof,
-			};
 		} finally {
 			if (opened) await this.rpc("fs/close", { handleId });
 		}
 	}
 
-	async readImage(
-		options: Omit<Parameters<CommandExecutor["read"]>[0], "offset" | "limit">,
-	) {
-		const file = await this.read({
-			...options,
-			offset: 0,
-			limit: MAX_IMAGE_BYTES + 1,
-		});
-		if (!file.eof || file.bytes_read > MAX_IMAGE_BYTES)
+	async readText(options: {
+		path: string;
+		start_line: number;
+		max_lines: number;
+		signal: AbortSignal;
+	}) {
+		return readTextPage(this.fileBlocks(options.path, options.signal), options);
+	}
+
+	async readImage(options: { path: string; signal: AbortSignal }) {
+		const chunks: Buffer[] = [];
+		for await (const chunk of this.fileBlocks(
+			options.path,
+			options.signal,
+			MAX_IMAGE_BYTES + 1,
+		))
+			chunks.push(chunk);
+		const content = Buffer.concat(chunks);
+		if (content.length > MAX_IMAGE_BYTES)
 			throw new Error(`Image exceeds ${MAX_IMAGE_BYTES} bytes`);
-		return [imageFromBytes(Buffer.from(file.content, "base64"))];
+		return [imageFromBytes(content)];
 	}
 
 	async execute(options: Execution): Promise<ExecutionResult> {

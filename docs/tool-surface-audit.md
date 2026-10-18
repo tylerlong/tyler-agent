@@ -16,12 +16,22 @@
 | --- | --- | --- |
 | `exec_command` | `src/command-tools.ts` 定义；`src/server.ts` 校验并调用 `CommandExecutor`；复用固定 `@openai/codex@0.162.0` 的 `exec-server`。 | 支持 `cmd/workdir`、`shell/login/tty/yield_time_ms/max_output_tokens`。默认交互模式；`session_id` 仅能由所属 Agent 使用。旧 `command/cwd/timeout_ms` 兼容为 OneShot，timeout 不能与 tty/yield 混用。 |
 | `read_tool_output` | 读取 SQLite 中归属当前 Agent 的实际命令日志，通过行迭代器有界分页；保留 stdout/stderr/pty 顺序和 JavaScript 字符串偏移。 | 总字符数仍扫描全部行，模型侧仅保留当前行和请求页；完整日志 UI／API 显式收集为完整有序数组。不是上游 `process/read` 的替代品：后者读取有限期进程缓冲，前者读取持久历史。完整解码文本、流标签和顺序持久保存，不另存原始字节／base64；无效或未完成 UTF-8 字节显示替换字符。 |
-| `read_file` | `fs/open` → `fs/readBlock` → `fs/close`；返回字节位置、base64、UTF-8 显示和 eof，单次最多 50 KiB。 | 没有发现被简化的同名上游模型工具。分页与句柄关闭有明确用途；不能将 base64 文件内容当作模型已看见图片。底层其他文件 RPC 的存在，也不意味着必须各注册一个 function tool：当前命令工具已承担发现、复制、移动和删除。 |
+| `read_file` | `fs/open` → `fs/readBlock` → `fs/close`；按完整行读取严格解码的文本，只返回 `path/text/encoding/next_line`，默认 2,000 行且最多 51,200 UTF-8 字节。 | Weft 自己的文本契约，不是被简化的同名上游模型工具。仅接受绝对 `path`、正安全整数 `start_line`（默认 1）与 `max_lines`（默认 2,000）；旧字节参数和未知字段报错。原生字节 RPC 与图片所需 base64 仍保留，图片使用 `read_image`。 |
 | `apply_patch` | 原 patch 字符串直接传给 `codex --codex-run-as-apply-patch`；支持 Add、Update、Move、Delete，没有本地重写语法。 | 上游可用 freeform/lark；Weft 使用 JSON `{patch,cwd,...}`。这改变外层格式，但未删减补丁能力。OpenRouter 跨模型 freeform 兼容性未验证；保留 patch 原文，不能据此武断要求所有模型改用 freeform。 |
 | `create_sub_agent` | Weft 自己的 Agent 执行核心；支持明确背景、模型和 reasoning 覆盖，立即返回身份，终态主动通知父任务。 | 不是 Codex spawn-agent 工具的包装。上下文不自动继承、通知和等待规则是 ADR 0002 已确定的产品行为，不是第三方参数被删。没有依据为“直接 expose”而更换调度框架。 |
 | `cancel_sub_agent` | Weft 自己的取消逻辑；父模型可取消直接子树，等待清理并返回实际结果。 | 不是上游工具包装。保留归属校验、部分结果和真实取消事实。 |
 
-工具注册全集见 `src/openrouter.ts:277`；命令和文件分派见 `src/server.ts:1038`，子 Agent 分派见 `src/server.ts:1249`。未发现额外隐藏注册的 MCP 或浏览器 function tools。
+工具注册见 `src/openrouter.ts`、`src/command-tools.ts` 和 `src/file-tools.ts`；命令、文件和子 Agent 分派见 `src/server.ts`。未发现额外隐藏注册的 MCP 或浏览器 function tools。
+
+## read_file 文本分页
+
+已确认的文本职责、Unicode 字素边界、结果去重及解码错误处理见 [ADR 0010](adr/0010-readable-file-content.md)。实现保持简单，优先内置能力或成熟第三方方案，不自建复杂读取子系统。
+
+支持 UTF-8（含 BOM）与带 BOM 的 UTF-16 LE／BE，`encoding` 分别为 `utf-8`、`utf-8-bom`、`utf-16le`、`utf-16be`。只剥离开头 BOM，正文、LF／CRLF／CR 和末尾换行原样保留；成功结果没有重复 base64、字节位置或全文行数，真实 EOF 才返回 `next_line: null`。空文件／仅 BOM 返回空正文，非空正文起始行越界失败。
+
+每页受请求行数及 `text` 的 51,200 UTF-8 字节预算共同限制，只装入完整行；首个请求行超长时明确失败，已有完整行则先返回它们并指向未返回行。`isbinaryfile` 内容识别不替代严格解码，二进制、未支持或损坏编码明确失败，由模型选择命令或 MCP，不自动转换或重试。
+
+每次从当前文件开头按需扫描并丢弃跳过内容，仅保留必要块、行衔接状态与当前页；有限前瞻用于确认 EOF，不预先校验未读尾部。靠后行号仍有前缀扫描成本，跨次文件修改没有快照保证。正常、失败、取消和前瞻都沿用原生句柄清理。正规化后的真实参数交给既有 Jev 审核，普通计数、取消、真实记录和历史结果不变；命令日志分页也不变。实现与验证结果见 [#184](https://github.com/tylerlong/tyler-agent/issues/184)，完整取舍见 ADR 0010。
 
 ## 命令侧应恢复的内容
 

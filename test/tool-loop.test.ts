@@ -1294,58 +1294,282 @@ test("each tool in one Model Call reads the current Project scope", async () => 
 	}
 });
 
-test("native read_file byte continuations preserve Unicode and binary content through recorded HTTP results", {
+test("native read_file complete-line continuations survive model input and persisted HTTP records", {
 	skip: process.platform !== "darwin",
 }, async () => {
-	const root = await mkdtemp(join(tmpdir(), "tool-read-bytes-"));
-	const path = join(root, "long Unicode 文件.bin");
-	const content = Buffer.concat([
-		Buffer.from("😀".repeat(14000)),
-		Buffer.from([0, 255, 128]),
-	]);
-	await writeFile(path, content);
-	const chunks: Buffer[] = [];
+	const root = await mkdtemp(join(tmpdir(), "tool-read-lines-"));
+	const path = join(root, "Unicode 文件.bin");
+	// More than one RPC block, all newline forms, and unnormalized grapheme sequences.
+	const content = `${"ASCII 中文 e\u0301 👩🏽‍💻\r\nsecond\rthird\n".repeat(2500)}last\uFEFF`;
+	await writeFile(path, `\uFEFF${content}`);
+	const chunks: string[] = [];
+	const seen: unknown[] = [];
 	let requests = 0;
-	const read = (offset: number) => ({
-		id: `read-${offset}`,
+	const read = (start_line?: number) => ({
+		id: `read-${requests}`,
 		type: "function_call",
 		name: "read_file",
-		call_id: `read-${offset}`,
-		arguments: JSON.stringify({ path, offset }),
+		call_id: `read-${requests}`,
+		arguments: JSON.stringify({
+			path,
+			...(start_line === undefined ? {} : { start_line, max_lines: 4001 }),
+		}),
 	});
 	const f = await fixture(
 		async (_url, init) => {
 			const body = JSON.parse(String(init?.body));
-			if (++requests === 1) return new Response(completed([read(0)]));
+			if (++requests === 1) return new Response(completed([read()]));
 			const result = JSON.parse(body.input.at(-1).output);
+			assert.deepEqual(Object.keys(result).sort(), [
+				"encoding",
+				"next_line",
+				"path",
+				"text",
+			]);
 			assert.equal(result.path, path);
-			const block = Buffer.from(result.content, "base64");
-			assert.equal(result.bytes_read, block.length);
-			assert(block.length <= 50 * 1024);
-			chunks.push(block);
-			if (!result.eof) {
-				assert.equal(result.next_offset, 50 * 1024);
-				return new Response(completed([read(result.next_offset)]));
-			}
-			assert.deepEqual(Buffer.concat(chunks), content);
+			assert.equal(result.encoding, "utf-8-bom");
+			assert(Buffer.byteLength(result.text) <= 51200);
+			assert(result.text.length > 0);
+			chunks.push(result.text);
+			seen.push(result);
+			if (result.next_line !== null)
+				return new Response(completed([read(result.next_line)]));
+			assert.equal(chunks.join(""), content);
 			return new Response(completed([message("Read complete")]));
 		},
 		[root],
 	);
 	try {
 		const { agentId } = await (await f.ask()).json();
-		assert.equal(
-			(await f.wait(agentId)).status,
-			"succeeded",
-			JSON.stringify(await f.get(`/api/agents/${agentId}/tools`)),
-		);
-		assert.equal(requests, 3);
+		assert.equal((await f.wait(agentId)).status, "succeeded");
+		assert(requests > 3);
 		const { toolCalls } = await f.get(`/api/agents/${agentId}/tools`);
-		assert.equal(toolCalls.length, 2);
-		assert(
-			toolCalls.every(
-				(call: { status: string }) => call.status === "succeeded",
-			),
+		assert.equal(toolCalls.length, seen.length);
+		const { calls } = await f.get(`/api/agents/${agentId}/calls`);
+		assert.equal(
+			calls.length,
+			requests + toolCalls.length,
+			"One normal safety review per tool call, regardless of native block count",
+		);
+		for (const [index, call] of toolCalls.entries()) {
+			assert.equal(call.status, "succeeded");
+			const detail = await f.get(
+				`/api/agents/${agentId}/tools?toolId=${call.id}`,
+			);
+			assert.deepEqual(JSON.parse(detail.toolCalls[0].result), seen[index]);
+		}
+	} finally {
+		await f.close();
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("native read_file validates complete-line, encoding, and UTF-8 output budget boundaries over HTTP", {
+	skip: process.platform !== "darwin",
+}, async () => {
+	const root = await mkdtemp(join(tmpdir(), "tool-read-contract-"));
+	const cases: {
+		label: string;
+		bytes: Buffer;
+		args?: Record<string, unknown>;
+		text?: string;
+		encoding?: string;
+		next?: number | null;
+		error?: boolean;
+	}[] = [];
+	const good = (
+		label: string,
+		bytes: Buffer | string,
+		text: string,
+		args: Record<string, unknown> = {},
+		next: number | null = null,
+		encoding = "utf-8",
+	) =>
+		cases.push({
+			label,
+			bytes: Buffer.from(bytes),
+			text,
+			args,
+			next,
+			encoding,
+		});
+	const bad = (
+		label: string,
+		bytes: Buffer | string,
+		args: Record<string, unknown> = {},
+	) => cases.push({ label, bytes: Buffer.from(bytes), args, error: true });
+	good("empty", "", "", { start_line: 999 });
+	good(
+		"utf8-bom-only",
+		Buffer.from([239, 187, 191]),
+		"",
+		{},
+		null,
+		"utf-8-bom",
+	);
+	good("le-bom-only", Buffer.from([255, 254]), "", {}, null, "utf-16le");
+	good("be-bom-only", Buffer.from([254, 255]), "", {}, null, "utf-16be");
+	good(
+		"mixed",
+		"one\r\ntwo\rthree\nfour",
+		"two\rthree\n",
+		{ start_line: 2, max_lines: 2 },
+		4,
+	);
+	good("last-unterminated", "one\nlast", "last", { start_line: 2 });
+	good("trailing-newline", "one\n", "one\n", { max_lines: 1 });
+	good("default-lines", "x\n".repeat(2001), "x\n".repeat(2000), {}, 2001);
+	good("adjusted-lines", "x\n".repeat(2001), "x\n".repeat(2001), {
+		max_lines: 2001,
+	});
+	good("exact-budget-eof", `${"x".repeat(51199)}\n`, `${"x".repeat(51199)}\n`);
+	good(
+		"exact-budget-next",
+		`${"x".repeat(51199)}\ny`,
+		`${"x".repeat(51199)}\n`,
+		{},
+		2,
+	);
+	good(
+		"multibyte-budget",
+		`${"中".repeat(17066)}\nnext`,
+		`${"中".repeat(17066)}\n`,
+		{},
+		2,
+	);
+	bad("first-line-too-long", "x".repeat(51201));
+	good("valid-before-too-long", `ok\n${"x".repeat(51201)}`, "ok\n", {}, 2);
+	bad("continued-too-long", `ok\n${"x".repeat(51201)}`, { start_line: 2 });
+	bad("out-of-range", "one\n", { start_line: 2 });
+	for (const args of [
+		{ offset: 0 },
+		{ limit: 200 },
+		{ unknown: true },
+		{ start_line: 0 },
+		{ start_line: -1 },
+		{ start_line: 1.1 },
+		{ start_line: Number.MAX_SAFE_INTEGER + 1 },
+		{ max_lines: 0 },
+		{ max_lines: -1 },
+		{ max_lines: 1.5 },
+		{ max_lines: Number.MAX_SAFE_INTEGER + 1 },
+		{ max_lines: "2" },
+		{ start_line: null },
+		{ max_lines: null },
+	])
+		bad(`invalid-${cases.length}`, "ok", args);
+	for (const [label, bytes] of Object.entries({
+		"binary-text-extension": Buffer.from([0, 1, 2, 3, 0, 255, 0, 1]),
+		"invalid-utf8": Buffer.from([0xc3, 0x28]),
+		"incomplete-utf8": Buffer.from([0xe2, 0x82]),
+		"invalid-utf16": Buffer.from([255, 254, 0, 0xd8]),
+		"incomplete-utf16": Buffer.from([255, 254, 0x61]),
+		"utf32-le": Buffer.from([255, 254, 0, 0, 0x61, 0, 0, 0]),
+		"utf32-be": Buffer.from([0, 0, 254, 255, 0, 0, 0, 0x61]),
+	}))
+		bad(label, bytes);
+	const unicode = "中文 e\u0301 👩🏽‍💻\r\n\uFEFFlast";
+	for (const encoding of ["utf-16le", "utf-16be"] as const) {
+		const bytes = Buffer.from(`\uFEFF${unicode}`, "utf16le");
+		if (encoding === "utf-16be") bytes.swap16();
+		good(encoding, bytes, unicode, {}, null, encoding);
+		const budgetText = `${"中".repeat(17066)}\n`;
+		const budgetBytes = Buffer.from(`\uFEFF${budgetText}next`, "utf16le");
+		if (encoding === "utf-16be") budgetBytes.swap16();
+		good(`${encoding}-utf8-budget`, budgetBytes, budgetText, {}, 2, encoding);
+	}
+	// Deliberately align CRLF and multi-unit characters with the native 16 KiB RPC boundary.
+	for (const [label, prefix, suffix] of [
+		["crlf", "a".repeat(16383), "\r\nend"],
+		["utf8-split", "a".repeat(16383), "中😀e\u0301\nlast"],
+	])
+		good(label, prefix + suffix, prefix + suffix);
+	const leCross = Buffer.from(`\uFEFF${"a".repeat(8190)}😀\r\nlast`, "utf16le");
+	good(
+		"utf16-cross",
+		leCross,
+		`${"a".repeat(8190)}😀\r\nlast`,
+		{},
+		null,
+		"utf-16le",
+	);
+	const unreadTail = Buffer.concat([
+		Buffer.from(`first\n${"x\n".repeat(20000)}`),
+		Buffer.from([255]),
+	]);
+	good("unread-invalid-tail", unreadTail, "first\n", { max_lines: 1 }, 2);
+	for (const [index, entry] of cases.entries())
+		await writeFile(join(root, `${index}-${entry.label}.txt`), entry.bytes);
+	let requests = 0;
+	const f = await fixture(
+		async (_url, init) => {
+			const body = JSON.parse(String(init?.body));
+			if (++requests === 1) {
+				const schema = body.tools.find(
+					(tool: { name: string }) => tool.name === "read_file",
+				).parameters;
+				assert.deepEqual(Object.keys(schema.properties).sort(), [
+					"max_lines",
+					"path",
+					"start_line",
+				]);
+				assert.deepEqual(schema.required, ["path"]);
+				assert.equal(schema.additionalProperties, false);
+				return new Response(
+					completed(
+						cases.map((entry, index) => ({
+							type: "function_call",
+							name: "read_file",
+							call_id: `case-${index}`,
+							arguments: JSON.stringify({
+								path: join(root, `${index}-${entry.label}.txt`),
+								...entry.args,
+							}),
+						})),
+					),
+				);
+			}
+			const outputs = body.input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			assert.equal(outputs.length, cases.length);
+			for (const [index, entry] of cases.entries()) {
+				const result = JSON.parse(outputs[index].output);
+				if (entry.error) {
+					assert.equal(typeof result.error, "string", entry.label);
+					if (entry.label === "binary-text-extension")
+						assert.match(result.error, /command|MCP/);
+				} else
+					assert.deepEqual(
+						result,
+						{
+							path: join(root, `${index}-${entry.label}.txt`),
+							text: entry.text,
+							encoding: entry.encoding,
+							next_line: entry.next,
+						},
+						entry.label,
+					);
+			}
+			return new Response(completed([message("Contract verified")]));
+		},
+		[root],
+	);
+	try {
+		assert.equal(
+			(await f.send("/api/execution-limits", { modelCallLimit: 100 }, "PATCH"))
+				.status,
+			200,
+		);
+		const { agentId } = await (await f.ask()).json();
+		const agent = await f.wait(agentId);
+		assert.equal(agent.status, "succeeded", JSON.stringify(agent));
+		assert.equal(requests, 2);
+		const { toolCalls } = await f.get(`/api/agents/${agentId}/tools`);
+		assert.equal(toolCalls.length, cases.length);
+		assert.deepEqual(
+			toolCalls.map((call: { status: string }) => call.status),
+			cases.map((entry) => (entry.error ? "failed" : "succeeded")),
 		);
 	} finally {
 		await f.close();

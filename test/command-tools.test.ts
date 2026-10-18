@@ -1030,10 +1030,12 @@ commandTest(
 			}
 			if (requests === 2) {
 				assert.equal(results.at(-1).text, "before\n");
-				assert.equal(
-					Buffer.from(results.at(-1).content, "base64").toString(),
-					"before\n",
-				);
+				assert.deepEqual(results.at(-1), {
+					path: join(root, "input.txt"),
+					text: "before\n",
+					encoding: "utf-8",
+					next_line: null,
+				});
 				return done([
 					call(
 						"apply_patch",
@@ -1171,7 +1173,7 @@ commandTest(
 		});
 		root = f.root;
 		try {
-			await writeFile(join(root, "fixture"), "x".repeat(100000));
+			await writeFile(join(root, "fixture"), "x\n".repeat(50000));
 			const id = await f.ask();
 			for (let attempt = 0; attempt < 500; attempt++) {
 				const tools = (await f.request(`/api/agents/${id}/tools`)).toolCalls;
@@ -1192,7 +1194,8 @@ commandTest(
 				(await f.request(`/api/agents/${next}/tools?toolId=${tools[0].id}`))
 					.toolCalls[0].result,
 			);
-			assert.equal(result.bytes_read, 51200);
+			assert.equal(result.text, "x\n".repeat(2000));
+			assert.equal(result.next_line, 2001);
 			assert.equal(requests, 3);
 		} finally {
 			await f.close();
