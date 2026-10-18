@@ -12,6 +12,6 @@
 
 图片沿用 [ADR 0001](0001-agent-and-call-ownership.md) 的历史规则。用户图片是问题的一部分，保存提交时的内容；后续根任务载入该条成功、失败或取消任务的历史问题时一并原生带入，并继续按当前模型能力校验。工具读取的图片属于同一 Agent 的工具上下文，后续根任务不自动携带，需要时重新读取。记录查看展示当时实际发送的图片，不随原文件修改或删除而变化；携图历史会增加请求体积和模型输入成本。
 
-图片上传／粘贴、本地 `read_image`、原生多模态工具结果和记录／历史已实现，并通过受控模型协议、原生文件读取与附件界面测试验证；尚未经授权进行付费模型视觉理解验证。浏览器复用固定 Playwright 1.63.0 已有官方 CLI 和 skill，不安装另一版 CLI／后端。命令环境的 `playwright-cli` 仅将完整参数交给该安装的 `playwright cli`；必要包与已安装浏览器资源按工具链只读接线，CLI 通信／profile 沿用 Agent HOME 下的上游行为。模型负责关闭其浏览器，不增加 Chat 保活或另一套会话框架。
+图片上传／粘贴、本地 `read_image`、原生多模态工具结果和记录／历史已实现，并通过受控模型协议、原生文件读取与附件界面测试验证；尚未经授权进行付费模型视觉理解验证。浏览器复用固定 Playwright 1.63.0 已有官方 CLI 和 skill，不安装另一版 CLI／后端。命令环境的 `playwright-cli` 仅将完整参数交给该安装的 `playwright cli`；命令继承正常用户 HOME、PATH 和开发环境，前接随附 wrapper／Node／ripgrep 并移除 Weft 管理凭据；已安装浏览器通过 `PLAYWRIGHT_BROWSERS_PATH` 接线。scratch 保留临时目录及 `XDG_CACHE_HOME`；仅 `playwright-cli` wrapper 将 HOME 设为 scratch，保持 CLI 通信／临时 profile 独立，因为 macOS CLI registry 不使用 `XDG_CACHE_HOME`。exec-server 自己的最小环境和独立 HOME 不与命令环境混用。Full Access 命令可读取同账号可读配置及凭据，不承诺隔离。模型负责关闭其浏览器，不增加 Chat 保活或另一套会话框架。
 
 普通命令统一使用 [ADR 0004](0004-command-tool-isolation-boundary.md) 的 Full Access 无沙箱路径，浏览器无需额外模式或授权。保留受控本机网站经 HTTP → 模型 fixture → 原生命令／官方 CLI 的诊断、截图、trace 与关闭回归；不再运行会制造 Chrome abort 的受限模式启动。具体版本、前提及验证边界见[浏览器工具](../browser-tools.md)。

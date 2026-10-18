@@ -1740,3 +1740,103 @@ commandTest(
 		}
 	},
 );
+
+commandTest(
+	"commands discover normal user tools and fake git, gh and npm configuration without management credentials",
+	async () => {
+		const savedEnvironment = { ...process.env };
+		let root = "";
+		let requests = 0;
+		const f = await fixture(async (_url, init) => {
+			if (++requests === 1)
+				return done([
+					call("exec_command", {
+						cmd: "node environment.cjs",
+						workdir: root,
+						login: false,
+						timeout_ms: 10000,
+					}),
+					call(
+						"exec_command",
+						{
+							cmd: "node environment.cjs",
+							workdir: root,
+							yield_time_ms: 10000,
+						},
+						"login",
+					),
+				]);
+			const results = JSON.parse(String(init?.body)).input.filter(
+				(item: { type: string }) => item.type === "function_call_output",
+			);
+			assert.equal(results.length, 2);
+			for (const item of results) {
+				const result = JSON.parse(item.output);
+				assert.equal(result.exitCode, 0, JSON.stringify(result));
+				assert.match(text(result.output.chunks), /user-environment-ok/);
+			}
+			return done([answer]);
+		});
+		root = f.root;
+		try {
+			const home = join(f.directory, "user");
+			const bin = join(home, "bin");
+			await mkdir(join(home, ".config", "gh"), { recursive: true });
+			await mkdir(bin);
+			await writeFile(
+				join(home, ".gitconfig"),
+				"[user]\n name = Fixture User\n",
+			);
+			await writeFile(join(home, ".npmrc"), "user-agent=fixture-npm-agent\n");
+			await writeFile(
+				join(home, ".config", "gh", "config.yml"),
+				"git_protocol: ssh\n",
+			);
+			await writeFile(
+				join(home, ".config", "gh", "hosts.yml"),
+				"github.com:\n    oauth_token: fake-gh-token\n    user: fixture\n",
+			);
+			await writeFile(
+				join(bin, "fixture-tool"),
+				"#!/bin/sh\nprintf fixture-path-tool",
+				{ mode: 0o755 },
+			);
+			for (const name of Object.keys(process.env))
+				if (/^(GIT_CONFIG|GH_|GITHUB_|NPM_CONFIG_|npm_config_)/.test(name))
+					delete process.env[name];
+			Object.assign(process.env, {
+				HOME: home,
+				PATH: `${bin}:${savedEnvironment.PATH}`,
+				XDG_CONFIG_HOME: join(home, ".config"),
+				FIXTURE_DEVELOPMENT_ENV: "fixture-development",
+				TYLER_MANAGEMENT_TOKEN: "fake-management-token",
+			});
+			await writeFile(
+				join(root, "environment.cjs"),
+				`
+const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
+const run = (file, args=[]) => execFileSync(file, args, {encoding:'utf8'}).trim();
+assert.equal(process.env.HOME, ${JSON.stringify(home)});
+assert.equal(process.env.FIXTURE_DEVELOPMENT_ENV, 'fixture-development');
+assert.equal(process.env.TYLER_MANAGEMENT_TOKEN, undefined);
+assert.notEqual(process.env.CODEX_HOME, process.env.HOME);
+assert.match(process.env.TMPDIR, /tyler-agent/);
+assert.equal(run('fixture-tool'), 'fixture-path-tool');
+assert.equal(run('git', ['config', '--global', 'user.name']), 'Fixture User');
+assert.equal(run('npm', ['config', 'get', 'user-agent']), 'fixture-npm-agent');
+assert.equal(run('gh', ['config', 'get', 'git_protocol']), 'ssh');
+assert.equal(run('gh', ['auth', 'token', '--hostname', 'github.com']), 'fake-gh-token');
+console.log('user-environment-ok');
+`,
+			);
+			const agent = await f.wait(await f.ask());
+			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
+			assert.equal(requests, 2);
+		} finally {
+			for (const name of Object.keys(process.env)) delete process.env[name];
+			Object.assign(process.env, savedEnvironment);
+			await f.close();
+		}
+	},
+);

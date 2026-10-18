@@ -163,10 +163,10 @@ export class CommandExecutor {
 		const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 		await writeFile(
 			join(bin, "playwright-cli"),
-			`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(playwrightRoot, "cli.js"))} cli "$@"\n`,
+			`#!/bin/sh\nHOME="$TMPDIR" exec ${quote(process.execPath)} ${quote(join(playwrightRoot, "cli.js"))} cli "$@"\n`,
 			{ mode: 0o755 },
 		);
-		this.commandPath = `${bin}:${dirname(process.execPath)}:${rgFolder}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
+		this.commandPath = `${bin}:${dirname(process.execPath)}:${rgFolder}`;
 		await mkdir(join(home, "tmp"));
 		await writeFile(
 			join(home, "config.toml"),
@@ -415,6 +415,8 @@ export class CommandExecutor {
 			};
 			this.processes.set(processId, proc);
 			if (interactive) this.sessions.set(sessionId, processId);
+			const environment = { ...process.env };
+			delete environment.TYLER_MANAGEMENT_TOKEN;
 			await this.rpc("process/start", {
 				processId,
 				argv:
@@ -427,16 +429,13 @@ export class CommandExecutor {
 						: [this.binary, "--codex-run-as-apply-patch", options.patch],
 				cwd: uri(options.cwd),
 				env: {
-					PATH: this.commandPath,
-					HOME: scratch,
+					...environment,
+					PATH: `${this.commandPath}:${process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin"}`,
 					TMPDIR: scratch,
 					TMP: scratch,
 					TEMP: scratch,
 					XDG_CACHE_HOME: join(scratch, "cache"),
 					PLAYWRIGHT_BROWSERS_PATH: browserCacheDirectory,
-					LANG: "en_US.UTF-8",
-					GIT_CONFIG_NOSYSTEM: "1",
-					DEVELOPER_DIR: "/Library/Developer/CommandLineTools",
 				},
 				tty: options.tty ?? false,
 				pipeStdin: false,

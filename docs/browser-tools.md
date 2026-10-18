@@ -10,8 +10,16 @@ The command environment provides `playwright-cli` as a transparent executable
 alias for the installed `playwright cli`, forwarding every argument. The
 unmodified upstream skill and references appear through the existing skill
 catalog. Targets need no browser-tool installation.
-Use the installed browser executables and independent task profiles rather than personal browser profiles. CLI daemon state, temporary profiles and
-sockets use the existing Agent HOME/scratch, retaining upstream session defaults.
+Use the installed browser executables and independent task profiles rather than personal browser profiles. Commands inherit the normal user HOME, PATH and development environment, with
+Weft’s CLI wrapper, Node and ripgrep paths prepended and
+`TYLER_MANAGEMENT_TOKEN` removed. Agent scratch supplies `TMPDIR`, `TMP`, `TEMP`
+and `XDG_CACHE_HOME` (`scratch/cache`). Only the `playwright-cli` wrapper sets
+`HOME` to scratch, keeping CLI daemon state, temporary profiles and sockets
+independent of personal browser profiles; the macOS CLI registry does not use
+`XDG_CACHE_HOME`. Installed browser
+binaries remain available through `PLAYWRIGHT_BROWSERS_PATH`. This is Full Access:
+commands can read the account’s configuration and credentials. The exec-server
+process retains its own minimal environment and separate HOME.
 Install browser binaries from the Weft directory with
 `pnpm exec playwright install chromium`; the model can select them with
 `playwright-cli open <url> --browser=chromium`. The upstream CLI defaults to its
@@ -23,7 +31,7 @@ or browser action filter is added.
 
 Commands run through the existing `process/start` RPC with `sandbox: null`, as the current system user. The global Jev review switch applies to browser command Tool Calls just as it does to other tools. Parameter validation, cancellation, ownership and records remain in effect. This is best-effort review, not a browser or process sandbox.
 
-`test/browser-tools.test.ts` checks the bundled skill and CLI from an unrelated temporary target. Browser validation uses the normal execution environment; obsolete restricted-mode launches that caused macOS Chromium startup aborts are removed.
+`test/browser-tools.test.ts` checks the bundled skill and CLI from an unrelated temporary target. Browser validation uses the normal execution environment; obsolete restricted-mode launches that caused macOS Chromium startup aborts are removed. On macOS, lifecycle checks correlate newly written crash reports with this run’s Chromium PIDs and time window, excluding unrelated processes.
 
 `test/browser-diagnostics.test.ts` uses the application HTTP API, controlled
 model responses and real native execution. The model starts a localhost website

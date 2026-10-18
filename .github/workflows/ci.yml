@@ -52,7 +52,7 @@ jobs:
           name: macos-tool-results
           path: native-tools.log
           retention-days: 7
-      - name: Native browser diagnostics
+      - name: Native Full Access browser lifecycle and diagnostics
         timeout-minutes: 3
         run: |
           set -o pipefail

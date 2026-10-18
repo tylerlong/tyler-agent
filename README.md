@@ -46,7 +46,7 @@ The installation includes Playwright **1.63.0**'s official CLI and `playwright-c
 
 Commands use the native unsandboxed execution path. The model starts and checks the website through ordinary command sessions, then chooses browser actions, console/network details and request/response bodies, trace, screenshots, `run-code`, and `read_image` as needed. Browser operations and full command output remain inspectable Tool Calls. Screenshots enter model context only when explicitly read.
 
-Sessions, profiles and connections retain upstream behavior, using the Agent's isolated HOME for daemon/cache communication. The model should close its browser with `playwright-cli close` (or `-s=<name> close` for a named session); upstream detached browsers may outlive the launching command and retain their normal idle timeout. No Chat lifetime policy or personal browser takeover is added. [Compatibility and validation](docs/browser-tools.md) records the actual tested boundary.
+Sessions, profiles and connections retain upstream behavior. Ordinary commands retain the normal user `HOME`. The `playwright-cli` wrapper alone sets `HOME` to Agent scratch so CLI daemon state, caches and temporary browser profiles remain independent; scratch also supplies temporary files and `XDG_CACHE_HOME`. The model should close its browser with `playwright-cli close` (or `-s=<name> close` for a named session); upstream detached browsers may outlive the launching command and retain their normal idle timeout. No Chat lifetime policy or personal browser takeover is added. [Compatibility and validation](docs/browser-tools.md) records the actual tested boundary.
 
 ## Images
 
@@ -62,7 +62,7 @@ Each new root task and sub-agent loads user instructions from the service user's
 
 The initial UTF-8 text budget is 32 KiB, shared in user-first, saved-folder and ancestor-first order. Actual model requests show source paths, scopes, truncated content, omissions and read errors. Running agents keep their initial contents; new agents reload. The model must discover and read deeper local instructions before working on files, and decide how to handle unavailable rules. References such as README, CONTEXT and ADRs are read only when needed.
 
-Initial instruction discovery follows its named sources and reports read errors; ordinary tool reads, commands and writes use Full Access and the global review switch. Command `HOME` points to scratch and does not change the user instruction directory.
+Initial instruction discovery follows its named sources and reports read errors; ordinary tool reads, commands and writes use Full Access and the global review switch. Commands inherit the service user’s normal `HOME`, `PATH` and development environment; Weft prepends its bundled command tools and removes `TYLER_MANAGEMENT_TOKEN`. Commands can read that account’s configuration and credentials; Full Access provides no isolation. Agent scratch still supplies temporary directories and the browser CLI cache. The exec-server process keeps its separate minimal environment and HOME.
 
 ## Local data
 

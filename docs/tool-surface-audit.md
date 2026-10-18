@@ -42,12 +42,12 @@ Codex 本身也提供 OneShot 模式；初次审查时 Weft 只接入这种行�
 - 原生 JSON-RPC 错误保持 `error` 可读文本，并保留 `error_code/error_data`；原生 `sandboxDenied`、退出码、部分输出、取消及后端断开事实不靠文本推测。
 - Tool Result 保存返回当时的事实；`commandState` 是同一启动 Tool Call 上的当前进程状态，完成时更新，服务重启时标记中断。详情页 Refresh 能读取新输出和状态；不重放或恢复旧句柄。
 - 输出预算仅限制交给模型的文本；默认 16000 字符，显式 token 预算使用 4 字符/token 的估算。交互续接返回新输出，超出预算的原记录仍能通过 `read_tool_output` 按字符有界补读。此估算不同于模型实际 tokenizer。
-- `shell` 为绝对可执行路径，默认 `/bin/sh`；`login` 在交互模式默认 true，旧 OneShot 保留默认 false。固定清洁环境和 scratch HOME 仍有效，shell 和配置文件读取使用 Full Access。不同于 Codex 按宿主配置选择默认 shell，Weft 不读取宿主 shell 配置来推导默认值。
+- `shell` 为绝对可执行路径，默认 `/bin/sh`；`login` 在交互模式默认 true，旧 OneShot 保留默认 false。继承服务用户的正常 HOME、PATH 和开发环境，在 PATH 前接入随附 wrapper、Node 和 ripgrep，并显式移除 `TYLER_MANAGEMENT_TOKEN`。scratch 继续承担临时目录及 `XDG_CACHE_HOME`；仅 `playwright-cli` wrapper 将 HOME 设为 scratch，以保留独立 daemon／profile（macOS CLI registry 不使用 `XDG_CACHE_HOME`）。exec-server 自己的最小环境和独立 HOME 不变。命令和配置文件读取使用 Full Access，可接触同账号可读的配置及凭据，不承诺隔离。不同于 Codex 按宿主配置选择默认 shell，Weft 不读取宿主 shell 配置来推导默认值。
 - 取消等待原生清理；Agent 结束时释放其所属进程，服务关闭先排空 Agent 后关闭执行后端。无命令内容识别、开发服务器策略或跨应用重启恢复。
 
 已用现有 HTTP → 受控模型 → 实际固定版原生执行器测试 PTY 早返回后使用其他工具、写入、非 PTY 中断、输出预算与持久日志、归属及取消。上游 README 的 `process/write` 例子遗漏 `writeId`，实际 0.162.0 协议要求它；已按协议源文件和真实执行验证接线。
 
-命令环境与 scratch 的区别见 ADR 0004；句柄归属继续保留。上游后端的 `env` 字段不等于上游面向模型的工具允许任意继承 Weft 服务环境，不能为接口对齐泄露服务凭据。
+命令环境与 scratch 的区别见 ADR 0004；句柄归属继续保留。普通命令继承用户环境用于 git／gh／npm 等工具发现配置和登录状态，不主动传入 Weft 管理凭据，保留现有记录脱敏；这不阻止 Full Access 命令读取同账号可读文件。
 
 过滤凭据也不要求固定 `/bin/sh` 或禁止选择 login 行为；这些选择应独立核对上游约定及实际执行兼容性，不能以环境隔离为笼统理由取消。
 

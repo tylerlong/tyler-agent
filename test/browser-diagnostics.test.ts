@@ -15,6 +15,10 @@ import { test } from "node:test";
 import { promisify } from "node:util";
 import { browserCacheDirectory, playwrightRoot } from "../src/browser-tools.ts";
 import { waitForAgent } from "./agent-fixture.ts";
+import {
+	browserCrashCheck,
+	useTemporaryHome,
+} from "./browser-crash-fixture.ts";
 import { createTestServer } from "./config-fixture.ts";
 import { localFetch as fetch } from "./local-fetch.ts";
 import { httpMcpFixture } from "./mcp-http-fixture.ts";
@@ -24,10 +28,12 @@ const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 test("instructions, explicit Skills, user images and MCP coexist with official CLI browser diagnosis and native screenshot results", {
 	skip: process.platform !== "darwin",
 	timeout: 120000,
-}, async () => {
+}, async (t) => {
 	const directory = await realpath(
 		await mkdtemp(join(tmpdir(), "browser-diagnostics-")),
 	);
+	await useTemporaryHome(t, directory);
+	const crashes = await browserCrashCheck();
 	const target = join(directory, "target");
 	await mkdir(target);
 	await writeFile(join(target, "AGENTS.md"), "PROJECT-BROWSER-INTEGRATION");
@@ -126,7 +132,7 @@ const server = createServer((req, res) => {
 						),
 					);
 					args = {
-						cmd: 'printf "HOME:%s\\n" "$HOME"; exec node website.cjs',
+						cmd: 'printf "SCRATCH:%s\\n" "$TMPDIR"; exec node website.cjs',
 						workdir: target,
 						max_output_tokens: 8000,
 						yield_time_ms: 1000,
@@ -146,12 +152,13 @@ const server = createServer((req, res) => {
 						step--;
 						break;
 					}
-					scratch = websiteOutput.match(/HOME:(\S+)/)?.[1] ?? "";
+					scratch = websiteOutput.match(/SCRATCH:(\S+)/)?.[1] ?? "";
 					assert(scratch);
 					args = command(`${cli} open ${quote(url)} --config=browser.json`);
 					break;
 				}
 				case 3:
+					await crashes.capture(text);
 					assert.match(text, /Weft browser fixture/);
 					args = command(`${cli} tracing-start`);
 					break;
@@ -309,6 +316,7 @@ const server = createServer((req, res) => {
 		const agent = await waitForAgent(base, agentId);
 		assert.equal(agent.status, "succeeded", JSON.stringify(agent));
 		assert.equal(step, 18);
+		await crashes.assertNoCrashes();
 		assert.deepEqual(agent.images, [userImage]);
 		assert(mcp.requests.some((request) => request.method === "DELETE"));
 		assert.equal(mcp.streams.size, 0);
