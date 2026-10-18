@@ -2513,3 +2513,124 @@ test("Sub-agent failed reviews consume only its own model-call budget while pare
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+for (const lowered of [false, true]) {
+	test(`concurrent child reviews respect the ${lowered ? "lowered" : "remaining"} cumulative tree budget at creation`, async () => {
+		const directory = await mkdtemp(join(tmpdir(), "review-tree-budget-"));
+		const path = join(directory, "db.sqlite");
+		configureDatabase(path, "mock-key", "mock-model");
+		const bothChildren = gate();
+		const bothReviews = gate();
+		const releaseReviews = gate();
+		let children = 0;
+		let reviews = 0;
+		let grandchildren = 0;
+		const seen = new Set<string>();
+		const server = createProductionServer(
+			async (url, init) => {
+				const request = JSON.parse(String(init?.body));
+				if (String(url) === "https://openrouter.ai/api/alpha/decisions") {
+					if (request.state.arguments.prompt.startsWith("grandchild")) {
+						if (++reviews === 2) bothReviews.release();
+						await releaseReviews.promise;
+					}
+					return Response.json({
+						answers: { safety: { type: "choice", choice: "allow" } },
+					});
+				}
+				assert.equal(String(url), "https://openrouter.ai/api/v1/responses");
+				const prompt = String(userPrompt(request.input));
+				if (seen.has(prompt))
+					return completedResponse({ output: [message("handled")] });
+				seen.add(prompt);
+				if (prompt === "root")
+					return completedResponse({
+						output: [
+							childTool({ prompt: "child-a" }, "a"),
+							childTool({ prompt: "child-b" }, "b"),
+						],
+					});
+				if (prompt.startsWith("child-")) {
+					if (++children === 2) bothChildren.release();
+					await bothChildren.promise;
+					return completedResponse({
+						output: [childTool({ prompt: `grandchild-${prompt}` })],
+					});
+				}
+				assert(prompt.startsWith("grandchild"));
+				grandchildren++;
+				return completedResponse({ output: [message("grandchild finished")] });
+			},
+			path,
+			undefined,
+			undefined,
+			undefined,
+			join(directory, "empty-home"),
+		).listen(0, "127.0.0.1");
+		await new Promise<void>((resolve) => server.once("listening", resolve));
+		const address = server.address();
+		assert(address && typeof address !== "string");
+		const base = `http://127.0.0.1:${address.port}`;
+		managementTokens.set(base, server.managementToken);
+		const request = async (route: string, method = "GET", body?: unknown) => {
+			const response = await fetch(base + route, {
+				method,
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
+			});
+			assert(response.ok, `${route}: ${response.status}`);
+			return response.json();
+		};
+		try {
+			await request("/api/execution-limits", "PATCH", {
+				subAgentLimit: lowered ? 4 : 3,
+			});
+			const project = await request("/api/projects", "POST", {
+				name: "P",
+				folders: [],
+			});
+			const chat = await request(`/api/projects/${project.id}/chats`, "POST", {
+				name: "C",
+			});
+			const root = await request(`/api/chats/${chat.id}`, "POST", {
+				prompt: "root",
+			});
+			await bothReviews.promise;
+			if (lowered)
+				await request("/api/execution-limits", "PATCH", { subAgentLimit: 2 });
+			releaseReviews.release();
+			assert.equal(
+				(await waitForAgent(base, root.agentId)).status,
+				"succeeded",
+			);
+			const tree = (await request(`/api/agents/${root.agentId}/tree`)).agents;
+			assert.equal(tree.length, lowered ? 3 : 4);
+			assert.equal(grandchildren, lowered ? 0 : 1);
+			const childResults = [];
+			for (const child of tree.filter(
+				(agent: { parentAgentId: number }) =>
+					agent.parentAgentId === root.agentId,
+			)) {
+				const tools = (await request(`/api/agents/${child.id}/tools`))
+					.toolCalls;
+				assert.equal(tools.length, 1);
+				childResults.push(tools[0]);
+			}
+			assert.equal(
+				childResults.filter((tool) => tool.status === "succeeded").length,
+				lowered ? 0 : 1,
+			);
+			const failures = childResults.filter((tool) => tool.status === "failed");
+			assert.equal(failures.length, lowered ? 2 : 1);
+			for (const tool of failures)
+				assert.equal(JSON.parse(tool.result).error.code, "subAgentLimit");
+			assert.equal(reviews, 2);
+		} finally {
+			bothChildren.release();
+			releaseReviews.release();
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+			managementTokens.delete(base);
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+}

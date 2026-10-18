@@ -1497,22 +1497,28 @@ export function createServer(
 						)
 							throw new InputError("invalidInput");
 						currentConfig(id, agentId, value);
-						const limit = Number(
-							database
-								.prepare("SELECT sub_agent_limit FROM settings WHERE id=1")
-								.get()?.sub_agent_limit,
-						);
-						if (descendants(agentSource(agentId).rootAgentId).length >= limit)
-							return {
-								status: "failed",
-								result: JSON.stringify({
-									error: {
-										code: "subAgentLimit",
-										message: "Root tree reached the sub-agent limit",
-									},
-								}),
-							};
+						const atLimit = () => {
+							const limit = Number(
+								database
+									.prepare("SELECT sub_agent_limit FROM settings WHERE id=1")
+									.get()?.sub_agent_limit,
+							);
+							return (
+								descendants(agentSource(agentId).rootAgentId).length >= limit
+							);
+						};
+						const limitResult = {
+							status: "failed" as const,
+							result: JSON.stringify({
+								error: {
+									code: "subAgentLimit",
+									message: "Root tree reached the sub-agent limit",
+								},
+							}),
+						};
+						if (atLimit()) return limitResult;
 						await reviewOperation(value);
+						if (atLimit()) return limitResult;
 						const toolId = activeToolId;
 						if (!toolId) throw new Error("Missing creating Tool Call");
 						database
