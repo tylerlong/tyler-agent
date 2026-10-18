@@ -194,7 +194,7 @@ commandTest(
 						call(
 							"exec_command",
 							{
-								command: `npm install --offline --ignore-scripts --no-audit --no-fund ${quote(archive)} && node build.cjs && node --test check.cjs && git init -b main && git add . && git -c user.name=Fixture -c user.email=fixture@example.invalid commit -m fixture && git status --porcelain && node -e "process.stdout.write('x'.repeat(20000));process.stderr.write('log-tail')"`,
+								command: `npm install --offline --ignore-scripts --no-audit --no-fund ${quote(archive)} && node build.cjs && env -u NODE_TEST_CONTEXT node --test check.cjs && git init -b main && git add . && git -c user.name=Fixture -c user.email=fixture@example.invalid commit -m fixture && git status --porcelain && node -e "process.stdout.write('x'.repeat(20000));process.stderr.write('log-tail')"`,
 								cwd: root,
 								timeout_ms: 20000,
 							},
@@ -1820,7 +1820,7 @@ const run = (file, args=[]) => execFileSync(file, args, {encoding:'utf8'}).trim(
 assert.equal(process.env.HOME, ${JSON.stringify(home)});
 assert.equal(process.env.FIXTURE_DEVELOPMENT_ENV, 'fixture-development');
 assert.equal(process.env.TYLER_MANAGEMENT_TOKEN, undefined);
-assert.notEqual(process.env.CODEX_HOME, process.env.HOME);
+assert.equal(process.env.CODEX_HOME, ${JSON.stringify(process.env.CODEX_HOME)});
 assert.match(process.env.TMPDIR, /tyler-agent/);
 assert.equal(run('fixture-tool'), 'fixture-path-tool');
 assert.equal(run('git', ['config', '--global', 'user.name']), 'Fixture User');
