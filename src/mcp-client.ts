@@ -150,22 +150,22 @@ export async function connectMcp(
 									parameters: tool.inputSchema,
 								});
 								handlers.set(name, async (args, imagesSupported, review) => {
-									if (
-										!readServices().some(
+									const enabled = () =>
+										readServices().some(
 											(row) => row.id === service.id && row.enabled,
-										)
-									)
-										return {
-											status: "failed",
-											result: JSON.stringify({
-												mcpError: {
-													kind: "disabled",
-													service: service.name,
-													message:
-														"MCP service disabled or deleted; call was not executed",
-												},
-											}),
-										};
+										);
+									const disabled = {
+										status: "failed" as const,
+										result: JSON.stringify({
+											mcpError: {
+												kind: "disabled",
+												service: service.name,
+												message:
+													"MCP service disabled or deleted; call was not executed",
+											},
+										}),
+									};
+									if (!enabled()) return disabled;
 									try {
 										const argumentsValue: unknown = JSON.parse(args);
 										if (
@@ -183,6 +183,7 @@ export async function connectMcp(
 											execution: { service: service.name },
 										});
 										signal.throwIfAborted();
+										if (!enabled()) return disabled;
 										// Supplying the discovered definition prevents the SDK's modern-header refresh/replay path.
 										const result = await client.callTool(
 											{
@@ -247,7 +248,8 @@ export async function connectMcp(
 									} catch (error) {
 										if (
 											error instanceof ModelError &&
-											error.code === "modelCallLimit"
+											(error.code === "modelCallLimit" ||
+												error.code === "answerWriteFailed")
 										)
 											throw error;
 										return {

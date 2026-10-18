@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import type { ToolExecutor } from "../src/file-tools.ts";
 import { createServer } from "../src/server.ts";
@@ -102,6 +103,7 @@ async function fixture(model: typeof fetch, execute?: ToolExecutor) {
 	});
 	return {
 		request,
+		databasePath: path,
 		raw: (body: unknown) =>
 			localFetch(`${base}/api/safety-review`, {
 				method: "PATCH",
@@ -484,3 +486,74 @@ test("failed review consumes the remaining model-call budget without altering th
 		await f.close();
 	}
 });
+
+for (const boundary of ["request", "result"] as const) {
+	test(`safety ${boundary} persistence failure stops the Agent without executing or continuing`, async () => {
+		let http = 0;
+		let reviews = 0;
+		const f = await fixture(
+			async (url) => {
+				http++;
+				if (String(url) === decisionUrl) {
+					reviews++;
+					return decision();
+				}
+				assert.equal(
+					http,
+					1,
+					"A recorder failure must not continue the task model",
+				);
+				return tools();
+			},
+			async () => {
+				assert.fail("Unrecorded review must not execute the tool");
+			},
+		);
+		try {
+			const db = new DatabaseSync(f.databasePath);
+			try {
+				db.exec(
+					boundary === "request"
+						? "CREATE TRIGGER reject_review BEFORE INSERT ON model_calls WHEN NEW.url='https://openrouter.ai/api/alpha/decisions' BEGIN SELECT RAISE(ABORT,'controlled request persistence failure'); END"
+						: "CREATE TRIGGER reject_review BEFORE UPDATE ON model_calls WHEN OLD.url='https://openrouter.ai/api/alpha/decisions' BEGIN SELECT RAISE(ABORT,'controlled result persistence failure'); END",
+				);
+			} finally {
+				db.close();
+			}
+			const id = await f.ask();
+			const agent = await f.wait(id);
+			assert.equal(agent.status, "failed");
+			assert.equal(
+				agent.errorCode,
+				"answerWriteFailed",
+				JSON.stringify({
+					error: agent.error,
+					calls: agent.calls,
+					http,
+					reviews,
+				}),
+			);
+			assert.equal(reviews, boundary === "request" ? 0 : 1);
+			assert.equal(http, boundary === "request" ? 1 : 2);
+			const calls = (await f.request(`/api/agents/${id}/calls`)).calls;
+			assert.equal(calls.length, http);
+			assert.equal(calls[0].status, "succeeded");
+			if (boundary === "result") {
+				assert.equal(calls[1].status, "failed");
+				assert.equal(calls[1].errorCode, "answerWriteFailed");
+				assert.equal(calls[1].responseBody, null);
+				for (const kind of ["metadata", "request", "response"]) {
+					const call = (
+						await f.request(
+							`/api/agents/${id}/calls?kind=${kind}&callId=${calls[1].id}`,
+						)
+					).calls[0];
+					assert.equal(call.status, "failed");
+					assert.equal(call.errorCode, "answerWriteFailed");
+				}
+			}
+		} finally {
+			await f.close();
+		}
+	});
+}

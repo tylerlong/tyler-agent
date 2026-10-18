@@ -269,6 +269,16 @@ export async function requestModel(
 			const toolConfig =
 				loop?.reviewConfig?.() ??
 				(typeof config === "function" ? config() : config);
+			const persistReview = (save: () => void) => {
+				try {
+					save();
+				} catch {
+					throw new ModelError(
+						"answerWriteFailed",
+						"Could not save Model Call",
+					);
+				}
+			};
 			const review: ToolReview = async (operation) => {
 				if (toolConfig?.safetyReview === false) return;
 				for (const secret of toolConfig?.secrets ?? []) usedSecrets.add(secret);
@@ -281,8 +291,9 @@ export async function requestModel(
 					new Set(),
 					fetchModel,
 					{
-						request: (call) => record?.request(call),
-						result: (result, output) => record?.result(result, output),
+						request: (call) => persistReview(() => record?.request(call)),
+						result: (result, output) =>
+							persistReview(() => record?.result(result, output)),
 					},
 					{
 						...toolConfig,

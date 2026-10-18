@@ -361,7 +361,10 @@ test("Settings URL and masked token save through to an actual HTTP model tool ca
 				`${app.url}/api/agents/${history.agents[0].id}/calls?kind=request`,
 			)
 		).json();
-		expect(calls.calls).toHaveLength(2);
+		expect(calls.calls).toHaveLength(3);
+		expect(calls.calls[1].url).toBe(
+			"https://openrouter.ai/api/alpha/decisions",
+		);
 		await expect.poll(() => peer.streams.size).toBe(0);
 	} finally {
 		await peer.close();

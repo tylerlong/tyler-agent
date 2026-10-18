@@ -510,7 +510,12 @@ test("tool cards stay collapsed and unread until opened, with localized titles a
 		completedBody({
 			status: "completed",
 			output: [
-				{ ...output()[0], name: "read_file" },
+				{
+					...output(
+						JSON.stringify({ path: join(app.folder, "fixture.txt") }),
+					)[0],
+					name: "read_file",
+				},
 				{ ...output()[0], id: "other", call_id: "other" },
 			],
 		}),

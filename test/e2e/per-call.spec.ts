@@ -49,9 +49,9 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 		}),
 	);
 	first.end();
-	await expect(log.getByText("Request 2", { exact: true })).toBeVisible();
+	await expect(log.getByText("Request 3", { exact: true })).toBeVisible();
 	const groups = log.locator("[data-model-call-id]");
-	await expect(groups).toHaveCount(2);
+	await expect(groups).toHaveCount(3);
 	await expect(groups.first().locator("[data-output-index]")).toHaveCount(0);
 	await expect(groups.first()).toContainText("Response 1");
 	await expect(
@@ -81,7 +81,7 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 	await expect(groups.last()).toContainText("partial thinking");
 	await thinking.click();
 	second.end();
-	await expect(groups.last()).toContainText("Response 2 · Failed");
+	await expect(groups.last()).toContainText("Response 3 · Failed");
 	await expect(thinking).toHaveAttribute("aria-expanded", "false");
 	await expect(log).toContainText("first partial");
 	await expect(log).toContainText("last partial");
@@ -89,7 +89,7 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 	const response = groups
 		.last()
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Response 2/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^Response 3/ }) });
 	await response.locator("summary").click();
 	await expect(response.locator("pre")).toHaveCount(2);
 	for (const text of ["first partial", "partial thinking", "last partial"])
@@ -101,7 +101,7 @@ test("tool-only calls omit empty output and a later failed call retains its orde
 	await expect(groups.first().locator("[data-output-index]")).toHaveCount(0);
 	await expect(thinking).toHaveAttribute("aria-expanded", "false");
 	await expect(response).not.toHaveAttribute("open", "");
-	await expect(groups.last()).toContainText("Response 2 · Failed");
+	await expect(groups.last()).toContainText("Response 3 · Failed");
 });
 
 for (const language of ["en", "zh-CN"]) {

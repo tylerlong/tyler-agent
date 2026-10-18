@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { CommandExecutor } from "../src/command-executor.ts";
@@ -90,6 +91,7 @@ async function fixture(
 	});
 	return {
 		directory,
+		path,
 		reviews,
 		send,
 		run: async () => {
@@ -105,6 +107,104 @@ async function fixture(
 			await rm(directory, { recursive: true, force: true });
 		},
 	};
+}
+
+for (const change of ["disable", "edit"] as const) {
+	test(`HTTP MCP ${change} during held review respects service lifecycle before executing an allowed call`, async () => {
+		const original = await httpMcpFixture();
+		const replacement = await httpMcpFixture();
+		let round = 0;
+		const args = { mode: "mixed", payload: { values: [4, 5, 6] } };
+		const service = {
+			id: "held-review",
+			name: "reviewed original service",
+			enabled: true,
+			config: JSON.stringify({ url: original.url }),
+			env: [],
+		};
+		const f = await fixture(
+			(request) => {
+				if (++round > 1) return [answer];
+				const tool = request.tools.find((tool) =>
+					tool.description?.includes("controlled HTTP tool"),
+				);
+				assert(tool);
+				return [call(tool.name, args)];
+			},
+			async () => {
+				assert.equal(
+					original.requests.filter((request) => request.method === "tools/call")
+						.length,
+					0,
+				);
+				await f.send(
+					"/api/mcp-settings",
+					{
+						services: [
+							{
+								...service,
+								...(change === "disable"
+									? { enabled: false }
+									: { config: JSON.stringify({ url: replacement.url }) }),
+							},
+						],
+					},
+					"PUT",
+				);
+			},
+		);
+		try {
+			await f.send("/api/mcp-settings", { services: [service] }, "PUT");
+			const agent = await f.run();
+			assert.equal(agent.status, "succeeded");
+			assert.equal(f.reviews.length, 1);
+			assert.deepEqual(f.reviews[0].execution, { service: service.name });
+			assert.deepEqual(f.reviews[0].arguments, args);
+			assert.equal(
+				replacement.requests.length,
+				0,
+				"configuration changes cannot redirect the reviewed operation",
+			);
+			const calls = original.requests.filter(
+				(request) => request.method === "tools/call",
+			);
+			assert.equal(calls.length, change === "disable" ? 0 : 1);
+			if (change === "edit")
+				assert.deepEqual(calls[0].params, {
+					name: "read_file",
+					arguments: args,
+				});
+			const db = new DatabaseSync(f.path);
+			try {
+				const review = db
+					.prepare(
+						"SELECT status,response_body FROM model_calls WHERE url LIKE '%/decisions'",
+					)
+					.get();
+				assert.equal(review?.status, "succeeded");
+				assert.equal(
+					JSON.parse(String(review?.response_body)).answers.safety.choice,
+					"allow",
+				);
+				const tool = db.prepare("SELECT status,result FROM tool_calls").get();
+				assert.equal(
+					tool?.status,
+					change === "disable" ? "failed" : "succeeded",
+				);
+				if (change === "disable")
+					assert.match(
+						JSON.parse(String(tool?.result)).mcpError.message,
+						/disabled or deleted; call was not executed/,
+					);
+			} finally {
+				db.close();
+			}
+		} finally {
+			await f.close();
+			await original.close();
+			await replacement.close();
+		}
+	});
 }
 
 test("built-in tool reviews contain the validated operation before execution, including stdin and polling", async (t) => {

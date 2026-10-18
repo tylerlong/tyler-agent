@@ -85,7 +85,7 @@ test("restart removes running and waiting loading and rereads interrupted histor
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
 	expect(history.agents).toHaveLength(1);
-	expect(history.agents[0].calls).toHaveLength(1);
+	expect(history.agents[0].calls).toHaveLength(2);
 });
 
 for (const boundary of ["establish", "start", "result", "terminal"]) {
@@ -150,7 +150,9 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 		const history = await (
 			await page.request.get(`${app.url}/api/chats/${chat.id}`)
 		).json();
-		expect(history.agents[0].calls).toHaveLength(1);
+		expect(history.agents[0].calls).toHaveLength(
+			boundary === "result" || boundary === "terminal" ? 2 : 1,
+		);
 		await page.reload();
 		await expect(cards).toHaveCount(boundary === "establish" ? 0 : 2);
 		if (boundary !== "establish") {
@@ -177,6 +179,10 @@ test("last allowed model response shows localized unexecuted tools without resul
 			data: { name: "C" },
 		})
 	).json();
+	// Sixteen task requests and fifteen reviews exhaust the shared request budget.
+	await page.request.patch(`${app.url}/api/execution-limits`, {
+		data: { modelCallLimit: 31 },
+	});
 	await page.goto(`${app.url}/?chat=${chat.id}`);
 	let model = app.rawStreamModel();
 	const tools = Array.from({ length: 15 }, () =>
@@ -204,7 +210,7 @@ test("last allowed model response shows localized unexecuted tools without resul
 	const history = await (
 		await page.request.get(`${app.url}/api/chats/${chat.id}`)
 	).json();
-	expect(history.agents[0].calls).toHaveLength(16);
+	expect(history.agents[0].calls).toHaveLength(31);
 	expect(history.agents[0].toolCalls[15].status).toBe("not_executed");
 	await page.reload();
 	await expect(cards.nth(15).locator("summary")).toContainText("Not executed");

@@ -170,7 +170,7 @@ test("tool image results display the saved image and preserve image JSON in Copy
 			type: "function_call",
 			name: "read_image",
 			call_id: "image",
-			arguments: JSON.stringify({ path: "pixel.png" }),
+			arguments: JSON.stringify({ path: `${app.folder}/pixel.png` }),
 		},
 	];
 	first.push(completedBody({ status: "completed", output }));

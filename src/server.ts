@@ -465,11 +465,14 @@ export function createServer(
 		const output = agentOutput(Number(row.id));
 		const failedCall = database
 			.prepare(
-				"SELECT id,status,error_code,error FROM model_calls WHERE agent_id=? AND url!='https://openrouter.ai/api/alpha/decisions' ORDER BY id DESC",
+				"SELECT id,url,status,error_code,error FROM model_calls WHERE agent_id=? ORDER BY id DESC",
 			)
 			.all(Number(row.id))
 			.find(
-				(call) => call.status === "failed" || unsavedCalls.has(Number(call.id)),
+				(call) =>
+					(call.url !== "https://openrouter.ai/api/alpha/decisions" &&
+						call.status === "failed") ||
+					unsavedCalls.has(Number(call.id)),
 			);
 		return {
 			...row,
@@ -1685,7 +1688,8 @@ export function createServer(
 						} catch (error) {
 							if (
 								error instanceof ModelError &&
-								error.code === "modelCallLimit"
+								(error.code === "modelCallLimit" ||
+									error.code === "answerWriteFailed")
 							)
 								throw error;
 							return {
@@ -1720,7 +1724,8 @@ export function createServer(
 						} catch (error) {
 							if (
 								error instanceof ModelError &&
-								error.code === "modelCallLimit"
+								(error.code === "modelCallLimit" ||
+									error.code === "answerWriteFailed")
 							)
 								throw error;
 							return {
@@ -1807,7 +1812,11 @@ export function createServer(
 							result: JSON.stringify({ agent_id: childId, status: "pending" }),
 						};
 					} catch (error) {
-						if (error instanceof ModelError && error.code === "modelCallLimit")
+						if (
+							error instanceof ModelError &&
+							(error.code === "modelCallLimit" ||
+								error.code === "answerWriteFailed")
+						)
 							throw error;
 						return {
 							status: "failed",

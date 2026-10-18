@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { completedBody, frame } from "../model-fixture.ts";
 import { expect, test } from "./fixtures.ts";
 
-test("a tool agent retains output and exposes both communications while the chat stays busy", async ({
+test("a tool agent retains output and exposes task and safety communications while the chat stays busy", async ({
 	page,
 	context,
 	app,
@@ -79,7 +79,7 @@ test("a tool agent retains output and exposes both communications while the chat
 			).json();
 			return calls.calls.length;
 		})
-		.toBe(2);
+		.toBe(3);
 	await continuation.entered;
 	await page.getByLabel("Prompt").fill("next draft");
 	await expect(
@@ -92,7 +92,7 @@ test("a tool agent retains output and exposes both communications while the chat
 	await expect(log).toContainText("I will count the files.");
 	const request = page
 		.locator("details")
-		.filter({ has: page.locator("summary", { hasText: /^Request 2$/ }) });
+		.filter({ has: page.locator("summary", { hasText: /^Request 3$/ }) });
 	const response = page
 		.locator("details")
 		.filter({ has: page.locator("summary", { hasText: /^Response 1/ }) });
@@ -137,8 +137,10 @@ test("a tool agent retains output and exposes both communications while the chat
 		"Response 1",
 		"Tool Call · read_file",
 		"Request 2",
-		"0",
 		"Response 2",
+		"Request 3",
+		"0",
+		"Response 3",
 	]);
 	await request.locator("summary").click();
 	await response.locator("summary").click();
@@ -188,7 +190,14 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 			type: "function_call",
 			name,
 			call_id: `call-${index}`,
-			arguments: JSON.stringify({ index, key: "zkey", nested: [false, null] }),
+			arguments: JSON.stringify(
+				name === "read_file"
+					? { path: join(app.folder, `zkey-${index}`) }
+					: {
+							cwd: app.folder,
+							patch: `*** Begin Patch\n*** Add File: zkey-${index}\n+fixture\n*** End Patch`,
+						},
+			),
 		}),
 	);
 	await page.getByLabel("Prompt").fill("Run tools");
@@ -205,7 +214,7 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 	await expect(inspect).not.toHaveAttribute("open");
 	await inspect.locator("summary").click();
 	await expect(inspect).toHaveAttribute("open", "");
-	await expect(inspect).toContainText('"key": "[REDACTED]"');
+	await expect(inspect).toContainText(`${app.folder}/[REDACTED]-0`);
 	await expect(inspect.getByRole("status")).toHaveCount(2);
 	await expect(cards.nth(1).locator("summary")).toContainText("Waiting");
 	await expect(cards.nth(2).locator("summary")).toContainText("Waiting");
@@ -253,6 +262,14 @@ test("generic tool cards appear only after completed protocol and show waiting, 
 		"Tool Call · apply_patch · Failed",
 		"Request 2",
 		"Response 2",
+		"Request 3",
+		"Response 3",
+		"Request 4",
+		"Response 4",
+		"Request 5",
+		"Response 5",
+		"Request 6",
+		"Response 6",
 	]);
 	await app.restart();
 	await page.goto(`${app.url}/?chat=${chat.id}`);
