@@ -66,6 +66,9 @@ const server = createServer((req, res) => {
 }).listen(0, '127.0.0.1', () => console.log('SITE:http://127.0.0.1:' + server.address().port));
 `,
 	);
+	const maxReadinessPolls = 5;
+	let readinessPolls = 0;
+	let websiteOutput = "";
 	let step = 0,
 		session = 0,
 		requestIndex = "",
@@ -132,9 +135,18 @@ const server = createServer((req, res) => {
 				case 2: {
 					assert.equal(result.running, true);
 					session = result.session_id;
-					const url = text.match(/SITE:(http:\/\/127\.0\.0\.1:\d+)/)?.[1];
-					assert(url, text);
-					scratch = text.match(/HOME:(\S+)/)?.[1] ?? "";
+					websiteOutput += text;
+					const url = websiteOutput.match(
+						/SITE:(http:\/\/127\.0\.0\.1:\d+)/,
+					)?.[1];
+					if (!url) {
+						assert(++readinessPolls <= maxReadinessPolls, websiteOutput);
+						name = "write_stdin";
+						args = { session_id: session, yield_time_ms: 1000 };
+						step--;
+						break;
+					}
+					scratch = websiteOutput.match(/HOME:(\S+)/)?.[1] ?? "";
 					assert(scratch);
 					args = command(`${cli} open ${quote(url)} --config=browser.json`);
 					break;
@@ -263,7 +275,7 @@ const server = createServer((req, res) => {
 	try {
 		await request(
 			"/api/execution-limits",
-			{ modelCallLimit: 18 + 17 },
+			{ modelCallLimit: 18 + 17 + 2 * maxReadinessPolls },
 			"PATCH",
 		);
 		await request(
