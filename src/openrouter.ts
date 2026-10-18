@@ -130,8 +130,6 @@ export type ModelConfig = {
 	targetFolders?: string[];
 	scratch?: string;
 	instructions?: string;
-	fileAccess?: "restricted" | "full";
-	networkAccess?: "restricted" | "full";
 	models?: { id: string; name: string; reasoningEfforts: string[] }[];
 };
 export type ToolRequest = { name: string; arguments: string; call_id: string };
@@ -531,7 +529,7 @@ async function requestOnce(
 			createSubAgentTool,
 			cancelSubAgentTool,
 		],
-		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. File and command tools share these folders and your own scratch. Use commands for discovery, listing, copying, moving and deletion; use apply_patch for text creation and changes. File reads use bounded byte blocks. No rollback guarantee; existing cross-scope hard links may affect the same inode outside scope. Your private command scratch directory: ${JSON.stringify(config?.scratch ?? null)}. Current Chat file access: ${config?.fileAccess ?? "restricted"}; network access: ${config?.networkAccess ?? "restricted"}. Restricted files allow target folders, own scratch and approved scopes; full files use the OS account without privilege escalation. Full network includes public/local/LAN access and listening. Permissions are read again at execution; request explicit extra_permissions with a reason when needed. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.\n\n${config?.instructions ?? ""}`,
+		instructions: `Project target folders (absolute directory paths): ${JSON.stringify(config?.targetFolders ?? [])}. File and command tools run with the current system user's full access, without privilege escalation. Use commands for discovery, listing, copying, moving and deletion; use apply_patch for text creation and changes. File reads use bounded byte blocks. No rollback guarantee. Your private command scratch directory: ${JSON.stringify(config?.scratch ?? null)}. Each tool call follows the global safety review setting; a blocked or failed review means the operation was not executed. Configured models for create_sub_agent overrides (IDs, names, allowed reasoning efforts): ${JSON.stringify(config?.models ?? [])}.\n\n${config?.instructions ?? ""}`,
 
 		stream: true,
 		...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),

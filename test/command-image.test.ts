@@ -11,7 +11,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { CommandExecutor } from "../src/command-executor.ts";
-import { emptyPermissions } from "../src/execution-permissions.ts";
 import { MAX_IMAGE_BYTES } from "../src/image-content.ts";
 
 const png = Buffer.from(
@@ -19,10 +18,10 @@ const png = Buffer.from(
 	"base64",
 );
 
-test("native image reads preserve complete bytes and enforce file permissions", {
+test("native image reads preserve complete bytes and read outside-project symlink targets", {
 	skip:
 		process.platform !== "darwin"
-			? "Native restricted policy requires macOS"
+			? "Native image integration requires macOS"
 			: false,
 }, async () => {
 	const directory = await realpath(
@@ -32,8 +31,6 @@ test("native image reads preserve complete bytes and enforce file permissions", 
 	await mkdir(root);
 	const executor = new CommandExecutor();
 	const options = {
-		targetFolders: [root],
-		agentId: `image-${process.pid}`,
 		signal: new AbortController().signal,
 	};
 	try {
@@ -59,18 +56,10 @@ test("native image reads preserve complete bytes and enforce file permissions", 
 		const escapedPath = join(root, "escape.png");
 		await symlink(outside, escapedPath);
 		for (const path of [outside, escapedPath])
-			await assert.rejects(executor.readImage({ ...options, path }));
-		assert.deepEqual(
-			await executor.readImage({
-				...options,
-				path: outside,
-				extraPermissions: {
-					...emptyPermissions(),
-					paths: [{ path: outside, access: "read" }],
-				},
-			}),
-			expected,
-		);
+			assert.deepEqual(
+				await executor.readImage({ ...options, path }),
+				expected,
+			);
 	} finally {
 		await executor.close();
 		await rm(directory, { recursive: true, force: true });

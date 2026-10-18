@@ -7,8 +7,6 @@ import type { ManagedModel } from "./model-settings.ts";
 export type ChatOptions = {
 	modelId: string | null;
 	reasoningEffort: string | null;
-	fileAccess: "restricted" | "full";
-	networkAccess: "restricted" | "full";
 };
 function reasoningEfforts(model: ManagedModel | undefined) {
 	return model ? (supportedReasoningEfforts(model) ?? []) : [];
@@ -124,18 +122,14 @@ export function ChatOptionPicker({
 		values: { value: string | null; label: string }[],
 		selected: string | null,
 		select: (value: string | null) => void,
-		layout: "plain" | "scroll" | "inline" = "plain",
+		layout: "plain" | "scroll" = "plain",
 	) {
 		return (
 			<div
 				role="radiogroup"
 				aria-label={label}
 				className={
-					layout === "scroll"
-						? "min-h-24 overflow-y-auto"
-						: layout === "inline"
-							? "flex shrink-0 gap-2"
-							: "shrink-0"
+					layout === "scroll" ? "min-h-24 overflow-y-auto" : "shrink-0"
 				}
 			>
 				{values.map((item) => (
@@ -245,24 +239,6 @@ export function ChatOptionPicker({
 								)}
 							</>
 						)}
-						{(["fileAccess", "networkAccess"] as const).map((key) => (
-							<div
-								key={key}
-								className="mt-2 shrink-0 border-t border-gray-200 pt-2"
-							>
-								<div className="px-3 text-sm font-semibold">{t(key)}</div>
-								{group(
-									t(key),
-									[
-										{ value: "restricted", label: t("accessRestricted") },
-										{ value: "full", label: t("accessFull") },
-									],
-									options[key],
-									(value) => change({ ...options, [key]: value }),
-									"inline",
-								)}
-							</div>
-						))}
 					</div>,
 					document.body,
 				)}

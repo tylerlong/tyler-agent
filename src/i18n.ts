@@ -3,44 +3,8 @@ import { initReactI18next } from "react-i18next";
 export const resources = {
 	en: {
 		translation: {
-			approvalStatus_denied: "Approval denied",
-			approvalStatus_once: "Approved once",
-			approvalStatus_always: "Allowed for this Project",
-			approvalAlways: "Always allow for this Project",
-			projectGrants: "Project permissions",
-			projectGrantsHelp:
-				"Shared by all Chats and Agents in this Project. Saving changes affects later tool starts; cancel running work to stop it immediately.",
-			grantPath: "Permission path",
-			grantAccess: "Access",
-			removeGrant: "Remove permission {{path}}",
-			addGrantPath: "Add permission path",
-			grantDomains: "Allowed domains (one per line)",
-			saveGrants: "Save permissions",
-			approvalStatus_covered: "Permissions already covered",
-			approvalStatus_interrupted: "Approval interrupted",
-			approvalRequired: "Waiting for approval",
-			approvalWaiting: "Waiting for approval",
-			approvalEntry: "Pending approvals ({{count}})",
-			approvalOwner: "Project: {{project}} · Chat: {{chat}} · Agent #{{agent}}",
-			approvalReason: "Reason",
-			approvalCwd: "Working directory",
-			approvalPermissions: "Unmet permissions",
-			approvalAccess_read: "Read path",
-			approvalAccess_write: "Write path",
-			approvalDomain: "Domain",
-			approvalLocalNetwork:
-				"Local network: native binding/loopback access and relaxed private-address checks",
-			approvalOnceHelp:
-				"Allow once applies only to this exact operation and its requested permissions. Waiting continues until a decision or cancellation.",
-			approvalDeny: "Deny",
-			approvalOnce: "Allow once",
-			approvalSettled: "Decision saved",
-			approvalEmpty: "No pending approvals.",
 			managementAuthorizationRequired:
 				"Management authorization is required. Reopen the startup URL printed by the server.",
-			approvalStale:
-				"This approval is no longer pending. Refresh to see current requests.",
-			approvalInvalid: "This approval request is invalid.",
 
 			searchCommunication: "Search communication",
 			responsePartial:
@@ -108,9 +72,9 @@ export const resources = {
 			resizeSidebar: "Resize sidebar",
 			targetFolders: "Target folders",
 			emptyTargetFolders:
-				"Choose Edit project, then Add folder to use file tools.",
+				"Choose Edit project, then Add folder to set project context.",
 			targetFoldersHelp:
-				"Selected folders define file access. Zero folders is valid for text-only work.",
+				"Selected folders provide project context and working directories. Files and commands run with your OS account’s access.",
 			chatHistory: "Chat history",
 			loadEarlier: "Load earlier agents",
 			agentPending: "Working…",
@@ -290,22 +254,12 @@ export const resources = {
 			mcpHelp:
 				"Changes apply to the next Agent. Disabling or removing a service also blocks later calls by running Agents; in-flight calls can finish.",
 			mcpTrust:
-				"Enabled MCP services are trusted external integrations. They use their own account and runtime permissions, outside the built-in Target Folder and sandbox. The model can call their tools without individual approval.",
+				"Enabled MCP services use their own accounts and runtime permissions. Their tool calls follow the global safety review setting; review cannot see all effects inside external services.",
 			mcpJsonHelp:
 				"Use command/args for stdio, or url/http_headers for Streamable HTTP (including localhost). Optional startup_timeout_sec defaults to 120. Keep env in the fields below. <NAME> in any JSON string refers to this service’s environment variable, replaced once.",
 			mcpJiraHelp:
 				"Jira uses Docker ghcr.io/sooperset/mcp-atlassian with a 120-second startup timeout. Set JIRA_URL and JIRA_PERSONAL_TOKEN for your Jira server. Docker receives values through -e NAME; credentials are stored locally in SQLite like the OpenRouter key. Edit command and args in JSON.",
 			settingsExecution: "Execution",
-			fileAccess: "File access",
-			networkAccess: "Network access",
-			accessRestricted: "Restricted",
-			accessFull: "Full",
-			accessDefaults: "New Chat access defaults",
-			accessDefaultsHelp:
-				"Copied into new Chats only. Existing Chats keep their choices. Full files use your OS account; full network includes public, local and LAN access and listening.",
-			invalidAccessMode: "Choose restricted or full access.",
-			accessDefaultsFailed:
-				"Unable to read or save access defaults. Please retry.",
 			modelConfiguration: "Models",
 			apiKey: "OpenRouter API key",
 			credentials: "Credentials",
@@ -381,42 +335,8 @@ export const resources = {
 	},
 	"zh-CN": {
 		translation: {
-			approvalStatus_denied: "已拒绝批准",
-			approvalStatus_once: "已批准一次",
-			approvalStatus_always: "已为此项目持续授权",
-			approvalAlways: "始终允许此项目",
-			projectGrants: "项目额外权限",
-			projectGrantsHelp:
-				"此项目的所有对话和 Agent 共享权限。保存修改影响后续工具启动；立即停止正在运行的操作请取消任务。",
-			grantPath: "授权路径",
-			grantAccess: "访问权限",
-			removeGrant: "删除授权 {{path}}",
-			addGrantPath: "添加授权路径",
-			grantDomains: "允许的域名（每行一个）",
-			saveGrants: "保存权限",
-			approvalStatus_covered: "权限已覆盖",
-			approvalStatus_interrupted: "批准已中断",
-			approvalRequired: "等待批准",
-			approvalWaiting: "等待批准",
-			approvalEntry: "待批准请求（{{count}}）",
-			approvalOwner: "项目：{{project}} · 聊天：{{chat}} · Agent #{{agent}}",
-			approvalReason: "原因",
-			approvalCwd: "工作目录",
-			approvalPermissions: "尚未授予的权限",
-			approvalAccess_read: "读取路径",
-			approvalAccess_write: "写入路径",
-			approvalDomain: "域名",
-			approvalLocalNetwork: "本地网络：原生绑定/回环访问，并放宽私有地址检查",
-			approvalOnceHelp:
-				"仅批准本次操作及其请求的权限。请求将一直等待，直到批准、拒绝或取消。",
-			approvalDeny: "拒绝",
-			approvalOnce: "仅批准一次",
-			approvalSettled: "已保存决定",
-			approvalEmpty: "没有待批准请求。",
 			managementAuthorizationRequired:
 				"需要管理授权。请重新打开服务器打印的启动链接。",
-			approvalStale: "此请求已不再等待批准。请刷新以查看当前请求。",
-			approvalInvalid: "批准请求无效。",
 
 			searchCommunication: "搜索通信内容",
 			responsePartial: "部分内容；尚未收到已接受的完整响应。",
@@ -480,9 +400,10 @@ export const resources = {
 			archived: "已归档",
 			resizeSidebar: "调整左侧面板宽度",
 			targetFolders: "目标文件夹",
-			emptyTargetFolders: "选择“编辑项目”，再选择“添加文件夹”以使用文件工具。",
+			emptyTargetFolders:
+				"选择“编辑项目”，再选择“添加文件夹”以设置项目上下文。",
 			targetFoldersHelp:
-				"已选文件夹界定文件访问范围。仅处理文本的任务可以不选文件夹。",
+				"已选文件夹提供项目上下文与工作目录。文件与命令使用当前系统账号的访问能力。",
 			chatHistory: "对话历史",
 			loadEarlier: "加载更早记录",
 			agentPending: "运行中…",
@@ -654,21 +575,12 @@ export const resources = {
 			mcpHelp:
 				"修改从下一个 Agent 生效。禁用或删除服务还会阻止运行中 Agent 的后续调用；在途调用可以完成。",
 			mcpTrust:
-				"启用的 MCP 服务是可信外部集成，按自身账号与运行环境权限执行，不受内置 Target Folder 和沙箱约束。模型可直接调用工具，无逐次审批。",
+				"MCP 服务按自身账号与运行环境权限执行，其工具调用遵循全局安全审核设置；审核无法看到外部服务内部的所有影响。",
 			mcpJsonHelp:
 				"stdio 使用 command／args，Streamable HTTP 使用 url／http_headers（含本机 URL）。可选 startup_timeout_sec 默认为 120。env 在下方单独编辑。JSON 字符串中的 <NAME> 引用本服务的环境变量，仅替换一次。",
 			mcpJiraHelp:
 				"Jira 模板通过 Docker ghcr.io/sooperset/mcp-atlassian 启动，超时为 120 秒。请填写 Jira 服务器的 JIRA_URL 和 JIRA_PERSONAL_TOKEN。Docker 通过 -e NAME 接收变量值；凭据与 OpenRouter 密钥一样保存在本地 SQLite。命令和完整参数可在 JSON 中修改。",
 			settingsExecution: "执行",
-			fileAccess: "文件访问",
-			networkAccess: "网络访问",
-			accessRestricted: "受限",
-			accessFull: "完全",
-			accessDefaults: "新对话的访问默认值",
-			accessDefaultsHelp:
-				"仅复制到新对话，现有对话保留自身选择。完全文件访问使用操作系统账户权限；完全网络访问包括公网、本机、局域网和监听。",
-			invalidAccessMode: "请选择受限或完全访问。",
-			accessDefaultsFailed: "无法读取或保存访问默认值，请重试。",
 			modelConfiguration: "模型",
 			apiKey: "OpenRouter API 密钥",
 			credentials: "凭据",

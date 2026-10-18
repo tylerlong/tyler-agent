@@ -1,17 +1,17 @@
 # 第一版通过 Playwright 接入浏览器能力
 
-浏览器和桌面操作优先通过成熟工具公开的 CLI、SDK 或 MCP 接入，沿用其会话、profile、连接和关闭行为；先选型并验证兼容性，再处理具体接入问题，避免先设计独立的浏览器或桌面控制层。Weft 负责让工具可调用、接入现有权限及保存实际 Tool Result，保留自己的 Agent 和模型通信路径。
+浏览器和桌面操作优先通过成熟工具公开的 CLI、SDK 或 MCP 接入，沿用其会话、profile、连接和关闭行为；先选型并验证兼容性，再处理具体接入问题，避免先设计独立的浏览器或桌面控制层。Weft 负责让工具可调用、接入全局安全审核及保存实际 Tool Result，保留自己的 Agent 和模型通信路径。
 
 第一版选择 [Playwright CLI 与官方 skill](https://github.com/microsoft/playwright-cli)，通过现有命令工具使用其浏览器操作、页面快照、console、网络请求及响应详情、截图和 trace。工具从 Weft 自身安装位置提供，不依赖目标仓库安装 Playwright；会话与 profile 沿用上游方案，调整由实际兼容性问题驱动。
 
 原生桌面操作延期，第一版不接入 Cua Driver 或另一套浏览器操作后端。Cua 已有浏览器操作能力，但公开工具列表未提供专门的 console 和网络请求／响应诊断接口；先用单一工具覆盖当前开发网站诊断需求，避免重叠接入或自行实现采集层。
 
-第一版图片输入包含用户在 prompt 中上传或粘贴图片，以及模型按需读取本地图片（含浏览器截图）。两个入口共用图片输入能力；用户图片属于用户消息，工具读图通过 [OpenRouter 多模态工具结果](https://openrouter.ai/docs/api_reference/responses/tool-calling#multimodal-tool-outputs) 返回。模型决定何时截图和查看，本地执行读取、权限校验和实际内容传输，不自动附送全部截图；界面沿用常见附件预览与移除交互。
+第一版图片输入包含用户在 prompt 中上传或粘贴图片，以及模型按需读取本地图片（含浏览器截图）。两个入口共用图片输入能力；用户图片属于用户消息，工具读图通过 [OpenRouter 多模态工具结果](https://openrouter.ai/docs/api_reference/responses/tool-calling#multimodal-tool-outputs) 返回。模型决定何时截图和查看，本地执行读取、参数校验和实际内容传输，不自动附送全部截图；界面沿用常见附件预览与移除交互。
 
 依据 OpenRouter 的 `architecture.input_modalities` 校验图片输入能力。已知所选模型不支持图片时，用户附图在提交前提示选择支持的模型，并保留输入和附件；工具读图返回明确错误，由模型决定替代方式或请用户处理。不自动切换模型或重试付费调用；能力未知不冒充已支持，服务方实际拒绝仍如实记录。
 
 图片沿用 [ADR 0001](0001-agent-and-call-ownership.md) 的历史规则。用户图片是问题的一部分，保存提交时的内容；后续根任务载入该条成功、失败或取消任务的历史问题时一并原生带入，并继续按当前模型能力校验。工具读取的图片属于同一 Agent 的工具上下文，后续根任务不自动携带，需要时重新读取。记录查看展示当时实际发送的图片，不随原文件修改或删除而变化；携图历史会增加请求体积和模型输入成本。
 
-图片上传／粘贴、本地 `read_image`、原生多模态工具结果和记录／历史已实现，并通过受控模型协议、原生文件沙箱与附件界面测试验证；尚未经授权进行付费模型视觉理解验证。浏览器复用固定 Playwright 1.63.0 已有官方 CLI 和 skill，不安装另一版 CLI／后端。命令环境的 `playwright-cli` 仅将完整参数交给该安装的 `playwright cli`；必要包与已安装浏览器资源按工具链只读接线，CLI 通信／profile 沿用 Agent HOME 下的上游行为。模型负责关闭其浏览器，不增加 Chat 保活或另一套会话框架。
+图片上传／粘贴、本地 `read_image`、原生多模态工具结果和记录／历史已实现，并通过受控模型协议、原生文件读取与附件界面测试验证；尚未经授权进行付费模型视觉理解验证。浏览器复用固定 Playwright 1.63.0 已有官方 CLI 和 skill，不安装另一版 CLI／后端。命令环境的 `playwright-cli` 仅将完整参数交给该安装的 `playwright cli`；必要包与已安装浏览器资源按工具链只读接线，CLI 通信／profile 沿用 Agent HOME 下的上游行为。模型负责关闭其浏览器，不增加 Chat 保活或另一套会话框架。
 
-macOS 真实验证中，原生受限沙箱拒绝 Chromium 所需 Mach 注册；文件／网络 grant 无法解除。按用户确认的 [ADR 0004](0004-command-tool-isolation-boundary.md)，只有现有文件与网络均完全访问时，同一启动 RPC 才传 `sandbox: null`，任一维度受限继续沙箱；不为浏览器失败自动扩权或重试。已用受控本机网站通过 HTTP → 模型 fixture → 原生命令／官方 CLI 验证启动后继续会话、页面动作、console、网络请求／响应 body、截图 `read_image` 原生数组与记录、trace 和关闭清理。四种权限组合另验证实际文件／网络边界；具体版本、前提及限制见[浏览器工具](../browser-tools.md)。
+普通命令统一使用 [ADR 0004](0004-command-tool-isolation-boundary.md) 的 Full Access 无沙箱路径，浏览器无需额外模式或授权。保留受控本机网站经 HTTP → 模型 fixture → 原生命令／官方 CLI 的诊断、截图、trace 与关闭回归；不再运行会制造 Chrome abort 的受限模式启动。具体版本、前提及验证边界见[浏览器工具](../browser-tools.md)。

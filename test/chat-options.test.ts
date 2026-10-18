@@ -82,8 +82,6 @@ test("Chat choices persist independently across restart and never restore histor
 	try {
 		const route = `/api/chats/${f.chat.id}`;
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "test",
 			reasoningEffort: null,
 		});
@@ -116,21 +114,15 @@ test("Chat choices persist independently across restart and never restore histor
 			);
 		for (const query of ["", "?before=999"])
 			assert.deepEqual((await f.json(route + query)).chatOptions, {
-				fileAccess: "restricted",
-				networkAccess: "restricted",
 				modelId: "second",
 				reasoningEffort: "high",
 			});
 		assert.deepEqual((await f.json(`/api/chats/${other.id}`)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "test",
 			reasoningEffort: null,
 		});
 		await f.restart();
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "second",
 			reasoningEffort: "high",
 		});
@@ -158,23 +150,17 @@ test("Chat PUT validates choices, preserves omitted fields, clears deleted refer
 		await f.json(route, "PUT", { reasoningEffort: "high" });
 		await f.json(route, "PUT", { name: "Renamed" });
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "test",
 			reasoningEffort: "high",
 		});
 		await f.json("/api/model-settings", "PUT", { defaultModelId: "second" });
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "test",
 			reasoningEffort: "high",
 		});
 		await f.json("/api/models/test", "DELETE");
 		for (let i = 0; i < 2; i++)
 			assert.deepEqual((await f.json(route)).chatOptions, {
-				fileAccess: "restricted",
-				networkAccess: "restricted",
 				modelId: null,
 				reasoningEffort: null,
 			});
@@ -190,8 +176,6 @@ test("Chat PUT validates choices, preserves omitted fields, clears deleted refer
 		await f.json(route, "PUT", { reasoningEffort: "low" });
 		await f.json(route, "PUT", { modelId: null });
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: null,
 			reasoningEffort: null,
 		});
@@ -200,8 +184,6 @@ test("Chat PUT validates choices, preserves omitted fields, clears deleted refer
 			name: "Empty",
 		});
 		assert.deepEqual((await f.json(`/api/chats/${empty.id}`)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: null,
 			reasoningEffort: null,
 		});
@@ -216,8 +198,6 @@ test("Chat PUT validates choices, preserves omitted fields, clears deleted refer
 			409,
 		);
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: null,
 			reasoningEffort: null,
 		});
@@ -260,8 +240,6 @@ test("prompt acceptance uses saved choices, busy edits affect the next call but 
 		await f.json(route, "PUT", { reasoningEffort: "high" });
 		const accepted = await f.json(route, "POST", {
 			prompt: "Q",
-			modelId: "missing",
-			reasoningEffort: "unsupported",
 		});
 		await entered;
 		assert.equal(
@@ -277,8 +255,6 @@ test("prompt acceptance uses saved choices, busy edits affect the next call but 
 		assert.equal(requests[1].model, "second");
 		assert.deepEqual(requests[1].reasoning, { effort: "low" });
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "second",
 			reasoningEffort: "low",
 		});
@@ -318,8 +294,6 @@ test("deleting the selected model stops continuation without issuing another Mod
 		assert.equal((await f.wait(agentId)).status, "failed");
 		assert.equal(requests, 1);
 		assert.deepEqual((await f.json(route)).chatOptions, {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: null,
 			reasoningEffort: null,
 		});
@@ -329,56 +303,70 @@ test("deleting the selected model stops continuation without issuing another Mod
 	}
 });
 
-test("access defaults initialize only new Chats and independent saved choices survive restart", async () => {
+test("removed access and approval contracts are unavailable and rejected instead of ignored", async () => {
 	const f = await fixture();
 	try {
-		assert.deepEqual(await f.json("/api/access-defaults"), {
-			fileAccess: "restricted",
-			networkAccess: "restricted",
-		});
-		await f.json("/api/access-defaults", "PATCH", { fileAccess: "full" });
-		const second = await f.json(`/api/projects/${f.project.id}/chats`, "POST", {
-			name: "new",
-		});
-		assert.equal(
-			(await f.json(`/api/chats/${second.id}`)).chatOptions.fileAccess,
-			"full",
-		);
-		assert.equal(
-			(await f.json(`/api/chats/${f.chat.id}`)).chatOptions.fileAccess,
-			"restricted",
-		);
-		await f.json(`/api/chats/${second.id}`, "PUT", { networkAccess: "full" });
-		await f.json(`/api/chats/${second.id}`, "PUT", { name: "renamed" });
-		for (const input of [
-			{ fileAccess: null },
-			{ networkAccess: "inherit" },
-			{ fileAccess: 42 },
+		for (const [route, method] of [
+			["/api/access-defaults", "GET"],
+			["/api/access-defaults", "PATCH"],
+			["/api/approvals", "GET"],
+			["/api/approvals/1", "POST"],
+			[`/api/projects/${f.project.id}/grants`, "GET"],
+			[`/api/projects/${f.project.id}/grants`, "PUT"],
 		])
 			assert.equal(
-				(await f.request(`/api/chats/${second.id}`, "PUT", input)).status,
+				(await f.request(route, method, method === "GET" ? undefined : {}))
+					.status,
+				404,
+			);
+		assert(!("grants" in (await f.json(`/api/projects`)).projects[0]));
+		for (const field of ["fileAccess", "networkAccess"]) {
+			assert.equal(
+				(await f.request(`/api/chats/${f.chat.id}`, "PUT", { [field]: "full" }))
+					.status,
 				400,
 			);
-		assert.equal(
-			(await f.request("/api/access-defaults", "PATCH", { fileAccess: "bad" }))
-				.status,
-			400,
-		);
-		const invalid = await f.request("/api/access-defaults", "PATCH", {
-			fileAccess: "bad",
-		});
-		assert.match((await invalid.json()).error, /restricted or full/);
-		await f.restart();
-		assert.deepEqual(await f.json("/api/access-defaults"), {
-			fileAccess: "full",
-			networkAccess: "restricted",
-		});
-		assert.deepEqual((await f.json(`/api/chats/${second.id}`)).chatOptions, {
-			modelId: "test",
-			reasoningEffort: null,
-			fileAccess: "full",
-			networkAccess: "full",
-		});
+			assert.equal(
+				(
+					await f.request(`/api/chats/${f.chat.id}`, "POST", {
+						prompt: "reject",
+						[field]: "full",
+					})
+				).status,
+				400,
+			);
+			assert.equal(
+				(
+					await f.request(`/api/projects/${f.project.id}/chats`, "POST", {
+						name: "reject",
+						[field]: "full",
+					})
+				).status,
+				400,
+			);
+		}
+
+		for (const [route, method] of [
+			["/api/projects", "POST"],
+			[`/api/projects/${f.project.id}`, "PUT"],
+		])
+			assert.equal(
+				(await f.request(route, method, { name: "P", folders: [], grants: {} }))
+					.status,
+				400,
+			);
+		for (const [table, fields] of Object.entries({
+			settings: ["default_file_access", "default_network_access"],
+			chats: ["file_access", "network_access"],
+			projects: ["grants"],
+			tool_calls: ["approval"],
+		})) {
+			const columns = f.db
+				.prepare(`PRAGMA table_info(${table})`)
+				.all()
+				.map((row) => row.name);
+			for (const field of fields) assert(!columns.includes(field));
+		}
 	} finally {
 		await f.close();
 	}

@@ -4,7 +4,7 @@ A local coding agent with a web interface. Ask it to explore projects, edit file
 
 - **Transparent model communication:** inspect model HTTP requests, responses, request counts, and provider-reported usage, with credentials redacted.
 - **Flexible delegation:** run concurrent sub-agents with different models and reasoning levels; inspect and stop tasks individually.
-- **Controlled local access:** approve extra file and network permissions when needed.
+- **Full local access:** tools run as your system user, with optional Jev safety review.
 - **Local history:** keep projects, chats, settings, and task records on your machine. The interface supports English and Chinese.
 
 ## Quick start
@@ -32,21 +32,19 @@ Install standard `SKILL.md` skills in `~/.agents/skills` or project `.agents/ski
 
 Type `/` in the prompt to filter by name, description, or source. Use ↑/↓ and Enter to select, Esc to dismiss, and the selected markers to remove skills. Selection does not send the task. On submission the complete selected `SKILL.md` is read, including skills marked `disable-model-invocation: true` or `policy.allow_implicit_invocation: false` in `agents/openai.yaml`. Other skills expose only their summary until the model chooses to read them.
 
-Every new root or sub-agent discovers its own catalog; selections are not inherited by sub-agents or later tasks. Discovery/read failures appear as diagnostics in the actual model request and the picker. There is no live filesystem watcher: reopen `/` to refresh the picker. Skill directories and installed symbolic link targets are readable without approval; scripts still use normal command permissions, and skills grant no extra writes or network access.
+Every new root or sub-agent discovers its own catalog; selections are not inherited by sub-agents or later tasks. Discovery/read failures appear as diagnostics in the actual model request and the picker. There is no live filesystem watcher: reopen `/` to refresh the picker. Skill directories and installed symbolic link targets are readable; scripts use the same Full Access tools and global safety review.
 
 ## Permissions
 
-File and network access are restricted by default. Project folders and each agent's temporary workspace are writable; necessary system and toolchain paths are readable. Extra access can be denied, allowed once, or saved for the Project. Manage saved permissions in **Project Edit**; all chats and sub-agents in that project share them.
+Tools access files and run commands with your system user's Full Access. **Settings → Execution** provides one global Jev safety review switch, enabled by default for all chats and agents. Each Tool Call is reviewed before execution; disabling review sends no Jev request. Review changes affect subsequent Tool Calls, and Stop directly cancels work.
 
-Each chat can independently enable full file or full network access. **Settings → Execution** sets defaults for new chats only. Full file access remains subject to OS permissions. Temporary workspaces are disposable; save wanted results in project folders.
-
-When **both** file and network access are full, commands run without the native process sandbox, with your system user's permissions. If either dimension is restricted, the native sandbox remains. Scope validation, credential filtering, process ownership, cancellation and output records still apply. Failed commands never automatically gain permissions or retry.
+Jev reviews operational risk, not task relevance. Blocked or failed reviews do not execute the operation, and Weft never automatically retries a paid request or replays a tool operation. Review is best effort: it does not isolate files or processes or reveal every effect inside scripts and external services. Model requests and results remain visible in ordinary API call records and count toward the owning Agent's model call limit. Temporary workspaces are disposable; save wanted results in project folders.
 
 ## Browser diagnostics
 
 The installation includes Playwright **1.63.0**'s official CLI and `playwright-cli` skill. Install its Chromium browser once from the Weft directory with `pnpm exec playwright install chromium`. Target repositories need no browser package. Select the skill with `/` or ask the model to use it; `playwright-cli` is available in command tools, forwarding every upstream argument. Installed Chromium can be selected with `playwright-cli open <url> --browser=chromium`. In this pinned version, `chromium` selects Chrome for Testing. CLI launches are headless by default; add `--headed` to show a browser window. The browser session remains available after `open` returns; inspect it with `playwright-cli list` and end it with `playwright-cli close`.
 
-On macOS, Chromium needs both existing file and network modes set to full: the restricted native sandbox blocks browser Mach service registration even with localhost permission. The model starts and checks the website through ordinary command sessions, then chooses browser actions, console/network details and request/response bodies, trace, screenshots, `run-code`, and `read_image` as needed. Browser operations and full command output remain inspectable Tool Calls. Screenshots enter model context only when explicitly read.
+Commands use the native unsandboxed execution path. The model starts and checks the website through ordinary command sessions, then chooses browser actions, console/network details and request/response bodies, trace, screenshots, `run-code`, and `read_image` as needed. Browser operations and full command output remain inspectable Tool Calls. Screenshots enter model context only when explicitly read.
 
 Sessions, profiles and connections retain upstream behavior, using the Agent's isolated HOME for daemon/cache communication. The model should close its browser with `playwright-cli close` (or `-s=<name> close` for a named session); upstream detached browsers may outlive the launching command and retain their normal idle timeout. No Chat lifetime policy or personal browser takeover is added. [Compatibility and validation](docs/browser-tools.md) records the actual tested boundary.
 
@@ -54,7 +52,7 @@ Sessions, profiles and connections retain upstream behavior, using the Agent's i
 
 Attach PNG, JPEG, GIF or WebP files with **Attach images**, or paste an image into the prompt. Preview and remove attachments before sending a text task. Up to ten images are accepted, each at most 10 MiB. A model known to lack image input is rejected without discarding the draft; unknown capabilities are left to the provider, whose failures are recorded without automatic retries or model changes.
 
-The model can call `read_image` for local pictures and screenshots under the same file permissions as `read_file`. Actual image bytes are saved with the question or Tool Result, so changing or deleting the source does not change the record. Successful user questions retain their images in later Root Agent history; tool images stay within the Agent that read them. Images increase saved records and model input size. Model request details and Tool Call details retain the actual visual content; copying tool results includes the original data URL.
+The model can call `read_image` for local pictures and screenshots with the same Full Access and safety review as `read_file`. Actual image bytes are saved with the question or Tool Result, so changing or deleting the source does not change the record. Successful user questions retain their images in later Root Agent history; tool images stay within the Agent that read them. Images increase saved records and model input size. Model request details and Tool Call details retain the actual visual content; copying tool results includes the original data URL.
 
 Automated checks use controlled model responses to verify the visual protocol and native file reading. They do not establish that a paid model interpreted an image.
 
@@ -64,7 +62,7 @@ Each new root task and sub-agent loads user instructions from the service user's
 
 The initial UTF-8 text budget is 32 KiB, shared in user-first, saved-folder and ancestor-first order. Actual model requests show source paths, scopes, truncated content, omissions and read errors. Running agents keep their initial contents; new agents reload. The model must discover and read deeper local instructions before working on files, and decide how to handle unavailable rules. References such as README, CONTEXT and ADRs are read only when needed.
 
-Only named initial instruction sources receive a read exception. Symlinks outside those sources require ordinary file authorization; referenced files, commands and writes retain their existing permissions. Command `HOME` points to scratch and does not change the user instruction directory.
+Initial instruction discovery follows its named sources and reports read errors; ordinary tool reads, commands and writes use Full Access and the global review switch. Command `HOME` points to scratch and does not change the user instruction directory.
 
 ## Local data
 
@@ -83,7 +81,7 @@ Settings → MCP stores global service definitions and env values in the existin
 
 Custom stdio services use JSON `{ "command": "program", "args": [], "startup_timeout_sec": 120 }` and separate env name/password fields. URL services use `{ "url": "http://localhost:3000/mcp", "http_headers": { "Authorization": "Bearer <MCP_AUTH>" }, "startup_timeout_sec": 120 }`; HTTPS remote URLs work the same way. Add `MCP_AUTH` in that row’s masked env fields, use any API-key header such as `X-API-Key`, or omit `http_headers` for no authentication. Use either command/args or url/http_headers in a row. Startup timeout defaults to 120 seconds. Browser OAuth and legacy SSE transport fallback are not supported. JSON string values may contain `<NAME>` from that same row’s env; substitution happens once after parsing, including string fragments, without changing keys or expanding substituted values. Missing names prevent that service from starting. Invalid JSON and failed saves remain as drafts; Close retries retained saves and stays open on failure. No separate MCP configuration file is needed. Like the OpenRouter key, env values are stored in plaintext SQLite and edited with populated masked fields.
 
-Enabled MCP services are trusted external integrations. Weft’s built-in Target/file/network sandbox does not restrict them; the server process, account and token determine access. Model calls receive every discovered tool and may invoke it directly without per-call approval. Errors return to the model without automatic retries or operation replay. Resource links remain unread links; unsupported content is retained with an explanation. Tool results preserve ordered text/images, structuredContent and isError.
+Enabled MCP services are trusted external integrations. The server process, account and token determine access. Model calls receive every discovered tool; each invocation follows the global Jev review switch. Review does not isolate the service’s internal effects. Errors return to the model without automatic retries or operation replay. Resource links remain unread links; unsupported content is retained with an explanation. Tool results preserve ordered text/images, structuredContent and isError.
 
 Each Root Agent and Sub-agent starts its own connections, reuses them during its model loop and closes them on completion/cancellation. Agent details show that Agent’s connection status, errors and server stderr; Settings shows configuration feedback only. Editing or enabling applies to the next Agent. Disabling/deleting blocks subsequent calls immediately while in-flight calls can return; saving never restarts connections. Separate processes do not isolate shared Jira account data.
 

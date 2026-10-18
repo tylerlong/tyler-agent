@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +17,6 @@ test("bundled official CLI and skill work outside the application repository", {
 	const executor = new CommandExecutor();
 	const options = {
 		cwd: target,
-		targetFolders: [target],
 		agentId: `browser-tools-${process.pid}`,
 		signal: new AbortController().signal,
 	};
@@ -32,18 +31,10 @@ test("bundled official CLI and skill work outside the application repository", {
 			),
 		);
 		const content = await executor.read({
-			...options,
+			signal: options.signal,
 			path: join(browserSkill, "SKILL.md"),
 			offset: 0,
 			limit: 20000,
-			extraPermissions: {
-				paths: discovery.readPaths.map((path) => ({
-					path,
-					access: "read" as const,
-				})),
-				domains: [],
-				localNetwork: false,
-			},
 		});
 		assert.match(JSON.stringify(content), /playwright-cli run-code/);
 		let output = "";
@@ -62,99 +53,64 @@ test("bundled official CLI and skill work outside the application repository", {
 	}
 });
 
-test("native browser launch requires both file and network access to be full", {
+test("native commands can read outside their cwd and launch, operate and close the browser", {
 	skip: process.platform !== "darwin",
 	timeout: 60000,
 }, async () => {
 	const directory = await realpath(
-		await mkdtemp(join(tmpdir(), "browser-modes-")),
+		await mkdtemp(join(tmpdir(), "browser-full-access-")),
 	);
-	const target = join(directory, "target");
-	await mkdir(target);
-	const outside = join(directory, "outside.txt");
-	await writeFile(outside, "outside-proof");
-	const website = createServer((_req, res) => res.end("network-proof")).listen(
-		0,
-		"127.0.0.1",
+	const page = createServer((_request, response) =>
+		response.end(
+			"<title>Full Access</title><button onclick=\"this.textContent='Clicked'\">Click me</button>",
+		),
 	);
-	await new Promise<void>((resolve) => website.once("listening", resolve));
-	const address = website.address();
+	page.listen(0, "127.0.0.1");
+	await new Promise<void>((resolve) => page.once("listening", resolve));
+	const address = page.address();
 	assert(address && typeof address !== "string");
-	await writeFile(
-		join(target, "boundaries.cjs"),
-		`
-const fs = require('node:fs');
-(async () => {
-  let file = false, network = false;
-  try { file = fs.readFileSync(${JSON.stringify(outside)}, 'utf8') === 'outside-proof'; } catch {}
-  try { network = await (await fetch('http://127.0.0.1:${address.port}', {signal: AbortSignal.timeout(1000)})).text() === 'network-proof'; } catch {}
-  console.log(JSON.stringify({file, network}));
-})();
-`,
-	);
 	const executor = new CommandExecutor();
+	const options = {
+		cwd: directory,
+		agentId: `browser-full-access-${process.pid}`,
+		signal: new AbortController().signal,
+		timeoutMs: 15000,
+	};
+	const execute = async (command: string) => {
+		let output = "";
+		const result = await executor.execute({
+			...options,
+			command,
+			onOutput: (_stream, text) => {
+				output += text;
+			},
+		});
+		assert.equal(result.exitCode, 0, output);
+		return output;
+	};
 	try {
-		for (const [fullFile, fullNetwork] of [
-			[false, false],
-			[true, false],
-			[false, true],
-			[true, true],
-		]) {
-			const options = {
-				cwd: target,
-				targetFolders: [target],
-				agentId: `browser-modes-${process.pid}-${fullFile}-${fullNetwork}`,
-				extraPermissions: {
-					fullFile,
-					fullNetwork,
-					paths: [],
-					domains: [],
-					localNetwork: false,
-				},
-				signal: new AbortController().signal,
-			};
-			let output = "";
-			const boundary = await executor.execute({
-				...options,
-				command: "node boundaries.cjs",
-				onOutput: (stream, text) => {
-					if (stream === "stdout") output += text;
-				},
-			});
-			assert.equal(boundary.exitCode, 0, output);
-			assert.deepEqual(JSON.parse(output), {
-				file: fullFile,
-				network: fullNetwork,
-			});
-			output = "";
-			const result = await executor.execute({
-				...options,
-				command: "playwright-cli open about:blank --browser=chromium",
-				timeoutMs: 15000,
-				onOutput: (_stream, text) => {
-					output += text;
-				},
-			});
-			if (fullFile && fullNetwork) {
-				assert.equal(result.exitCode, 0, output);
-				const closed = await executor.execute({
-					...options,
-					command: "playwright-cli close",
-					onOutput: () => {},
-				});
-				assert.equal(closed.exitCode, 0);
-			} else {
-				assert.notEqual(
-					result.exitCode,
-					0,
-					`${fullFile}/${fullNetwork}: ${output}`,
-				);
-			}
-		}
+		const outside = join(directory, "outside.txt");
+		await writeFile(outside, "outside-proof");
+		assert.match(await execute(`cd /; cat '${outside}'`), /outside-proof/);
+		await execute(
+			`playwright-cli open http://127.0.0.1:${address.port} --browser=chromium`,
+		);
+		assert.match(
+			await execute(
+				`playwright-cli run-code 'async page => { await page.getByRole("button", { name: "Click me" }).click(); return await page.getByRole("button").textContent(); }'`,
+			),
+			/Clicked/,
+		);
+		await execute("playwright-cli close");
 	} finally {
+		await executor.execute({
+			...options,
+			command: "playwright-cli close",
+			onOutput: () => {},
+		});
 		await executor.close();
-		website.closeAllConnections();
-		await new Promise<void>((resolve) => website.close(() => resolve()));
+		page.closeAllConnections();
+		await new Promise<void>((resolve) => page.close(() => resolve()));
 		await rm(directory, { recursive: true, force: true });
 	}
 });

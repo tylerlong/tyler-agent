@@ -40,19 +40,19 @@ jobs:
           cache: pnpm
       - run: sw_vers && uname -m && node --version
       - run: pnpm install --frozen-lockfile
-      - name: Native file, permission and mode acceptance
+      - name: Native file and tool acceptance
         timeout-minutes: 3
         run: |
           set -o pipefail
           pnpm build
-          node --test --test-timeout=60000 test/command-tools.test.ts test/command-image.test.ts test/images.test.ts test/database-ownership.test.ts test/approval.test.ts test/project-grants.test.ts test/tool-loop.test.ts test/sub-agents.test.ts test/interrupted-history.test.ts test/project-instructions.test.ts test/skills.test.ts test/decisions.test.ts test/safety-review.test.ts test/tool-review.test.ts test/model-fixture.test.ts 2>&1 | tee native-tools.log
+          node --test --test-timeout=60000 test/command-tools.test.ts test/command-image.test.ts test/images.test.ts test/database-ownership.test.ts test/tool-loop.test.ts test/sub-agents.test.ts test/interrupted-history.test.ts test/project-instructions.test.ts test/skills.test.ts test/decisions.test.ts test/safety-review.test.ts test/tool-review.test.ts test/model-fixture.test.ts 2>&1 | tee native-tools.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: macos-tool-results
           path: native-tools.log
           retention-days: 7
-      - name: Native browser diagnostics and four access modes
+      - name: Native browser diagnostics
         timeout-minutes: 3
         run: |
           set -o pipefail

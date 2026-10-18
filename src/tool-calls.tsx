@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { type Approval, ApprovalActions } from "./approvals.tsx";
 import { ImagePreviews, toolImages } from "./image-attachments.tsx";
 
 export type ToolCall = {
@@ -16,7 +15,6 @@ export type ToolCall = {
 		| "not_executed"
 		| "interrupted";
 	reason: string | null;
-	approval?: Approval | null;
 	child?: {
 		id: number;
 		status: string;
@@ -149,8 +147,7 @@ export function ToolCallCard({
 					<span className="inline-flex w-[calc(100%-1.25rem)] items-center gap-2">
 						<span className="min-w-0 break-words">
 							{t("toolCallTitle", { name: call.name })}
-							{call.status === "waiting" &&
-								` · ${t(call.approval?.status === "pending" ? "approvalWaiting" : "toolWaiting")}`}
+							{call.status === "waiting" && ` · ${t("toolWaiting")}`}
 							{call.status === "failed" && ` · ${t("toolFailed")}`}
 							{call.status === "not_executed" && ` · ${t("toolNotExecuted")}`}
 							{call.status === "interrupted" && ` · ${t("toolInterrupted")}`}
@@ -262,12 +259,7 @@ export function ToolCallCard({
 					{call.status === "running" && loading}
 				</div>
 			</details>
-			{call.approval && (
-				<ApprovalActions
-					key={call.approval.requestId}
-					approval={call.approval}
-				/>
-			)}
+
 			{child && (
 				<div
 					data-child-agent-id={child.id}

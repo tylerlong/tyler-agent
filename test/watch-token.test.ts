@@ -180,7 +180,6 @@ test("command tools never inherit the watch management token", {
 		const result = await executor.execute({
 			command: 'test -z "$TYLER_MANAGEMENT_TOKEN" && printf clean',
 			cwd: directory,
-			targetFolders: [directory],
 			agentId: `token-${process.pid}`,
 			timeoutMs: 5000,
 			signal: new AbortController().signal,

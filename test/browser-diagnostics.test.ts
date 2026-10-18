@@ -300,11 +300,6 @@ const server = createServer((req, res) => {
 		const chat = await request(`/api/projects/${project.id}/chats`, {
 			name: "Browser",
 		});
-		await request(
-			`/api/chats/${chat.id}`,
-			{ fileAccess: "full", networkAccess: "full" },
-			"PUT",
-		);
 		const { agentId } = await request(`/api/chats/${chat.id}`, {
 			prompt:
 				"Inspect the controlled website using the installed official browser skill",

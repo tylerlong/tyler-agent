@@ -7,9 +7,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { type ApiError, api, appError } from "./api.ts";
-import type { ExecutionPermissions } from "./execution-permissions.ts";
 import i18n from "./i18n.ts";
-import { ProjectGrants } from "./project-grants.tsx";
 
 type Chat = {
 	id: number;
@@ -24,7 +22,6 @@ export type Project = {
 	name: string;
 	archived: boolean;
 	folders: string[];
-	grants: ExecutionPermissions;
 	chats: Chat[];
 };
 export type EditorTarget =
@@ -171,7 +168,9 @@ export function ProjectEditor({
 						? "/api/projects"
 						: `/api/projects/${target}/chats`,
 				edit ? "PUT" : "POST",
-				!edit && target !== null ? { name: input.name } : input,
+				edit?.kind === "chat" || (!edit && target !== null)
+					? { name: input.name }
+					: input,
 			);
 			await onConfirmed(operation, saved);
 			if (revision !== modalRevision.current) return;
@@ -297,14 +296,7 @@ export function ProjectEditor({
 							</button>
 						</section>
 					)}
-					{editing?.kind === "project" && modalProject && (
-						<ProjectGrants
-							key={modalProject.id}
-							projectId={modalProject.id}
-							grants={modalProject.grants}
-							readOnly={saving || modalReadOnly}
-						/>
-					)}
+
 					{modalReadOnly && <p role="status">{t("archivedEditReadOnly")}</p>}
 					{modalError && (
 						<p

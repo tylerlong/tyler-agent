@@ -193,3 +193,69 @@ test("default-on Jev review uses ordinary API records with Copy and search witho
 	await expect(page.getByRole("log")).toContainText("Test answer");
 	await expect(page.getByRole("log")).not.toContainText("jev-mock-version");
 });
+
+test("current UI exposes model options and global safety review without old permission controls", async ({
+	page,
+	app,
+}) => {
+	const project = await (
+		await page.request.post(`${app.url}/api/projects`, {
+			data: { name: "Current controls", folders: [] },
+		})
+	).json();
+	const chat = await (
+		await page.request.post(`${app.url}/api/projects/${project.id}/chats`, {
+			data: { name: "Chat" },
+		})
+	).json();
+	await page.goto(`${app.url}/?chat=${chat.id}`);
+	await expect(
+		page.getByRole("button", { name: /Pending approvals/ }),
+	).toHaveCount(0);
+	await page
+		.getByRole("button", { name: "Test · Model default", exact: true })
+		.click();
+	const options = page.getByRole("dialog", { name: "Model", exact: true });
+	await expect(
+		options.getByRole("radiogroup", { name: "Model", exact: true }),
+	).toBeVisible();
+	await expect(
+		options.getByRole("radiogroup", { name: /File access|Network access/ }),
+	).toHaveCount(0);
+	await page.keyboard.press("Escape");
+	const region = page.getByRole("region", {
+		name: "Project Current controls",
+		exact: true,
+	});
+	await region
+		.getByRole("button", { name: "Project actions", exact: true })
+		.click();
+	await region
+		.getByRole("button", { name: "Edit project", exact: true })
+		.click();
+	const editor = page.getByRole("dialog", {
+		name: "Edit project",
+		exact: true,
+	});
+	await expect(
+		editor.getByRole("heading", { name: "Target folders", exact: true }),
+	).toBeVisible();
+	await expect(
+		editor.getByText("Project permissions", { exact: true }),
+	).toHaveCount(0);
+	await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+	await page.getByRole("button", { name: "Settings", exact: true }).click();
+	await page.getByRole("tab", { name: "Execution", exact: true }).click();
+	await expect(
+		page.getByRole("checkbox", { name: "Jev safety review", exact: true }),
+	).toBeChecked();
+	await expect(page.getByLabel("File access", { exact: true })).toHaveCount(0);
+	await expect(page.getByLabel("Network access", { exact: true })).toHaveCount(
+		0,
+	);
+	await expect(
+		page.getByRole("heading", { name: "Execution limits", exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+});

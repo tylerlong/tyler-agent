@@ -1,14 +1,12 @@
-import { permissionParameters } from "./execution-permissions.ts";
 export const commandTools = [
 	{
 		type: "function",
 		name: "exec_command",
 		description:
-			"Run a command in current Project target folders/grants or Agent scratch. Defaults to interactive yield (10000ms), returning session_id if still running; continue with write_stdin. tty enables stdin; non-PTY only supports Ctrl-C. Explicit timeout_ms selects legacy OneShot: waits to completion, terminates on timeout, cannot resume. Do not combine timeout_ms with tty/yield_time_ms. Explicit extra_permissions plus reason waits for approval. No automatic escalation/replay. Full output is saved under tool_call_id; read_tool_output continues history. max_output_tokens budgets returned text using 4 characters/token, without deleting logs.",
+			"Run a command as the current system user. Defaults to interactive yield (10000ms), returning session_id if still running; continue with write_stdin. tty enables stdin; non-PTY only supports Ctrl-C. Explicit timeout_ms selects legacy OneShot: waits to completion, terminates on timeout, cannot resume. Do not combine timeout_ms with tty/yield_time_ms. No automatic replay. Full output is saved under tool_call_id; read_tool_output continues history. max_output_tokens budgets returned text using 4 characters/token, without deleting logs.",
 		parameters: {
 			type: "object",
 			properties: {
-				...permissionParameters,
 				cmd: { type: "string" },
 				workdir: {
 					type: "string",

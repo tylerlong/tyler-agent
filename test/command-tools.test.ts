@@ -10,6 +10,7 @@ import {
 	symlink,
 	writeFile,
 } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -26,7 +27,7 @@ const commandTest = (name: string, run: () => Promise<void>) =>
 		{
 			skip:
 				platform() !== "darwin"
-					? "Restricted exec-server policy is verified on macOS; Linux safe-policy support is not implemented"
+					? "Native exec-server integration is verified on macOS"
 					: false,
 		},
 		run,
@@ -152,7 +153,7 @@ async function fixture(model: typeof globalThis.fetch, apiKey = "test") {
 }
 
 commandTest(
-	"coding round trip reads, patches, installs an approved dependency, builds/tests/Git and continues logs",
+	"coding round trip reads, patches, installs an outside-project dependency, builds/tests/Git and continues logs",
 	async () => {
 		let root = "",
 			archive = "",
@@ -196,10 +197,6 @@ commandTest(
 								command: `npm install --offline --ignore-scripts --no-audit --no-fund ${quote(archive)} && node build.cjs && node --test check.cjs && git init -b main && git add . && git -c user.name=Fixture -c user.email=fixture@example.invalid commit -m fixture && git status --porcelain && node -e "process.stdout.write('x'.repeat(20000));process.stderr.write('log-tail')"`,
 								cwd: root,
 								timeout_ms: 20000,
-								extra_permissions: {
-									paths: [{ path: archive, access: "read" }],
-								},
-								reason: "Install the fixture package outside Target Folders",
 							},
 							"coding",
 						),
@@ -276,21 +273,6 @@ commandTest(
 				"require('node:assert/strict').equal(require('node:fs').readFileSync('built.txt','utf8'),'built')",
 			);
 			const id = await f.ask();
-			let pending: { toolCallId: number; requestId: string } | undefined;
-			for (let attempt = 0; attempt < 1000; attempt++) {
-				pending = (await f.request("/api/approvals")).approvals[0];
-				if (pending) break;
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
-			assert(pending, "Dependency installation waits for permission");
-			assert.equal(requests, 3);
-			await assert.rejects(readFile(join(root, "built.txt")), {
-				code: "ENOENT",
-			});
-			await f.request(`/api/approvals/${pending.toolCallId}`, {
-				requestId: pending.requestId,
-				decision: "once",
-			});
 			const agent = await f.wait(id);
 			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
 			assert.equal(await readFile(join(root, "built.txt"), "utf8"), "built");
@@ -331,7 +313,6 @@ commandTest(
 					recordings[index].response,
 				);
 			}
-			await f.request("/api/approvals");
 			await f.request(`/api/agents/${id}/tools?toolId=${commandId}`);
 			assert.equal(requests, 5, "Management/log reads add no model calls");
 		} finally {
@@ -509,63 +490,6 @@ commandTest(
 );
 
 commandTest(
-	"restricted commands deny outside user files and preserve literal scope paths",
-	async () => {
-		let root = "",
-			outside = "",
-			requests = 0;
-		const f = await fixture(async (_url, init) => {
-			const body = JSON.parse(String(init?.body));
-			if (++requests === 1)
-				return done([
-					call(
-						"exec_command",
-						{
-							command: `printf literal > ${quote(join(root, "literal [x] ;$ file"))}`,
-							cwd: root,
-							timeout_ms: 10000,
-						},
-						"literal",
-					),
-					call(
-						"exec_command",
-						{
-							command: `cat ${quote(outside)}; printf changed > ${quote(outside)}`,
-							cwd: root,
-							timeout_ms: 10000,
-						},
-						"outside",
-					),
-				]);
-			const results = body.input
-				.filter(
-					(item: { type: string }) => item.type === "function_call_output",
-				)
-				.map((item: { output: string }) => JSON.parse(item.output));
-			assert.equal(results[0].exitCode, 0);
-			assert.notEqual(results[1].exitCode, 0);
-			assert(!text(results[1].output.chunks).includes("outside-secret"));
-			return done([answer]);
-		});
-		root = f.root;
-		outside = join(f.directory, "private.txt");
-		try {
-			await writeFile(outside, "outside-secret");
-			const id = await f.ask();
-			const agent = await f.wait(id);
-			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
-			assert.equal(
-				await readFile(join(root, "literal [x] ;$ file"), "utf8"),
-				"literal",
-			);
-			assert.equal(await readFile(outside, "utf8"), "outside-secret");
-		} finally {
-			await f.close();
-		}
-	},
-);
-
-commandTest(
 	"validated command budgets reject invalid input and timeout retains received output",
 	async () => {
 		let root = "",
@@ -696,6 +620,26 @@ test("command and output-read validation return recorded errors without starting
 			{ command: "touch forbidden", cwd: "/", timeout_ms: 10, sandbox: {} },
 			"policy",
 		),
+		call(
+			"exec_command",
+			{ command: "touch forbidden", cwd: "/", extra_permissions: {} },
+			"removed-extra",
+		),
+		call(
+			"exec_command",
+			{ command: "touch forbidden", cwd: "/", reason: "old approval" },
+			"removed-reason",
+		),
+		call(
+			"read_file",
+			{ path: "/", extra_permissions: {} },
+			"removed-file-extra",
+		),
+		call(
+			"apply_patch",
+			{ cwd: "/", patch: "unused", reason: "old approval" },
+			"removed-patch-reason",
+		),
 		call("read_tool_output", { tool_call_id: 1, offset: -1 }, "offset"),
 		call("read_tool_output", { tool_call_id: 1, limit: 16001 }, "limit"),
 		call("read_tool_output", { tool_call_id: 0 }, "id"),
@@ -729,108 +673,6 @@ test("command and output-read validation return recorded errors without starting
 		await f.close();
 	}
 });
-
-commandTest(
-	"scratch is supplied to instructions and environment and sibling scratch stays denied",
-	async () => {
-		let root = "",
-			firstScratch = "",
-			secondScratch = "",
-			request = 0;
-		const marker = `scope-${Date.now()}.txt`;
-		const f = await fixture(async (_url, init) => {
-			const body = JSON.parse(String(init?.body));
-			const scratch = JSON.parse(
-				body.instructions.match(
-					/private command scratch directory: ("[^"]+")/,
-				)[1],
-			);
-			if (++request === 1) {
-				firstScratch = scratch;
-				return done([
-					call("exec_command", {
-						command: `test "$TMPDIR" = ${quote(scratch)} && printf first > "$TMPDIR/${marker}" && printf scratch-ok`,
-						cwd: root,
-						timeout_ms: 10000,
-					}),
-				]);
-			}
-			if (request === 2) {
-				const result = JSON.parse(body.input.at(-1).output);
-				assert.equal(result.exitCode, 0, JSON.stringify(result));
-				assert.equal(text(result.output.chunks), "scratch-ok");
-				return done([answer]);
-			}
-			if (request === 3) {
-				secondScratch = scratch;
-				assert.notEqual(secondScratch, firstScratch);
-				return done([
-					call("exec_command", {
-						command: `printf second > "$TMPDIR/${marker}"; cat ${quote(join(firstScratch, marker))}; printf leak > ${quote(join(firstScratch, marker))}`,
-						cwd: root,
-						timeout_ms: 10000,
-					}),
-				]);
-			}
-			const result = JSON.parse(body.input.at(-1).output);
-			assert.notEqual(result.exitCode, 0);
-			assert(!text(result.output.chunks).includes("first"));
-			return done([answer]);
-		});
-		root = f.root;
-		try {
-			const first = await f.ask("first");
-			assert.equal((await f.wait(first)).status, "succeeded");
-			const second = await f.ask("second");
-			assert.equal((await f.wait(second)).status, "succeeded");
-			assert.equal(await readFile(join(firstScratch, marker), "utf8"), "first");
-			assert.equal(
-				await readFile(join(secondScratch, marker), "utf8"),
-				"second",
-			);
-		} finally {
-			for (const scratch of [firstScratch, secondScratch])
-				if (scratch) await rm(join(scratch, marker), { force: true });
-			await f.close();
-		}
-	},
-);
-
-commandTest(
-	"restricted network rejects localhost binding without escalation or replay",
-	async () => {
-		let root = "",
-			requests = 0;
-		const f = await fixture(async (_url, init) => {
-			if (++requests === 1)
-				return done([
-					call("exec_command", {
-						command: "node network.cjs",
-						cwd: root,
-						timeout_ms: 10000,
-					}),
-				]);
-			const result = JSON.parse(
-				JSON.parse(String(init?.body)).input.at(-1).output,
-			);
-			assert.notEqual(result.exitCode, 0);
-			assert.match(text(result.output.chunks), /EPERM|EACCES|not permitted/i);
-			return done([answer]);
-		});
-		root = f.root;
-		try {
-			await writeFile(
-				join(root, "network.cjs"),
-				"require('node:net').createServer().on('error',e=>{console.error(e.code);process.exitCode=1}).listen(0,'127.0.0.1',()=>{console.log('unexpected binding');process.exit(2)})",
-			);
-			const id = await f.ask();
-			assert.equal((await f.wait(id)).status, "succeeded");
-			assert.equal(requests, 2);
-		} finally {
-			await f.close();
-		}
-	},
-);
 
 commandTest(
 	"root cancellation waits for real root and child command cleanup",
@@ -1073,94 +915,6 @@ commandTest(
 );
 
 commandTest(
-	"multiple literal Target Folders permit both roots and reject outside symlink effects",
-	async () => {
-		let ordinary = "",
-			literal = "",
-			outside = "",
-			requests = 0;
-		const f = await fixture(async (_url, init) => {
-			const body = JSON.parse(String(init?.body));
-			if (++requests === 1)
-				return done([
-					call(
-						"exec_command",
-						{
-							command: `printf ordinary > ${quote(join(ordinary, "ordinary.txt"))}; printf literal > ${quote(join(literal, "literal.txt"))}`,
-							cwd: literal,
-							timeout_ms: 10000,
-						},
-						"both",
-					),
-					call(
-						"exec_command",
-						{
-							command: `cat ${quote(join(ordinary, "escape", "secret"))}; printf changed > ${quote(join(ordinary, "escape", "secret"))}`,
-							cwd: ordinary,
-							timeout_ms: 10000,
-						},
-						"link",
-					),
-					call(
-						"exec_command",
-						{
-							command: `printf outside > ${quote(join(outside, "new.txt"))}`,
-							cwd: literal,
-							timeout_ms: 10000,
-						},
-						"outside",
-					),
-				]);
-			const results = body.input
-				.filter(
-					(item: { type: string }) => item.type === "function_call_output",
-				)
-				.map((item: { output: string }) => JSON.parse(item.output));
-			assert.equal(results[0].exitCode, 0, JSON.stringify(results[0]));
-			for (const result of results.slice(1)) {
-				assert.notEqual(result.exitCode, 0);
-				assert(!text(result.output.chunks).includes("outside-secret"));
-			}
-			return done([answer]);
-		});
-		ordinary = f.root;
-		literal = join(f.directory, "target [*?] ü");
-		outside = join(f.directory, "target neighbor");
-		try {
-			await mkdir(literal);
-			await mkdir(outside);
-			await writeFile(join(outside, "secret"), "outside-secret");
-			await symlink(outside, join(ordinary, "escape"));
-			await f.request(
-				`/api/projects/${f.projectId}`,
-				{ name: "Literal roots", folders: [ordinary, literal] },
-				"PUT",
-			);
-			const id = await f.ask();
-			const agent = await f.wait(id);
-			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
-			assert.equal(
-				await readFile(join(ordinary, "ordinary.txt"), "utf8"),
-				"ordinary",
-			);
-			assert.equal(
-				await readFile(join(literal, "literal.txt"), "utf8"),
-				"literal",
-			);
-			assert.equal(
-				await readFile(join(outside, "secret"), "utf8"),
-				"outside-secret",
-			);
-			await assert.rejects(readFile(join(outside, "new.txt")), {
-				code: "ENOENT",
-			});
-		} finally {
-			await f.close();
-		}
-	},
-);
-
-commandTest(
 	"native executor disconnect returns failure with saved partial output without replay",
 	async () => {
 		const executorPids = async () => {
@@ -1245,7 +999,7 @@ commandTest(
 );
 
 commandTest(
-	"native read, patch and command round trip shares literal scope and denies outside targets",
+	"native read, patch and command round trip preserves literal project paths",
 	async () => {
 		let root = "",
 			literal = "",
@@ -1303,33 +1057,10 @@ commandTest(
 						},
 						"check",
 					),
-					...[outside, join(root, "escape")].flatMap((path, index) => [
-						call("read_file", { path }, `deny-read-${index}`),
-						call(
-							"apply_patch",
-							{
-								cwd: root,
-								patch: `*** Begin Patch\n*** Update File: ${path}\n@@\n-outside-secret\n+changed\n*** End Patch`,
-							},
-							`deny-patch-${index}`,
-						),
-					]),
-					call(
-						"exec_command",
-						{ cwd: root, timeout_ms: 10000, command: `cat ${quote(outside)}` },
-						"deny-command",
-					),
 				]);
 			}
 			assert.equal(results[2].exitCode, 0);
 			assert.equal(text(results[2].output.chunks), "validated");
-			for (const result of [results[3], results[5]])
-				assert.equal(typeof result.error, "string");
-			for (const result of [results[4], results[6], results[7]])
-				assert.notEqual(result.exitCode, 0);
-			assert(
-				!JSON.stringify(results.slice(3)).includes('"text":"outside-secret'),
-			);
 			return done([answer]);
 		});
 		root = f.root;
@@ -1465,188 +1196,6 @@ commandTest(
 			assert.equal(requests, 3);
 		} finally {
 			await f.close();
-		}
-	},
-);
-
-commandTest(
-	"native reads and patches use owning scratch and deny another Agent scratch",
-	async () => {
-		let firstScratch = "",
-			requests = 0;
-		const marker = `native-${Date.now()}.txt`;
-		const f = await fixture(async (_url, init) => {
-			const body = JSON.parse(String(init?.body));
-			const scratch = JSON.parse(
-				body.instructions.match(
-					/private command scratch directory: ("[^"]+")/,
-				)[1],
-			);
-			if (++requests === 1) {
-				firstScratch = scratch;
-				return done([
-					call(
-						"apply_patch",
-						{
-							cwd: scratch,
-							patch: `*** Begin Patch\n*** Add File: ${marker}\n+own\n*** End Patch`,
-						},
-						"own-patch",
-					),
-					call("read_file", { path: join(scratch, marker) }, "own-read"),
-				]);
-			}
-			if (requests === 3)
-				return done([
-					call(
-						"read_file",
-						{ path: join(firstScratch, marker) },
-						"foreign-read",
-					),
-					call(
-						"apply_patch",
-						{
-							cwd: scratch,
-							patch: `*** Begin Patch\n*** Update File: ${join(firstScratch, marker)}\n@@\n-own\n+foreign\n*** End Patch`,
-						},
-						"foreign-patch",
-					),
-				]);
-			const results = body.input
-				.filter(
-					(item: { type: string }) => item.type === "function_call_output",
-				)
-				.map((item: { output: string }) => JSON.parse(item.output));
-			if (requests === 2) {
-				assert.equal(results[0].exitCode, 0);
-				assert.equal(results[1].text, "own\n");
-			} else {
-				assert.equal(typeof results[0].error, "string");
-				assert.notEqual(results[1].exitCode, 0);
-			}
-			return done([answer]);
-		});
-		try {
-			assert.equal((await f.wait(await f.ask("first"))).status, "succeeded");
-			assert.equal((await f.wait(await f.ask("second"))).status, "succeeded");
-			assert.equal(await readFile(join(firstScratch, marker), "utf8"), "own\n");
-			assert.equal(requests, 4);
-		} finally {
-			if (firstScratch) await rm(join(firstScratch, marker), { force: true });
-			await f.close();
-		}
-	},
-);
-
-commandTest(
-	"different database services cannot reuse another Agent's retained scratch",
-	async () => {
-		let firstScratch = "",
-			firstRequests = 0;
-		const first = await fixture(async (_url, init) => {
-			firstRequests++;
-			const body = JSON.parse(String(init?.body));
-			firstScratch = JSON.parse(
-				body.instructions.match(
-					/private command scratch directory: ("[^"]+")/,
-				)[1],
-			);
-			if (
-				body.input.some(
-					(item: { type: string }) => item.type === "function_call_output",
-				)
-			)
-				return done([answer]);
-			return done([
-				call("apply_patch", {
-					cwd: firstScratch,
-					patch:
-						"*** Begin Patch\n*** Add File: secret\n+private-scratch\n*** End Patch",
-				}),
-			]);
-		});
-		let secondScratch = "";
-		const second = await fixture(async (_url, init) => {
-			const body = JSON.parse(String(init?.body));
-			secondScratch = JSON.parse(
-				body.instructions.match(
-					/private command scratch directory: ("[^"]+")/,
-				)[1],
-			);
-			const results = body.input
-				.filter(
-					(item: { type: string }) => item.type === "function_call_output",
-				)
-				.map((item: { output: string }) => JSON.parse(item.output));
-			if (results.length) {
-				assert.equal(typeof results[0].error, "string");
-				assert.notEqual(results[1].exitCode, 0);
-				assert.notEqual(results[2].exitCode, 0);
-				assert(!JSON.stringify(results).includes('"text":"private-scratch'));
-				return done([answer]);
-			}
-			return done([
-				call("read_file", { path: join(firstScratch, "secret") }, "read"),
-				call(
-					"apply_patch",
-					{
-						cwd: secondScratch,
-						patch: `*** Begin Patch\n*** Update File: ${join(firstScratch, "secret")}\n@@\n-private-scratch\n+leaked\n*** End Patch`,
-					},
-					"patch",
-				),
-				call(
-					"exec_command",
-					{
-						cwd: secondScratch,
-						command: `cat ${quote(join(firstScratch, "secret"))}`,
-						timeout_ms: 10000,
-					},
-					"command",
-				),
-			]);
-		});
-		try {
-			const firstId = await first.ask();
-			assert.equal((await first.wait(firstId)).status, "succeeded");
-			const secondId = await second.ask();
-			assert.equal(
-				firstId,
-				secondId,
-				"Isolated databases reuse numeric Agent IDs",
-			);
-			assert.equal((await second.wait(secondId)).status, "succeeded");
-			assert.notEqual(firstScratch, secondScratch);
-			assert.equal(
-				await readFile(join(firstScratch, "secret"), "utf8"),
-				"private-scratch\n",
-			);
-			const retainedScratch = firstScratch;
-			const count = firstRequests;
-			await first.restart();
-			assert.equal(
-				firstRequests,
-				count,
-				"Restart does not replay model requests",
-			);
-			assert.equal(
-				(await first.wait(await first.ask("after restart"))).status,
-				"succeeded",
-			);
-			assert.notEqual(
-				firstScratch.replace(/-\d+$/, ""),
-				retainedScratch.replace(/-\d+$/, ""),
-				"Restart creates a fresh namespace",
-			);
-			assert.equal(
-				await readFile(join(firstScratch, "secret"), "utf8"),
-				"private-scratch\n",
-			);
-			await rm(join(retainedScratch, "secret"), { force: true });
-		} finally {
-			if (firstScratch) await rm(join(firstScratch, "secret"), { force: true });
-			await first.close();
-			await second.close();
 		}
 	},
 );
@@ -1797,132 +1346,6 @@ for (const delivery of ["automatic", "cancel"] as const) {
 		},
 	);
 }
-commandTest(
-	"full file native read, command and patch ignore deleted restricted scopes and still validate actual paths",
-	async () => {
-		let root = "",
-			missing = "",
-			requests = 0;
-		const f = await fixture(async (_url, init) => {
-			const body = JSON.parse(String(init?.body));
-			if (++requests === 1)
-				return done([
-					call("read_file", { path: join(root, "input.txt") }, "read"),
-					call(
-						"exec_command",
-						{ cwd: root, command: "cat input.txt", timeout_ms: 10000 },
-						"command",
-					),
-					call(
-						"apply_patch",
-						{
-							cwd: root,
-							patch:
-								"*** Begin Patch\n*** Update File: input.txt\n@@\n-before\n+after\n*** End Patch",
-						},
-						"patch",
-					),
-					call(
-						"exec_command",
-						{ cwd: missing, command: "echo must-not-run", timeout_ms: 10000 },
-						"missing-cwd",
-					),
-					call(
-						"read_file",
-						{ path: join(missing, "input.txt") },
-						"missing-read",
-					),
-					call(
-						"apply_patch",
-						{
-							cwd: missing,
-							patch:
-								"*** Begin Patch\n*** Add File: unexpected\n+no\n*** End Patch",
-						},
-						"missing-patch",
-					),
-					call(
-						"exec_command",
-						{
-							cwd: root,
-							command: "echo rechecked",
-							timeout_ms: 10000,
-							extra_permissions: { domains: ["example.com"] },
-							reason: "Synthetic network approval",
-						},
-						"network-approval",
-					),
-				]);
-			const results = body.input
-				.filter(
-					(item: { type: string }) => item.type === "function_call_output",
-				)
-				.map((item: { output: string }) => JSON.parse(item.output));
-			assert.equal(results[0].text, "before\n");
-			assert.equal(results[1].exitCode, 0);
-			assert.equal(text(results[1].output.chunks), "before\n");
-			assert.equal(results[2].exitCode, 0);
-			for (const result of results.slice(3, 6))
-				assert.equal(typeof result.error, "string");
-			assert.equal(results[6].exitCode, 0);
-			assert.equal(text(results[6].output.chunks), "rechecked\n");
-			return done([answer]);
-		});
-		root = f.root;
-		missing = join(f.directory, "removed");
-		try {
-			await mkdir(missing);
-			await writeFile(join(root, "input.txt"), "before\n");
-			await f.request(
-				`/api/projects/${f.projectId}`,
-				{ name: "Full", folders: [root, missing] },
-				"PUT",
-			);
-			const chat = await f.request(`/api/projects/${f.projectId}/chats`, {
-				name: "Full",
-			});
-			await f.request(`/api/chats/${chat.id}`, { fileAccess: "full" }, "PUT");
-			// Synthetic persisted grants may outlive their paths, just like Target Folders.
-			const { DatabaseSync } = await import("node:sqlite");
-			const db = new DatabaseSync(join(f.directory, "db.sqlite"));
-			db.prepare("UPDATE projects SET grants=? WHERE id=?").run(
-				JSON.stringify({
-					paths: [{ path: missing, access: "write" }],
-					domains: [],
-					localNetwork: false,
-				}),
-				f.projectId,
-			);
-			db.close();
-			await rm(missing, { recursive: true });
-			const { agentId } = await f.request(`/api/chats/${chat.id}`, {
-				prompt: "full",
-			});
-			let pending = false;
-			for (let n = 0; n < 500; n++) {
-				if ((await f.request("/api/approvals")).approvals.length) {
-					pending = true;
-					break;
-				}
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
-			assert(
-				pending,
-				"full file mode retains explicit network approval despite stale file scopes",
-			);
-			await f.request(
-				`/api/chats/${chat.id}`,
-				{ networkAccess: "full" },
-				"PUT",
-			);
-			assert.equal((await f.wait(agentId)).status, "succeeded");
-			assert.equal(requests, 2);
-			assert.equal(await readFile(join(root, "input.txt"), "utf8"), "after\n");
-		} finally {
-			await f.close();
-		}
-	},
-);
 
 commandTest(
 	"interactive commands yield, preserve PTY output and accept input while other tools run",
@@ -2177,8 +1600,8 @@ commandTest(
 					]);
 				case 2: {
 					const result = JSON.parse(last.output);
-					assert.equal(result.sandboxDenied, true, last.output);
-					assert.notEqual(result.exitCode, 0);
+					assert.equal(typeof result.error_code, "number", last.output);
+					assert.equal(typeof result.error, "string", last.output);
 					return done([
 						call(
 							"read_file",
@@ -2206,7 +1629,7 @@ commandTest(
 			}
 		});
 		root = f.root;
-		await writeFile(join(root, "..", "native-secret"), "private");
+
 		try {
 			const id = await f.ask();
 			await f.wait(id);
@@ -2254,6 +1677,66 @@ commandTest(
 		} finally {
 			db.close();
 			await f.close();
+		}
+	},
+);
+
+commandTest(
+	"Full Access reads and patches outside project and commands reach localhost",
+	async () => {
+		const http = createHttpServer((_req, res) =>
+			res.end("local-network-ok"),
+		).listen(0, "127.0.0.1");
+		await once(http, "listening");
+		const address = http.address();
+		assert(address && typeof address !== "string");
+		let outside = "",
+			root = "",
+			requests = 0;
+		const f = await fixture(async (_url, init) => {
+			if (++requests === 1)
+				return done([
+					call("read_file", { path: outside }, "outside-read"),
+					call(
+						"apply_patch",
+						{
+							cwd: root,
+							patch: `*** Begin Patch\n*** Update File: ${outside}\n@@\n-before\n+after\n*** End Patch`,
+						},
+						"outside-patch",
+					),
+					call(
+						"exec_command",
+						{
+							cmd: `cat ${quote(outside)}; node -e ${quote(`fetch('http://127.0.0.1:${address.port}').then(r=>r.text()).then(console.log)`)}`,
+							workdir: root,
+							yield_time_ms: 1000,
+						},
+						"outside-command",
+					),
+				]);
+			const results = JSON.parse(String(init?.body))
+				.input.filter(
+					(item: { type: string }) => item.type === "function_call_output",
+				)
+				.map((item: { output: string }) => JSON.parse(item.output));
+			assert.equal(results[0].text, "before\n");
+			assert.equal(results[1].exitCode, 0);
+			assert.equal(results[2].exitCode, 0);
+			assert.match(text(results[2].output.chunks), /after\nlocal-network-ok/);
+			return done([answer]);
+		});
+		root = f.root;
+		outside = join(f.directory, "outside.txt");
+		try {
+			await writeFile(outside, "before\n");
+			const agent = await f.wait(await f.ask());
+			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
+			assert.equal(await readFile(outside, "utf8"), "after\n");
+		} finally {
+			await f.close();
+			http.closeAllConnections();
+			await new Promise<void>((resolve) => http.close(() => resolve()));
 		}
 	},
 );

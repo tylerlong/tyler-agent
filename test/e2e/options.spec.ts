@@ -593,8 +593,6 @@ test("unsent Chat choices persist independently through refresh, navigation and 
 				).chatOptions,
 		)
 		.toEqual({
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "second",
 			reasoningEffort: null,
 		});
@@ -613,8 +611,6 @@ test("unsent Chat choices persist independently through refresh, navigation and 
 				).chatOptions,
 		)
 		.toEqual({
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "test",
 			reasoningEffort: "low",
 		});
@@ -671,8 +667,6 @@ test("pending or failed option saves cannot submit an unsaved selection", async 
 		(await (await page.request.get(`${app.url}/api/chats/${first.id}`)).json())
 			.chatOptions,
 	).toEqual({
-		fileAccess: "restricted",
-		networkAccess: "restricted",
 		modelId: "test",
 		reasoningEffort: null,
 	});
@@ -687,8 +681,6 @@ test("pending or failed option saves cannot submit an unsaved selection", async 
 		(await (await page.request.get(`${app.url}/api/chats/${first.id}`)).json())
 			.chatOptions,
 	).toEqual({
-		fileAccess: "restricted",
-		networkAccess: "restricted",
 		modelId: "test",
 		reasoningEffort: "low",
 	});
@@ -761,8 +753,6 @@ test("returning to a cached Chat waits for fresh choices before filling a delete
 				).json()
 			).chatOptions,
 		).toEqual({
-			fileAccess: "restricted",
-			networkAccess: "restricted",
 			modelId: "second",
 			reasoningEffort: null,
 		});
@@ -775,8 +765,6 @@ test("returning to a cached Chat waits for fresh choices before filling a delete
 		(await (await page.request.get(`${app.url}/api/chats/${first.id}`)).json())
 			.chatOptions,
 	).toEqual({
-		fileAccess: "restricted",
-		networkAccess: "restricted",
 		modelId: "second",
 		reasoningEffort: null,
 	});
@@ -846,8 +834,6 @@ for (const change of ["model", "effort"] as const) {
 					).json()
 				).chatOptions,
 			).toEqual({
-				fileAccess: "restricted",
-				networkAccess: "restricted",
 				modelId,
 				reasoningEffort: "xhigh",
 			});

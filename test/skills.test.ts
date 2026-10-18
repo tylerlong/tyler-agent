@@ -271,7 +271,7 @@ test("new Sub-agents refresh skills without inheriting the parent selection; bro
 	}
 });
 
-test("trusted skill links permit native file and command reads while rejecting writes outside Target and preserving Target writes", {
+test("skill links remain readable and ordinary file and patch tools retain full access", {
 	skip: platform() !== "darwin",
 }, async () => {
 	let step = 0;
@@ -306,14 +306,14 @@ test("trusted skill links permit native file and command reads while rejecting w
 					],
 				});
 			case 3:
-				assert.notEqual(JSON.parse(results.at(-1).output).exitCode, 0);
+				assert.equal(JSON.parse(results.at(-1).output).exitCode, 0);
 				assert.match(
 					JSON.parse(results.at(-1).output)
 						.output.chunks.map((chunk: { text: string }) => chunk.text)
 						.join(""),
 					/REFERENCE/,
 				);
-				assert.equal(await readFile(reference, "utf8"), "REFERENCE");
+				assert.equal(await readFile(reference, "utf8"), "changed");
 				return completedResponse({
 					output: [
 						call("apply_patch", {

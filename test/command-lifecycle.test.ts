@@ -41,7 +41,7 @@ async function until(check: () => Promise<boolean>) {
 test("native subtree cancellation preserves sibling work and exact different-model communications", {
 	timeout: 30000,
 	skip:
-		platform() !== "darwin" ? "Native restricted policy requires macOS" : false,
+		platform() !== "darwin" ? "Native command execution requires macOS" : false,
 }, async () => {
 	const directory = await realpath(
 		await mkdtemp(join(tmpdir(), "command-tree-")),
@@ -282,7 +282,7 @@ test("native subtree cancellation preserves sibling work and exact different-mod
 			2,
 		);
 		const count = recordings.length;
-		await request("/api/approvals");
+		await request("/api/execution-limits");
 		await request(`/api/agents/${rootId}/tree`);
 		await output(siblingId);
 		await request(`/api/agents/${middleId}/cancel`, {});
@@ -320,7 +320,6 @@ test("cancellation during native initialization interrupts commands and patches 
 					command: "printf escaped > escaped",
 					...(patch === undefined ? {} : { patch }),
 					cwd: directory,
-					targetFolders: [directory],
 					agentId: `prepare-${process.pid}`,
 					timeoutMs: 10000,
 					signal: controller.signal,

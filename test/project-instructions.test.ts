@@ -73,7 +73,8 @@ async function fixture(respond?: (body: ModelRequest) => Promise<Response>) {
 			const p = await post("/api/projects", { name: "P", folders });
 			const c = await post(`/api/projects/${p.id}/chats`, { name: "C" });
 			const a = await post(`/api/chats/${c.id}`, { prompt: "inspect" });
-			await waitForAgent(base, a.agentId);
+			const agent = await waitForAgent(base, a.agentId);
+			assert.equal(agent.status, "succeeded", JSON.stringify(agent));
 			return c.id as number;
 		},
 		close: async () => {
@@ -177,29 +178,19 @@ test("the shared UTF-8 budget reports a partial source and every omitted source 
 	}
 });
 
-test("instruction symlinks outside named sources need ordinary permission and never fall back", async () => {
+test("instruction symlinks outside named sources load without falling back", async () => {
 	const f = await fixture();
 	try {
 		const root = join(f.directory, "target"),
 			secret = join(f.directory, "private.txt");
 		await mkdir(root);
-		await writeFile(secret, "PRIVATE-UNAUTHORIZED");
+		await writeFile(secret, "LINKED-INSTRUCTIONS");
 		await symlink(secret, join(root, "AGENTS.override.md"));
 		await writeFile(join(root, "AGENTS.md"), "FORBIDDEN-FALLBACK");
 		await f.ask([root]);
 		const text = f.requests[0].instructions;
-		assert(text.includes("requires ordinary file authorization"));
-		assert(
-			!text.includes("PRIVATE-UNAUTHORIZED") &&
-				!text.includes("FORBIDDEN-FALLBACK"),
-		);
-		const update = await fetch(`${f.base}/api/access-defaults`, {
-			method: "PATCH",
-			body: JSON.stringify({ fileAccess: "full" }),
-		});
-		assert.equal(update.status, 200);
-		await f.ask([root]);
-		assert(f.requests.at(-1)?.instructions.includes("PRIVATE-UNAUTHORIZED"));
+		assert(text.includes("LINKED-INSTRUCTIONS"));
+		assert(!text.includes("FORBIDDEN-FALLBACK"));
 	} finally {
 		await f.close();
 	}
@@ -268,7 +259,7 @@ test("Sub-agents reload user rules while their running parent keeps its initial 
 	}
 });
 
-test("local first reads see current contents and initial ancestor access does not grant reference reads", {
+test("local first reads see current contents and can read referenced files outside Target", {
 	skip: platform() !== "darwin",
 }, async () => {
 	let f: Awaited<ReturnType<typeof fixture>>;
@@ -295,7 +286,7 @@ test("local first reads see current contents and initial ancestor access does no
 			});
 		}
 		assert(JSON.stringify(body.input).includes("LOCAL-CURRENT"));
-		assert(!JSON.stringify(body.input).includes("PRIVATE-REFERENCE-CONTENT"));
+		assert(JSON.stringify(body.input).includes("REFERENCE-CONTENT"));
 		return completedResponse({
 			output: [
 				{ type: "message", content: [{ type: "output_text", text: "done" }] },
@@ -308,11 +299,11 @@ test("local first reads see current contents and initial ancestor access does no
 		deep = join(target, "deep");
 		await mkdir(join(root, ".git"), { recursive: true });
 		await mkdir(deep, { recursive: true });
-		await writeFile(join(root, "AGENTS.md"), "ANCESTOR-READ-EXCEPTION");
-		await writeFile(join(root, "README.md"), "PRIVATE-REFERENCE-CONTENT");
+		await writeFile(join(root, "AGENTS.md"), "ANCESTOR-INSTRUCTIONS");
+		await writeFile(join(root, "README.md"), "REFERENCE-CONTENT");
 		await writeFile(join(deep, "AGENTS.md"), "LOCAL-INITIAL");
 		await f.ask([target]);
-		assert(f.requests[0].instructions.includes("ANCESTOR-READ-EXCEPTION"));
+		assert(f.requests[0].instructions.includes("ANCESTOR-INSTRUCTIONS"));
 		assert(!f.requests[0].instructions.includes("LOCAL-INITIAL"));
 		assert.equal(f.requests.length, 2);
 	} finally {
@@ -336,7 +327,6 @@ test("symlinked Target folders receive their real Git ancestors and scoped instr
 		assert(text.includes("REAL-ANCESTOR") && text.includes("REAL-TARGET"));
 		assert.equal(text.split("REAL-TARGET").length, 2);
 		assert(text.includes(JSON.stringify([alias, target])));
-		assert(!text.includes("requires ordinary file authorization"));
 	} finally {
 		await f.close();
 	}

@@ -9,11 +9,9 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { useTranslation } from "react-i18next";
-import { AccessDefaults } from "./access-defaults.tsx";
 import { AgentContent, type AgentDetail } from "./agent-content.tsx";
 import { ApiError, api, appError } from "./api.ts";
 import { subscribeEvents } from "./api-events.ts";
-import { type Approval, ApprovalInbox } from "./approvals.tsx";
 import {
 	ChatOptionPicker,
 	type ChatOptions,
@@ -828,7 +826,6 @@ function App() {
 	const [error, setError] = useState<ApiError | null>(null);
 	const settingsDialog = useRef<HTMLDialogElement>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
-	const accessDefaultsCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const safetyReviewCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const executionCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const mcpCommit = useRef<(() => Promise<boolean>) | null>(null);
@@ -844,21 +841,6 @@ function App() {
 		}
 	};
 	const [dialogChange, setDialogChange] = useState(0);
-	const [approvals, setApprovals] = useState<Approval[]>([]);
-	const [approvalsError, setApprovalsError] = useState("");
-	const approvalsRead = useRef(0);
-	const refreshApprovals = useCallback(async () => {
-		const read = ++approvalsRead.current;
-		try {
-			const data = await api("/api/approvals");
-			if (read !== approvalsRead.current) return;
-			setApprovals(data.approvals);
-			setApprovalsError("");
-		} catch (cause) {
-			if (read === approvalsRead.current)
-				setApprovalsError(appError(cause).code);
-		}
-	}, []);
 	const refreshRevision = useRef(0);
 	const refresh = useCallback(async () => {
 		const settingsReads = Promise.all([
@@ -900,7 +882,6 @@ function App() {
 	useEffect(() => {
 		const sync = () => {
 			void refresh();
-			void refreshApprovals();
 			window.dispatchEvent(new Event("settings-changed"));
 			const ids = new Set(Object.keys(cacheRef.current).map(Number));
 			if (selectedRef.current !== null) ids.add(selectedRef.current);
@@ -915,7 +896,6 @@ function App() {
 			onEvent: (name, data) => {
 				if (name === "message") return sync();
 				if (name !== "agent") return;
-				void refreshApprovals();
 				const { chatId, agentId, parentAgentId } = JSON.parse(data);
 				if (parentAgentId != null) {
 					if (
@@ -940,16 +920,14 @@ function App() {
 				}
 			},
 		});
-		window.addEventListener("approvals-changed", sync);
 		window.addEventListener("focus", sync);
 		document.addEventListener("visibilitychange", visible);
 		return () => {
 			unsubscribe();
-			window.removeEventListener("approvals-changed", sync);
 			window.removeEventListener("focus", sync);
 			document.removeEventListener("visibilitychange", visible);
 		};
-	}, [refresh, refreshChat, refreshAgent, refreshApprovals]);
+	}, [refresh, refreshChat, refreshAgent]);
 	const [editorRequest, setEditorRequest] = useState<EditorTarget | null>(null);
 	const [editorOpen, setEditorOpen] = useState(false);
 	const [savingTarget, setSavingTarget] = useState<EditorTarget | null>(null);
@@ -1221,7 +1199,6 @@ function App() {
 				safetyReviewOK,
 				executionOK,
 				modelsOK,
-				accessOK,
 				mcpOK,
 			] = await Promise.all([
 				commitLanguage(),
@@ -1230,7 +1207,6 @@ function App() {
 				safetyReviewCommit.current?.() ?? false,
 				executionCommit.current?.() ?? false,
 				modelsCommit.current?.() ?? false,
-				accessDefaultsCommit.current?.() ?? false,
 				mcpCommit.current?.() ?? false,
 			]);
 			if (!languageOK || !enterOK || !followUpOK) {
@@ -1241,7 +1217,7 @@ function App() {
 				setSettingsTab("models");
 				return;
 			}
-			if (!executionOK || !accessOK || !safetyReviewOK) {
+			if (!executionOK || !safetyReviewOK) {
 				setSettingsTab("execution");
 				return;
 			}
@@ -1394,11 +1370,7 @@ function App() {
 			>
 				<header className="shrink-0">
 					<h1 className="mb-3 px-2 text-lg font-semibold">Weft</h1>
-					<ApprovalInbox
-						approvals={approvals}
-						error={approvalsError}
-						refresh={() => void refreshApprovals()}
-					/>
+
 					<button
 						type="button"
 						className="flex items-center gap-2 rounded-md px-3 py-2 text-left enabled:hover:bg-neutral-100 disabled:opacity-50"
@@ -2239,10 +2211,6 @@ function App() {
 					className="settings-content min-h-0 flex-1 overflow-y-auto px-6 py-4"
 				>
 					<fieldset disabled={settingsClosing} className="min-w-0">
-						<AccessDefaults
-							open={settingsOpen}
-							commitRef={accessDefaultsCommit}
-						/>
 						<SafetyReview open={settingsOpen} commitRef={safetyReviewCommit} />
 						<ExecutionLimits open={settingsOpen} commitRef={executionCommit} />
 					</fieldset>

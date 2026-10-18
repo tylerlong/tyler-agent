@@ -13,21 +13,19 @@ export type Skill = {
 export type SkillDiscovery = {
 	skills: Skill[];
 	diagnostics: string[];
-	readPaths: string[];
 };
 const missing = (error: unknown) =>
 	(error as NodeJS.ErrnoException).code === "ENOENT";
 const diagnostic = (path: string, error: unknown) =>
 	`${path}: ${error instanceof Error ? error.message : String(error)}`;
 
-// Source paths retain user-installed aliases; only permission grants use real paths.
+// Source paths retain user-installed aliases.
 export async function discoverSkills(
 	targetFolders: string[],
 	userHome = homedir(),
 ): Promise<SkillDiscovery> {
 	const skills: Skill[] = [];
 	const diagnostics: string[] = [];
-	const readPaths = new Set<string>();
 	const roots = new Set([browserSkill, join(userHome, ".agents", "skills")]);
 	for (const target of targetFolders) {
 		const chain = [target];
@@ -62,11 +60,9 @@ export async function discoverSkills(
 		path: string,
 		ancestors: Set<string>,
 		insideSkill = false,
-		grant = false,
 	) {
 		try {
 			const actual = await realpath(path);
-			if (grant) readPaths.add(actual);
 			if (!(await stat(path)).isDirectory()) return;
 			if (ancestors.has(actual))
 				throw new Error("Symbolic link directory cycle");
@@ -126,12 +122,7 @@ export async function discoverSkills(
 				a.name.localeCompare(b.name),
 			)) {
 				if (entry.isDirectory() || entry.isSymbolicLink())
-					await visit(
-						join(path, entry.name),
-						next,
-						insideSkill || hasSkill,
-						entry.isSymbolicLink(),
-					);
+					await visit(join(path, entry.name), next, insideSkill || hasSkill);
 			}
 		} catch (error) {
 			diagnostics.push(diagnostic(path, error));
@@ -144,9 +135,9 @@ export async function discoverSkills(
 			if (!missing(error)) diagnostics.push(diagnostic(root, error));
 			continue;
 		}
-		await visit(root, new Set(), false, true);
+		await visit(root, new Set());
 	}
-	return { skills, diagnostics, readPaths: [...readPaths] };
+	return { skills, diagnostics };
 }
 
 export async function skillInstructions(
@@ -154,7 +145,7 @@ export async function skillInstructions(
 	selected: string[] = [],
 ) {
 	const sections = [
-		"Skills are reusable task guidance. Choose relevant implicit skills from this catalog and read the complete SKILL.md before using them. Read referenced resources as needed; execute scripts with the normal command tools. Skill sources and installed symbolic link targets are trusted read-only resources; they grant no extra write or network permissions. New sub-agents discover their own catalog; pass task guidance explicitly in prompt/context.",
+		"Skills are reusable task guidance. Choose relevant implicit skills from this catalog and read the complete SKILL.md before using them. Read referenced resources as needed; execute scripts with the normal command tools. New sub-agents discover their own catalog; pass task guidance explicitly in prompt/context.",
 		`Available implicit skills (name, description, exact source): ${JSON.stringify(discovery.skills.filter((skill) => skill.implicit).map(({ name, description, source }) => ({ name, description, source })))}`,
 	];
 	if (discovery.diagnostics.length)

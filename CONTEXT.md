@@ -6,11 +6,11 @@
 
 保留自己的 Agent 和可观察的模型调用路径；在此底线之上，所有功能都可以与第三方实现公平比较并择优替换。设计取舍见 [docs/adr](docs/adr/)，实际接口以代码和测试为准。
 
-项目指令、Skills、MCP/Jira、浏览器与图片输入及工具能力恢复的实施规格见 [#159](https://github.com/tylerlong/tyler-agent/issues/159)；项目指令、Skills 发现、显式选择与可信只读资料源、图片输入、本地读图、stdio／Streamable HTTP MCP（含 Jira stdio）与官方 Playwright CLI 浏览器诊断已实现；各子票的交付状态与验证边界仍以实际结果为准。
+项目指令、Skills、MCP/Jira、浏览器与图片输入及工具能力恢复的实施规格见 [#159](https://github.com/tylerlong/tyler-agent/issues/159)；项目指令、Skills 发现、显式选择与资料源、图片输入、本地读图、stdio／Streamable HTTP MCP（含 Jira stdio）与官方 Playwright CLI 浏览器诊断已实现；各子票的交付状态与验证边界仍以实际结果为准。
 
 设计优先采用成熟约定、现有实现和少量统一的默认规则；只有具体需求证明默认规则不足时，才增加配置、例外或依赖。
 
-接入第三方工具时，优先保留上游公开接口的参数、结果与能力，只做协议兼容、权限、归属和记录所需的接线；不得为简化封装而静默删减能力或改变语义。具体差异须说明原因并对照固定版本验证。
+接入第三方工具时，优先保留上游公开接口的参数、结果与能力，只做协议兼容、参数校验、归属和记录所需的接线；不得为简化封装而静默删减能力或改变语义。具体差异须说明原因并对照固定版本验证。
 
 ## Language
 
@@ -31,7 +31,4 @@
 | Command Output（命令输出） | 持久保存的实际 stdout／stderr／PTY 流，区别于有长度上限的模型工具结果。 |
 | Provisional Content（暂存内容） | 调用尚未成功时收到的可读内容，不代表最终结果。 |
 | Complete Response（完整响应） | 服务方实际返回并通过协议校验的完整响应，是成功调用的输出依据。 |
-| Tool Access Mode（工具访问模式） | Chat 分别选择的文件／网络受限或完全访问模式。 |
 | Safety Review（安全审核） | 在工具执行前判断操作是否危险的防误操作检查，不评价任务合理性或相关性；审核结果区别于实际执行，不构成隔离保证。 |
-| Project Grant（项目授权） | 同项目所有 Chat 和主／子 Agent 持续复用的额外权限，区别于一次批准。 |
-| Pending Approval（待审批申请） | 某次 Tool Call 尚需用户决定的操作，等待不表示已执行。 |

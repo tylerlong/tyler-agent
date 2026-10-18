@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
-import { access, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { access, readdir, readFile, stat } from "node:fs/promises";
 import {
 	createServer as createHttpServer,
 	type IncomingMessage,
@@ -23,13 +23,6 @@ import {
 	listProjects,
 	openDatabase,
 } from "./database.ts";
-import {
-	type ExecutionPermissions,
-	emptyPermissions,
-	needsApproval,
-	requestedPermissions,
-	unmetPermissions,
-} from "./execution-permissions.ts";
 import { fileTools, type ToolExecutor } from "./file-tools.ts";
 import {
 	type InputImage,
@@ -77,7 +70,6 @@ const defaultDatabasePath = fileURLToPath(
 const errorMessages: Record<string, string> = {
 	steerTargetChanged:
 		"The active task changed; refresh the chat before submitting",
-	invalidAccessMode: "Choose restricted or full access",
 	agentCancelled: "Agent cancelled",
 	agentCancelFailed: "Could not stop Agent",
 	invalidCancellationTarget:
@@ -318,7 +310,7 @@ export function createServer(
 	) =>
 		database
 			.prepare(
-				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason,approval,command_state AS commandState${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=?${toolId === undefined ? "" : " AND tool_calls.id=?"} ORDER BY model_call_id,ordinal`,
+				`SELECT tool_calls.id,model_calls.agent_id AS agentId,model_call_id AS modelCallId,call_id AS callId,name,tool_calls.ordinal,tool_calls.status,reason,command_state AS commandState${content ? ",arguments,result" : ""} FROM tool_calls JOIN model_calls ON model_calls.id=tool_calls.model_call_id WHERE model_calls.agent_id=?${toolId === undefined ? "" : " AND tool_calls.id=?"} ORDER BY model_call_id,ordinal`,
 			)
 			.all(...(toolId === undefined ? [agentId] : [agentId, toolId]))
 			.map((call) => ({
@@ -326,7 +318,6 @@ export function createServer(
 				commandState: call.commandState
 					? JSON.parse(String(call.commandState))
 					: null,
-				approval: call.approval ? JSON.parse(String(call.approval)) : null,
 				id: call.id,
 				...(content === true &&
 					["exec_command", "apply_patch"].includes(String(call.name)) && {
@@ -424,7 +415,6 @@ export function createServer(
 			controller: AbortController;
 			suppressed: boolean;
 			stopped: boolean;
-			skillReadPaths: string[];
 			rootPrompt: string | null;
 			creationArguments: Record<string, unknown> | null;
 		}
@@ -548,13 +538,11 @@ export function createServer(
 	const chatOptions = (id: number) =>
 		database
 			.prepare(
-				"SELECT model_id AS modelId,reasoning_effort AS reasoningEffort,file_access AS fileAccess,network_access AS networkAccess FROM chats WHERE id=?",
+				"SELECT model_id AS modelId,reasoning_effort AS reasoningEffort FROM chats WHERE id=?",
 			)
 			.get(id) as {
 			modelId: string | null;
 			reasoningEffort: string | null;
-			fileAccess: "restricted" | "full";
-			networkAccess: "restricted" | "full";
 		};
 	const currentFolders = (id: number) =>
 		database
@@ -613,8 +601,6 @@ export function createServer(
 			inputModalities: model.inputModalities,
 			reasoningEffort: options.reasoningEffort,
 			targetFolders: currentFolders(id),
-			fileAccess: options.fileAccess,
-			networkAccess: options.networkAccess,
 			models: models.map((model) => ({
 				id: model.id,
 				name: model.name,
@@ -747,214 +733,6 @@ export function createServer(
 		for (const subscriber of subscribers) subscriber.write("data: changed\n\n");
 	};
 
-	type Approval = {
-		toolCallId: number;
-		requestId: string;
-		projectId: number;
-		projectName: string;
-		chatId: number;
-		chatName: string;
-		agentId: number;
-		name: string;
-		arguments: string;
-		cwd: string;
-		reason: string;
-		permissions: ExecutionPermissions;
-		status:
-			| "pending"
-			| "denied"
-			| "once"
-			| "always"
-			| "covered"
-			| "interrupted";
-	};
-	const approvals = new Map<
-		number,
-		{
-			view: Approval;
-			requested: ExecutionPermissions;
-			signal: AbortSignal;
-			settle: (decision: Approval["status"]) => void;
-		}
-	>();
-	const projectGrants = (chatId: number): ExecutionPermissions =>
-		JSON.parse(
-			String(
-				database
-					.prepare(
-						"SELECT projects.grants FROM projects JOIN chats ON chats.project_id=projects.id WHERE chats.id=?",
-					)
-					.get(chatId)?.grants,
-			),
-		);
-	const currentPermissions = async (
-		chatId: number,
-		agentId: number,
-	): Promise<ExecutionPermissions> => {
-		const fullFile = chatOptions(chatId).fileAccess === "full";
-		const folders = fullFile
-			? []
-			: await Promise.all(currentFolders(chatId).map((path) => realpath(path)));
-		const grants = projectGrants(chatId);
-		return {
-			...grants,
-			fullFile,
-			fullNetwork: chatOptions(chatId).networkAccess === "full",
-			paths: [
-				...folders
-					.concat(agentScratch(scratchId(agentId)))
-					.map((path) => ({ path, access: "write" as const })),
-				...(fullFile ? [] : grants.paths),
-				...(running.get(agentId)?.skillReadPaths ?? []).map((path) => ({
-					path,
-					access: "read" as const,
-				})),
-			],
-		};
-	};
-	const saveApproval = (view: Approval) => {
-		database
-			.prepare("UPDATE tool_calls SET approval=? WHERE id=?")
-			.run(JSON.stringify(view), view.toolCallId);
-		notifyAgent(view.chatId, view.agentId);
-		notifyChange();
-	};
-	const recheckApprovals = async () => {
-		for (const [toolId, pending] of approvals) {
-			if (pending.signal.aborted) {
-				pending.settle("interrupted");
-				continue;
-			}
-			const unmet = unmetPermissions(
-				pending.requested,
-				await currentPermissions(pending.view.chatId, pending.view.agentId),
-			);
-			if (approvals.get(toolId) !== pending) continue;
-			if (!needsApproval(unmet)) pending.settle("covered");
-			else if (
-				JSON.stringify(unmet) !== JSON.stringify(pending.view.permissions)
-			) {
-				pending.view.permissions = unmet;
-				pending.view.requestId = randomUUID();
-				saveApproval(pending.view);
-			}
-		}
-	};
-	const authorize = async (
-		toolCallId: number,
-		chatId: number,
-		agentId: number,
-		name: string,
-		args: string,
-		cwd: string,
-		requested: ExecutionPermissions,
-		reason: string,
-		signal: AbortSignal,
-	) => {
-		signal.throwIfAborted();
-		const unmet = unmetPermissions(
-			requested,
-			await currentPermissions(chatId, agentId),
-		);
-		let extra = emptyPermissions();
-		if (needsApproval(unmet)) {
-			const chat = database
-				.prepare(
-					"SELECT chats.project_id, chats.name AS chatName, projects.name AS projectName FROM chats JOIN projects ON projects.id=chats.project_id WHERE chats.id=?",
-				)
-				.get(chatId);
-			if (!chat) throw new Error("Approval Chat no longer exists");
-			const view: Approval = {
-				toolCallId,
-				requestId: randomUUID(),
-				projectId: Number(chat.project_id),
-				projectName: String(chat.projectName),
-				chatId,
-				chatName: String(chat.chatName),
-				agentId,
-				name,
-				arguments: args,
-				cwd,
-				reason,
-				permissions: unmet,
-				status: "pending",
-			};
-			const decision = await new Promise<Approval["status"]>(
-				(resolve, reject) => {
-					const interrupted = () => pending.settle("interrupted");
-					const pending = {
-						view,
-						requested,
-						signal,
-						settle: (decision: Approval["status"]) => {
-							if (approvals.get(toolCallId) !== pending) return;
-							approvals.delete(toolCallId);
-							signal.removeEventListener("abort", interrupted);
-							view.status = decision;
-							try {
-								saveApproval(view);
-								resolve(decision);
-							} catch {
-								reject(
-									new ModelError(
-										"toolWriteFailed",
-										errorMessages.toolWriteFailed,
-									),
-								);
-							}
-						},
-					};
-					approvals.set(toolCallId, pending);
-					try {
-						database
-							.prepare(
-								"UPDATE tool_calls SET status='waiting',reason='approvalRequired' WHERE id=?",
-							)
-							.run(toolCallId);
-						saveApproval(view);
-						signal.addEventListener("abort", interrupted, { once: true });
-						if (signal.aborted) interrupted();
-					} catch (error) {
-						approvals.delete(toolCallId);
-						reject(error);
-					}
-				},
-			);
-			signal.throwIfAborted();
-			if (decision === "denied")
-				throw new Error(
-					"User denied extra permissions; operation was not executed",
-				);
-			if (decision === "interrupted")
-				throw new ExecutionInterruptedError(
-					"Approval interrupted; operation was not executed",
-				);
-			if (decision === "once") extra = view.permissions;
-		}
-		signal.throwIfAborted();
-		database
-			.prepare("UPDATE tool_calls SET status='running',reason=NULL WHERE id=?")
-			.run(toolCallId);
-		notifyAgent(chatId, agentId);
-		return () => {
-			const grants = projectGrants(chatId);
-			return {
-				fullFile: chatOptions(chatId).fileAccess === "full",
-				fullNetwork: chatOptions(chatId).networkAccess === "full",
-				paths: [
-					...grants.paths,
-					...extra.paths,
-					...(running.get(agentId)?.skillReadPaths ?? []).map((path) => ({
-						path,
-						access: "read" as const,
-					})),
-				],
-				domains: [...new Set([...grants.domains, ...extra.domains])],
-				localNetwork: grants.localNetwork || extra.localNetwork,
-			};
-		};
-	};
-
 	const modelSettings = createModelSettings(
 		database,
 		fetchCatalog,
@@ -1008,7 +786,6 @@ export function createServer(
 			controller: new AbortController(),
 			suppressed: false,
 			stopped: false,
-			skillReadPaths: [] as string[],
 			rootPrompt,
 			creationArguments,
 		};
@@ -1066,7 +843,6 @@ export function createServer(
 			wake?: () => void;
 			controller: AbortController;
 			stopped: boolean;
-			skillReadPaths: string[];
 			rootPrompt: string | null;
 			creationArguments: Record<string, unknown> | null;
 		},
@@ -1139,13 +915,8 @@ export function createServer(
 			const instructions = await loadProjectInstructions(
 				currentFolders(id),
 				userHome,
-				{
-					...projectGrants(id),
-					fullFile: chatOptions(id).fileAccess === "full",
-				},
 			);
 			const skills = await discoverSkills(currentFolders(id), userHome);
-			state.skillReadPaths = skills.readPaths;
 			const skillsContext = await skillInstructions(skills, skillSources);
 			const source = agentSource(agentId);
 			const prompt = (state.rootPrompt ??
@@ -1217,7 +988,7 @@ export function createServer(
 						try {
 							database
 								.prepare(
-									"UPDATE tool_calls SET status=?,result=?,reason=CASE WHEN reason='approvalRequired' THEN NULL ELSE reason END WHERE id=? AND status IN ('waiting','running')",
+									"UPDATE tool_calls SET status=?,result=? WHERE id=? AND status IN ('waiting','running')",
 								)
 								.run(
 									result.status,
@@ -1289,7 +1060,7 @@ export function createServer(
 					return {
 						...next,
 						scratch,
-						instructions: `${instructions}\n\n${skillsContext}\nMCP connections for this Agent: ${safeMcpConnections(mcp?.connections ?? [])}. Enabled MCP services are trusted external integrations and are not constrained by built-in Target/file/network sandbox permissions. Resource links are not already-read resources. MCP failures are facts; choose subsequent action without assuming an operation can safely be replayed.`,
+						instructions: `${instructions}\n\n${skillsContext}\nMCP connections for this Agent: ${safeMcpConnections(mcp?.connections ?? [])}. Enabled MCP services use their configured accounts and environment. All tool calls follow the global safety review setting. Resource links are not already-read resources. MCP failures are facts; choose subsequent action without assuming an operation can safely be replayed.`,
 						additionalTools: mcp?.tools() ?? [],
 						secrets,
 					};
@@ -1460,14 +1231,7 @@ export function createServer(
 									limit = value.limit ?? 51200;
 								if (
 									Object.keys(value).some(
-										(key) =>
-											![
-												"path",
-												"offset",
-												"limit",
-												"extra_permissions",
-												"reason",
-											].includes(key),
+										(key) => !["path", "offset", "limit"].includes(key),
 									) ||
 									typeof value.path !== "string" ||
 									!isAbsolute(value.path) ||
@@ -1480,21 +1244,6 @@ export function createServer(
 									!Number.isSafeInteger(offset + limit)
 								)
 									throw new InputError("invalidInput");
-								const requested = await requestedPermissions(
-									value.extra_permissions,
-									value.reason,
-								);
-								const extraPermissions = await authorize(
-									activeToolId,
-									id,
-									agentId,
-									name,
-									redactTool(args),
-									scratch,
-									requested,
-									redactTool(value.reason ?? ""),
-									state.controller.signal,
-								);
 								await reviewOperation(
 									name === "read_image" ? value : { ...value, offset, limit },
 								);
@@ -1512,16 +1261,9 @@ export function createServer(
 								const result = await commands[
 									name === "read_image" ? "readImage" : "read"
 								]({
-									extraPermissions: extraPermissions(),
-									resolvePermissions: () => ({
-										targetFolders: currentFolders(id),
-										extraPermissions: extraPermissions(),
-									}),
 									path: value.path,
 									offset,
 									limit,
-									targetFolders: currentFolders(id),
-									agentId: scratchId(agentId),
 									signal: state.controller.signal,
 								});
 								return {
@@ -1565,8 +1307,6 @@ export function createServer(
 														"max_output_tokens",
 													]
 												: []),
-											"extra_permissions",
-											"reason",
 										].includes(key),
 								) ||
 								typeof value[name === "apply_patch" ? "patch" : "command"] !==
@@ -1595,21 +1335,6 @@ export function createServer(
 							)
 								throw new InputError("invalidInput");
 							const toolId = activeToolId;
-							const requested = await requestedPermissions(
-								value.extra_permissions,
-								value.reason,
-							);
-							const extraPermissions = await authorize(
-								toolId,
-								id,
-								agentId,
-								name,
-								redactTool(args),
-								value.cwd,
-								requested,
-								redactTool(value.reason ?? ""),
-								state.controller.signal,
-							);
 							if (value.yield_time_ms !== undefined)
 								value.yield_time_ms = Math.min(
 									30000,
@@ -1620,15 +1345,9 @@ export function createServer(
 								return runTool(name, JSON.stringify(value), roots, signal);
 							let ordinal = 0;
 							const result = await commands.execute({
-								extraPermissions: extraPermissions(),
-								resolvePermissions: () => ({
-									targetFolders: currentFolders(id),
-									extraPermissions: extraPermissions(),
-								}),
 								command: name === "apply_patch" ? "apply_patch" : value.command,
 								...(name === "apply_patch" ? { patch: value.patch } : {}),
 								cwd: value.cwd,
-								targetFolders: currentFolders(id),
 								agentId: scratchId(agentId),
 								timeoutMs: value.timeout_ms,
 								yieldTimeMs:
@@ -2092,69 +1811,6 @@ export function createServer(
 			json(response, 403, { error: "Matching Origin required" });
 			return;
 		}
-		if (path === "/api/approvals" && request.method === "GET") {
-			json(response, 200, {
-				approvals: [...approvals.values()].map((pending) => pending.view),
-			});
-			return;
-		}
-		const approvalRoute = path.match(/^\/api\/approvals\/(\d+)$/);
-		if (approvalRoute && request.method === "POST") {
-			try {
-				const input = await readJson(request);
-				if (
-					Object.keys(input).some(
-						(key) => !["requestId", "decision"].includes(key),
-					) ||
-					typeof input.requestId !== "string" ||
-					!["deny", "once", "always"].includes(String(input.decision))
-				)
-					throw new InputError("invalidInput");
-				await recheckApprovals();
-				const pending = approvals.get(Number(approvalRoute[1]));
-				if (
-					!pending ||
-					pending.signal.aborted ||
-					pending.view.requestId !== input.requestId ||
-					database
-						.prepare("SELECT status FROM tool_calls WHERE id=?")
-						.get(pending.view.toolCallId)?.status !== "waiting"
-				) {
-					json(response, 409, {
-						error: "Approval is stale or no longer pending",
-					});
-					return;
-				}
-				if (input.decision === "always") {
-					const grants = projectGrants(pending.view.chatId);
-					const approved = pending.view.permissions;
-					database.prepare("UPDATE projects SET grants=? WHERE id=?").run(
-						JSON.stringify({
-							paths: [...grants.paths, ...approved.paths],
-							domains: [...new Set([...grants.domains, ...approved.domains])],
-							localNetwork: grants.localNetwork || approved.localNetwork,
-						}),
-						pending.view.projectId,
-					);
-				}
-				pending.settle(
-					input.decision === "deny"
-						? "denied"
-						: input.decision === "always"
-							? "always"
-							: "once",
-				);
-				await recheckApprovals();
-				json(response, 200, { decision: input.decision });
-			} catch (error) {
-				json(
-					response,
-					error instanceof InputError ? 400 : 500,
-					caughtError(error, "toolWriteFailed"),
-				);
-			}
-			return;
-		}
 		if (request.method === "GET" && path === "/") {
 			try {
 				response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -2286,53 +1942,6 @@ export function createServer(
 				json(response, 200, modelSettings.remove(id));
 			} catch {
 				json(response, 500, errorBody("modelSettingsFailed"));
-			}
-			return;
-		}
-
-		if (
-			path === "/api/access-defaults" &&
-			(request.method === "GET" || request.method === "PATCH")
-		) {
-			try {
-				if (request.method === "PATCH") {
-					const input = await readJson(request);
-					if (
-						!Object.keys(input).length ||
-						Object.entries(input).some(
-							([key, value]) =>
-								!["fileAccess", "networkAccess"].includes(key) ||
-								(value !== "restricted" && value !== "full"),
-						)
-					)
-						throw new InputError("invalidAccessMode");
-					database
-						.prepare(
-							"UPDATE settings SET default_file_access=COALESCE(?,default_file_access),default_network_access=COALESCE(?,default_network_access) WHERE id=1",
-						)
-						.run(
-							input.fileAccess === undefined ? null : String(input.fileAccess),
-							input.networkAccess === undefined
-								? null
-								: String(input.networkAccess),
-						);
-				}
-				json(
-					response,
-					200,
-					database
-						.prepare(
-							"SELECT default_file_access AS fileAccess,default_network_access AS networkAccess FROM settings WHERE id=1",
-						)
-						.get(),
-				);
-				if (request.method === "PATCH") notifyChange();
-			} catch (error) {
-				json(
-					response,
-					error instanceof InputError ? 400 : 500,
-					caughtError(error, "chatWriteFailed"),
-				);
 			}
 			return;
 		}
@@ -2620,6 +2229,10 @@ export function createServer(
 		if (path === "/api/projects" && request.method === "POST") {
 			try {
 				const input = await readJson(request);
+				if (
+					Object.keys(input).some((key) => !["name", "folders"].includes(key))
+				)
+					throw new InputError("invalidInput");
 				const projectName = name(input);
 				const folders = await projectFolders(input);
 				database.exec("BEGIN");
@@ -2693,47 +2306,6 @@ export function createServer(
 			}
 			return;
 		}
-		const grantsRoute = path.match(/^\/api\/projects\/(\d+)\/grants$/);
-		if (grantsRoute && request.method === "PUT") {
-			const id = Number(grantsRoute[1]);
-			const project = listProjects(database).find((item) => item.id === id);
-			if (!project || project.archived) {
-				json(
-					response,
-					project ? 409 : 404,
-					errorBody(project ? "projectArchived" : "projectNotFound"),
-				);
-				return;
-			}
-			try {
-				const input = await readJson(request);
-				let grants: ExecutionPermissions;
-				try {
-					// Empty grants explicitly revoke every persistent extra permission.
-					grants = await requestedPermissions(input, "Project Edit");
-				} catch (error) {
-					if (
-						error instanceof Error &&
-						error.message === "Extra permission request must not be empty"
-					)
-						grants = emptyPermissions();
-					else throw new InputError("invalidInput");
-				}
-				database
-					.prepare("UPDATE projects SET grants=? WHERE id=?")
-					.run(JSON.stringify(grants), id);
-				await recheckApprovals();
-				notifyChange();
-				json(response, 200, { grants });
-			} catch (error) {
-				json(
-					response,
-					error instanceof InputError ? 400 : 500,
-					caughtError(error, "projectWriteFailed"),
-				);
-			}
-			return;
-		}
 		const projectRoute = path.match(/^\/api\/projects\/(\d+)$/);
 		if (projectRoute && request.method === "PUT") {
 			const id = Number(projectRoute[1]);
@@ -2748,6 +2320,10 @@ export function createServer(
 			}
 			try {
 				const input = await readJson(request);
+				if (
+					Object.keys(input).some((key) => !["name", "folders"].includes(key))
+				)
+					throw new InputError("invalidInput");
 				const projectName = name(input);
 				const folders = await projectFolders(
 					input,
@@ -2768,7 +2344,6 @@ export function createServer(
 					database.exec("ROLLBACK");
 					throw error;
 				}
-				await recheckApprovals();
 				json(
 					response,
 					200,
@@ -3120,16 +2695,12 @@ export function createServer(
 				try {
 					const input = await readJson(request);
 					const options = chatOptions(id);
-					const fileAccess = input.fileAccess ?? options.fileAccess;
-					const networkAccess = input.networkAccess ?? options.networkAccess;
 					if (
-						![fileAccess, networkAccess].every(
-							(value) => value === "restricted" || value === "full",
-						) ||
-						input.fileAccess === null ||
-						input.networkAccess === null
+						Object.keys(input).some(
+							(key) => !["name", "modelId", "reasoningEffort"].includes(key),
+						)
 					)
-						throw new InputError("invalidAccessMode");
+						throw new InputError("invalidInput");
 					const modelId =
 						input.modelId === undefined ? options.modelId : input.modelId;
 					if (modelId !== null && typeof modelId !== "string")
@@ -3168,17 +2739,9 @@ export function createServer(
 							: name(input);
 					database
 						.prepare(
-							"UPDATE chats SET name=?,model_id=?,reasoning_effort=?,file_access=?,network_access=? WHERE id=?",
+							"UPDATE chats SET name=?,model_id=?,reasoning_effort=? WHERE id=?",
 						)
-						.run(
-							chatName,
-							modelId,
-							effort,
-							String(fileAccess),
-							String(networkAccess),
-							id,
-						);
-					await recheckApprovals();
+						.run(chatName, modelId, effort, id);
 					json(response, 200, {
 						id,
 						name: chatName,
@@ -3196,6 +2759,16 @@ export function createServer(
 			}
 			try {
 				const input = await readJson(request);
+				if (
+					[
+						"fileAccess",
+						"networkAccess",
+						"extra_permissions",
+						"reason",
+						"grants",
+					].some((key) => Object.hasOwn(input, key))
+				)
+					throw new InputError("invalidInput");
 				if (typeof input.submissionId === "string")
 					await pendingSubmissions.get(id)?.get(input.submissionId);
 				if (replyToKnownSubmission(response, id, input.submissionId)) return;
@@ -3321,12 +2894,15 @@ export function createServer(
 					json(response, 409, errorBody("projectArchived"));
 					return;
 				}
-				const chatName = name(await readJson(request));
+				const input = await readJson(request);
+				if (Object.keys(input).some((key) => key !== "name"))
+					throw new InputError("invalidInput");
+				const chatName = name(input);
 				const createdAt = Date.now();
 				const id = Number(
 					database
 						.prepare(
-							"INSERT INTO chats(project_id,name,created_at,model_id,file_access,network_access) VALUES (?,?,?,?,(SELECT default_file_access FROM settings WHERE id=1),(SELECT default_network_access FROM settings WHERE id=1))",
+							"INSERT INTO chats(project_id,name,created_at,model_id) VALUES (?,?,?,?)",
 						)
 						.run(
 							projectId,
@@ -3354,8 +2930,6 @@ export function createServer(
 		}
 		json(response, 404, errorBody("notFound"));
 	}).on("close", () => {
-		for (const pending of [...approvals.values()])
-			pending.settle("interrupted");
 		closed = true;
 		const agents = [...running.values()];
 		for (const agent of agents) {

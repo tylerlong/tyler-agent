@@ -1,20 +1,14 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
-import {
-	browserCacheDirectory,
-	browserResourcePaths,
-	playwrightCoreRoot,
-	playwrightRoot,
-} from "./browser-tools.ts";
-import type { ExecutionPermissions } from "./execution-permissions.ts";
+import { browserCacheDirectory, playwrightRoot } from "./browser-tools.ts";
 import { imageFromBytes, MAX_IMAGE_BYTES } from "./image-content.ts";
 
 export class ExecutionInterruptedError extends Error {}
@@ -56,12 +50,6 @@ type Execution = {
 	command: string;
 	patch?: string;
 	cwd: string;
-	targetFolders: string[];
-	extraPermissions?: ExecutionPermissions;
-	resolvePermissions?: () => Pick<
-		Execution,
-		"targetFolders" | "extraPermissions"
-	>;
 	agentId: string;
 	timeoutMs?: number;
 	yieldTimeMs?: number;
@@ -103,18 +91,12 @@ export function agentScratch(agentId: string) {
 }
 
 const uri = (path: string) => pathToFileURL(path).href;
-const entry = (path: string, access: "read" | "write" | "deny") => ({
-	path: { type: "path", path: uri(path) },
-	access,
-});
-
 export class CommandExecutor {
 	private server?: ChildProcessWithoutNullStreams;
 	private initialized?: Promise<void>;
 	private failure?: string;
 	private closing = false;
 	private binary = "";
-	private toolPaths: string[] = [];
 	private commandPath = "";
 	private disconnected?: Promise<void>;
 	private nextId = 1;
@@ -154,7 +136,7 @@ export class CommandExecutor {
 	private async initialize() {
 		if (this.closing) throw new Error("Command executor is closed");
 		if (process.platform !== "darwin")
-			throw new Error("Restricted command execution currently requires macOS");
+			throw new Error("Native command execution currently requires macOS");
 		const require = createRequire(import.meta.url);
 		const codexRequire = createRequire(
 			require.resolve("@openai/codex/package.json"),
@@ -175,27 +157,6 @@ export class CommandExecutor {
 			`${triple}-apple-darwin`,
 			"codex-path",
 		);
-		this.toolPaths = [
-			dirname(dirname(await realpath(process.execPath))),
-			"/System/Library/OpenSSL",
-			"/Library/Developer/CommandLineTools",
-			"/opt/homebrew/Cellar",
-			"/opt/homebrew/opt",
-			"/opt/homebrew/etc/openssl@3",
-			"/opt/homebrew/etc/openssl@4",
-			this.binary,
-			rgFolder,
-			dirname(playwrightRoot),
-			dirname(playwrightCoreRoot),
-		];
-		// The supported macOS installation uses Homebrew; no user PATH or config is inherited.
-		try {
-			this.toolPaths.push(
-				dirname(dirname(await realpath("/opt/homebrew/bin/pnpm"))),
-			);
-		} catch {
-			// pnpm is optional; missing commands return their ordinary shell error.
-		}
 		const home = await realpath(await mkdtemp("/tmp/tyler-agent-executor-"));
 		const bin = join(home, "bin");
 		await mkdir(bin);
@@ -205,14 +166,6 @@ export class CommandExecutor {
 			`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(playwrightRoot, "cli.js"))} cli "$@"\n`,
 			{ mode: 0o755 },
 		);
-		this.toolPaths.push(bin);
-		for (const path of browserResourcePaths) {
-			try {
-				this.toolPaths.push(await realpath(path));
-			} catch {
-				// Browser installation is optional; the CLI reports missing executables.
-			}
-		}
 		this.commandPath = `${bin}:${dirname(process.execPath)}:${rgFolder}:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
 		await mkdir(join(home, "tmp"));
 		await writeFile(
@@ -321,148 +274,8 @@ export class CommandExecutor {
 		}
 	}
 
-	private async latestScope(
-		options: Pick<
-			Execution,
-			| "cwd"
-			| "targetFolders"
-			| "agentId"
-			| "extraPermissions"
-			| "resolvePermissions"
-			| "signal"
-		>,
-	) {
-		for (;;) {
-			options.signal.throwIfAborted();
-			const snapshot = options.resolvePermissions?.();
-			if (snapshot) Object.assign(options, snapshot);
-			const sandbox = await this.scope(options);
-			// Filesystem preparation yields; a management edit must affect an unstarted operation.
-			if (
-				JSON.stringify(snapshot) ===
-				JSON.stringify(options.resolvePermissions?.())
-			)
-				return sandbox;
-		}
-	}
-
-	private async scope(
-		options: Pick<
-			Execution,
-			"cwd" | "targetFolders" | "agentId" | "extraPermissions"
-		>,
-	) {
-		const scratch = await agentScratch(options.agentId);
-		const targets = await Promise.all(
-			(options.extraPermissions?.fullFile ? [] : options.targetFolders).map(
-				async (path) => {
-					if (!isAbsolute(path))
-						throw new Error("Target Folders must be absolute literal paths");
-					return realpath(path);
-				},
-			),
-		);
-		const extraPaths = await Promise.all(
-			(options.extraPermissions?.fullFile
-				? []
-				: (options.extraPermissions?.paths ?? [])
-			).map(async (scope) => {
-				if ((await realpath(scope.path)) !== scope.path)
-					throw new Error("Approved path changed before execution");
-				return scope;
-			}),
-		);
-		const writes = [
-			...targets,
-			scratch,
-			...extraPaths
-				.filter((scope) => scope.access === "write")
-				.map((scope) => scope.path),
-		];
-		const writeDirectories = new Set(
-			(
-				await Promise.all(
-					writes.map(async (path) =>
-						(await stat(path)).isDirectory() ? path : null,
-					),
-				)
-			).filter((path) => path !== null),
-		);
-		const cwd = await realpath(options.cwd);
-		if (
-			!options.extraPermissions?.fullFile &&
-			![...writes, ...extraPaths.map((scope) => scope.path)].some((root) => {
-				const within = relative(root, cwd);
-				return (
-					within === "" ||
-					(within !== ".." &&
-						!within.startsWith(`..${sep}`) &&
-						!isAbsolute(within))
-				);
-			})
-		)
-			throw new Error(
-				"Working directory is outside Target Folders and Agent scratch",
-			);
-		return {
-			permissions: {
-				type: "managed",
-				file_system: options.extraPermissions?.fullFile
-					? { type: "unrestricted" }
-					: {
-							type: "restricted",
-							entries: [
-								{
-									path: { type: "special", value: { kind: "minimal" } },
-									access: "read",
-								},
-								entry("/private/tmp", "deny"),
-								entry("/private/var/tmp", "deny"),
-								...this.toolPaths.map((path) => entry(path, "read")),
-								...extraPaths
-									.filter(
-										(scope) =>
-											scope.access === "read" &&
-											!writes.some((root) => {
-												const within = relative(root, scope.path);
-												return (
-													within === "" ||
-													(within !== ".." &&
-														!within.startsWith(`..${sep}`) &&
-														!isAbsolute(within))
-												);
-											}),
-									)
-									.map((scope) => entry(scope.path, "read")),
-								...writes.flatMap((path) => [
-									entry(path, "write"),
-									...(writeDirectories.has(path)
-										? [".git", ".agents", ".codex", ".aws"]
-										: []
-									).map((name) => entry(join(path, name), "write")),
-								]),
-							],
-						},
-				network: options.extraPermissions?.fullNetwork
-					? "enabled"
-					: "restricted",
-			},
-			cwd: uri(cwd),
-			workspaceRoots: targets.map(uri),
-			windowsSandboxLevel: "disabled",
-			useLegacyLandlock: false,
-		};
-	}
-
 	async read(
-		options: Pick<
-			Execution,
-			| "targetFolders"
-			| "agentId"
-			| "signal"
-			| "extraPermissions"
-			| "resolvePermissions"
-		> & {
+		options: Pick<Execution, "signal"> & {
 			path: string;
 			offset: number;
 			limit: number;
@@ -474,16 +287,12 @@ export class CommandExecutor {
 			options.signal.throwIfAborted();
 			this.initialized ??= this.initialize();
 			await this.initialized;
-			const sandbox = await this.latestScope({
-				...options,
-				cwd: agentScratch(options.agentId),
-			});
 			options.signal.throwIfAborted();
 			await this.rpc("fs/open", {
 				handleId,
 				path: uri(options.path),
 				mode: "read",
-				sandbox,
+				sandbox: null,
 			});
 			opened = true;
 			const chunks: Buffer[] = [];
@@ -547,7 +356,6 @@ export class CommandExecutor {
 			if (options.signal.aborted) return { exitCode: null, cancelled: true };
 			this.initialized ??= this.initialize();
 			await this.initialized;
-			const sandbox = await this.latestScope(options);
 			const scratch = agentScratch(options.agentId);
 			options.signal.throwIfAborted();
 			let complete!: () => void;
@@ -633,37 +441,7 @@ export class CommandExecutor {
 				tty: options.tty ?? false,
 				pipeStdin: false,
 				arg0: null,
-				sandbox:
-					options.extraPermissions?.fullFile &&
-					options.extraPermissions.fullNetwork
-						? null
-						: sandbox,
-				...(!options.extraPermissions?.fullNetwork &&
-				(options.extraPermissions?.domains.length ||
-					options.extraPermissions?.localNetwork)
-					? {
-							enforceManagedNetwork: true,
-							networkProxy: {
-								proxy: {
-									enabled: true,
-									enableSocks5: false,
-									enableSocks5Udp: false,
-									allowUpstreamProxy: false,
-									dangerouslyAllowAllUnixSockets: false,
-									mode: "full",
-									domains: Object.fromEntries(
-										(options.extraPermissions?.domains ?? []).map((domain) => [
-											domain,
-											"allow",
-										]),
-									),
-									unixSockets: {},
-									allowLocalBinding:
-										options.extraPermissions?.localNetwork === true,
-								},
-							},
-						}
-					: {}),
+				sandbox: null,
 			});
 			const stop = () => {
 				void proc
