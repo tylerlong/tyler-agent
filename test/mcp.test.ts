@@ -690,11 +690,21 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 		const db = new DatabaseSync(f.path);
 		const modelCalls = db
 			.prepare(
-				"SELECT request_body,response_body FROM model_calls WHERE agent_id=? ORDER BY id",
+				"SELECT url,request_body,response_body FROM model_calls WHERE agent_id=? ORDER BY id",
 			)
 			.all(id);
-		assert.equal(modelCalls.length, 2);
-		for (const modelCall of modelCalls) {
+		assert.equal(modelCalls.length, 3);
+		const responseCalls = modelCalls.filter((call) =>
+			String(call.url).endsWith("/responses"),
+		);
+		assert.equal(responseCalls.length, 2);
+		const reviewCall = modelCalls.find((call) =>
+			String(call.url).endsWith("/decisions"),
+		);
+		assert(reviewCall);
+		assert.doesNotThrow(() => JSON.parse(String(reviewCall.request_body)));
+		assert.doesNotThrow(() => JSON.parse(String(reviewCall.response_body)));
+		for (const modelCall of responseCalls) {
 			const request = JSON.parse(String(modelCall.request_body));
 			assert.equal(
 				mcpTool(request, "redaction").parameters.additionalProperties,
@@ -702,7 +712,7 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 			);
 			assert.doesNotThrow(() => JSON.parse(String(modelCall.response_body)));
 		}
-		const finalResponse = JSON.parse(String(modelCalls[1].response_body));
+		const finalResponse = JSON.parse(String(responseCalls[1].response_body));
 		assert.equal(finalResponse.output[0].content[0].text, "MCP complete");
 		const toolCall = db
 			.prepare(
@@ -719,7 +729,7 @@ test("credential redaction keeps JSON booleans, schemas and image bytes valid", 
 			savedArguments.payload.pixelText,
 			"data:[REDACTED]/png;base64,[REDACTED]",
 		);
-		const savedInput = JSON.parse(String(modelCalls[1].request_body)).input;
+		const savedInput = JSON.parse(String(responseCalls[1].request_body)).input;
 		const savedOutput = savedInput.find(
 			(part: { type?: string }) => part.type === "function_call_output",
 		).output;

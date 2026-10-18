@@ -332,7 +332,7 @@ test("Queue waits for a held descendant and its terminal notification before sta
 			);
 			return (
 				calls.filter((call: { status: string }) => call.status === "succeeded")
-					.length === 2
+					.length === 3
 			);
 		});
 		let state = await f.state();

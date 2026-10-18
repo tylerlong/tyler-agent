@@ -252,7 +252,12 @@ test("native subtree cancellation preserves sibling work and exact different-mod
 			[leafId, "leaf"],
 			[siblingId, "sibling"],
 		] as const) {
-			const calls = (await request(`/api/agents/${id}/calls`)).calls;
+			const allCalls = (await request(`/api/agents/${id}/calls`)).calls;
+			const calls = allCalls.filter((call: { url: string }) =>
+				call.url.endsWith("/responses"),
+			);
+			const tools = (await request(`/api/agents/${id}/tools`)).toolCalls;
+			assert.equal(allCalls.length - calls.length, tools.length);
 			const actual = recordings.filter(
 				(recording) => recording.prompt === prompt,
 			);

@@ -261,7 +261,11 @@ const server = createServer((req, res) => {
 		return res.json();
 	};
 	try {
-		await request("/api/execution-limits", { modelCallLimit: 32 }, "PATCH");
+		await request(
+			"/api/execution-limits",
+			{ modelCallLimit: 18 + 17 },
+			"PATCH",
+		);
 		await request(
 			"/api/mcp-settings",
 			{
@@ -317,7 +321,9 @@ const server = createServer((req, res) => {
 		);
 		const calls = (await request(`/api/agents/${agentId}/calls`)).calls;
 		assert.deepEqual(
-			calls.map((call: { requestBody: string }) => call.requestBody),
+			calls
+				.filter((call: { url: string }) => call.url.endsWith("/responses"))
+				.map((call: { requestBody: string }) => call.requestBody),
 			recordings,
 		);
 		assert.deepEqual(screenshots[0], [

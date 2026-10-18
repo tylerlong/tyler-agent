@@ -17,7 +17,7 @@ import {
 	ExecutionInterruptedError,
 	executionError,
 } from "./command-executor.ts";
-import { outputPage } from "./command-tools.ts";
+import { commandTools, outputPage } from "./command-tools.ts";
 import {
 	acquireDatabaseOwnership,
 	listProjects,
@@ -30,7 +30,7 @@ import {
 	requestedPermissions,
 	unmetPermissions,
 } from "./execution-permissions.ts";
-import type { ToolExecutor } from "./file-tools.ts";
+import { fileTools, type ToolExecutor } from "./file-tools.ts";
 import {
 	type InputImage,
 	redactInputContent,
@@ -44,6 +44,8 @@ import { supportedReasoningEfforts } from "./model-options.ts";
 import { createModelSettings, ModelSettingsError } from "./model-settings.ts";
 import {
 	answerText,
+	cancelSubAgentTool,
+	createSubAgentTool,
 	ModelError,
 	type OutputItem,
 	requestModel,
@@ -87,6 +89,11 @@ const errorMessages: Record<string, string> = {
 	notDirectory: "The target path is not a directory",
 	directoryNotFound: "The target directory does not exist",
 	directoryAccessFailed: "Cannot access the target directory",
+	invalidSafetyReview: "Safety review must be a boolean",
+	safetyReviewFailed:
+		"Jev safety review failed; the operation was not executed",
+	safetyReviewBlocked: "Jev safety review blocked this operation",
+	safetyReviewSettingsFailed: "Could not read or save safety review",
 	invalidExecutionLimits: "Execution limits must be positive integers",
 	executionLimitsFailed: "Could not read or save execution limits",
 	invalidSidebarWidth: "Invalid sidebar width",
@@ -286,9 +293,11 @@ export function createServer(
 			})),
 		}));
 	const callOutput = (call: Record<string, unknown>): OutputItem[] =>
-		call.status === "succeeded"
-			? responseOutput(call.response_body as string | null)
-			: JSON.parse(String(call.output_json));
+		call.url === "https://openrouter.ai/api/alpha/decisions"
+			? []
+			: call.status === "succeeded"
+				? responseOutput(call.response_body as string | null)
+				: JSON.parse(String(call.output_json));
 	const callMetadata = (agentId: number) =>
 		database
 			.prepare(
@@ -333,7 +342,7 @@ export function createServer(
 	const agentOutput = (agentId: number) =>
 		database
 			.prepare(
-				"SELECT id,status,response_body,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
+				"SELECT id,url,status,response_body,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
 			)
 			.all(agentId)
 			.flatMap((call) =>
@@ -439,7 +448,7 @@ export function createServer(
 			error: result.errorDetails ?? result.errorCode ?? null,
 			errors: database
 				.prepare(
-					"SELECT id AS modelCallId,error_code AS code,error AS message FROM model_calls WHERE agent_id=? AND status='failed' ORDER BY id",
+					"SELECT id AS modelCallId,error_code AS code,error AS message FROM model_calls WHERE agent_id=? AND status='failed' AND url!='https://openrouter.ai/api/alpha/decisions' ORDER BY id",
 				)
 				.all(agentId),
 		};
@@ -456,7 +465,7 @@ export function createServer(
 		const output = agentOutput(Number(row.id));
 		const failedCall = database
 			.prepare(
-				"SELECT id,status,error_code,error FROM model_calls WHERE agent_id=? ORDER BY id DESC",
+				"SELECT id,status,error_code,error FROM model_calls WHERE agent_id=? AND url!='https://openrouter.ai/api/alpha/decisions' ORDER BY id DESC",
 			)
 			.all(Number(row.id))
 			.find(
@@ -651,7 +660,7 @@ export function createServer(
 			})),
 			model_calls: database
 				.prepare(
-					"SELECT id,status,error_code AS errorCode,error,response_body,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
+					"SELECT id,url,status,error_code AS errorCode,error,response_body,output_json FROM model_calls WHERE agent_id=? ORDER BY id",
 				)
 				.all(agentId)
 				.map((call) => ({
@@ -1282,7 +1291,25 @@ export function createServer(
 						secrets,
 					};
 				},
-				async (name, args, roots, signal) => {
+				async (name, args, roots, signal, review) => {
+					const reviewOperation = async (
+						value: unknown,
+						execution?: unknown,
+					) => {
+						const tool = [
+							...fileTools,
+							...commandTools,
+							createSubAgentTool,
+							cancelSubAgentTool,
+						].find((tool) => tool.name === name);
+						await review?.({
+							name,
+							description: tool?.description ?? name,
+							arguments: value,
+							...(execution === undefined ? {} : { execution }),
+						});
+						signal?.throwIfAborted();
+					};
 					signal?.throwIfAborted();
 					if (mcp?.has(name))
 						return mcp.execute(
@@ -1290,6 +1317,7 @@ export function createServer(
 							args,
 							currentConfig(id, agentId).inputModalities?.includes("image") !==
 								false,
+							review,
 						);
 					if (
 						name === "exec_command" ||
@@ -1307,30 +1335,6 @@ export function createServer(
 								!currentConfig(id, agentId).inputModalities?.includes("image")
 							)
 								throw new InputError("modelImageUnsupported");
-							if (
-								runTool &&
-								(name === "read_file" ||
-									name === "read_image" ||
-									name === "apply_patch")
-							) {
-								const requested = await requestedPermissions(
-									value?.extra_permissions,
-									value?.reason,
-								);
-								if (needsApproval(requested))
-									await authorize(
-										activeToolId,
-										id,
-										agentId,
-										name,
-										redactTool(args),
-										value.cwd ?? scratch,
-										requested,
-										redactTool(value.reason ?? ""),
-										state.controller.signal,
-									);
-								return runTool(name, args, roots, signal);
-							}
 							if (!value || typeof value !== "object" || Array.isArray(value))
 								throw new InputError("invalidInput");
 							if (name === "write_stdin") {
@@ -1357,6 +1361,20 @@ export function createServer(
 											value.max_output_tokens > Number.MAX_SAFE_INTEGER / 4))
 								)
 									throw new InputError("invalidInput");
+								value.chars ??= "";
+								value.yield_time_ms = Math.max(
+									value.chars ? 250 : 5000,
+									Math.min(
+										value.chars ? 30000 : 300000,
+										value.yield_time_ms ?? 250,
+									),
+								);
+								await reviewOperation(value, {
+									startup: commands.sessionStartup(
+										value.session_id,
+										scratchId(agentId),
+									),
+								});
 								const result = await commands.writeStdin({
 									sessionId: value.session_id,
 									agentId: scratchId(agentId),
@@ -1420,6 +1438,7 @@ export function createServer(
 									throw new Error(
 										"Output is available only for this Agent's command calls or a Root's same-Chat command history",
 									);
+								await reviewOperation({ ...value, offset, limit });
 								return {
 									status: "succeeded",
 									result: JSON.stringify(
@@ -1473,6 +1492,20 @@ export function createServer(
 									redactTool(value.reason ?? ""),
 									state.controller.signal,
 								);
+								await reviewOperation(
+									name === "read_image" ? value : { ...value, offset, limit },
+								);
+								if (runTool)
+									return runTool(
+										name,
+										JSON.stringify(
+											name === "read_image"
+												? value
+												: { ...value, offset, limit },
+										),
+										roots,
+										signal,
+									);
 								const result = await commands[
 									name === "read_image" ? "readImage" : "read"
 								]({
@@ -1574,6 +1607,14 @@ export function createServer(
 								redactTool(value.reason ?? ""),
 								state.controller.signal,
 							);
+							if (value.yield_time_ms !== undefined)
+								value.yield_time_ms = Math.min(
+									30000,
+									Math.max(250, value.yield_time_ms),
+								);
+							await reviewOperation(value, { cwd: value.cwd });
+							if (runTool && name === "apply_patch")
+								return runTool(name, JSON.stringify(value), roots, signal);
 							let ordinal = 0;
 							const result = await commands.execute({
 								extraPermissions: extraPermissions(),
@@ -1642,6 +1683,11 @@ export function createServer(
 								}),
 							};
 						} catch (error) {
+							if (
+								error instanceof ModelError &&
+								error.code === "modelCallLimit"
+							)
+								throw error;
 							return {
 								status:
 									state.controller.signal.aborted ||
@@ -1666,9 +1712,17 @@ export function createServer(
 								value.agent_id <= 0
 							)
 								throw new InputError("invalidInput");
+							if (agentSource(value.agent_id).parentAgentId !== agentId)
+								throw new InputError("invalidCancellationTarget");
+							await reviewOperation(value);
 							const result = await cancelAgent(value.agent_id, agentId);
 							return { status: "succeeded", result: JSON.stringify(result) };
 						} catch (error) {
+							if (
+								error instanceof ModelError &&
+								error.code === "modelCallLimit"
+							)
+								throw error;
 							return {
 								status: "failed",
 								result: JSON.stringify({
@@ -1682,13 +1736,15 @@ export function createServer(
 							};
 						}
 					}
-					if (name !== "create_sub_agent")
+					if (name !== "create_sub_agent") {
+						if (runTool) await reviewOperation(JSON.parse(args));
 						return runTool
 							? runTool(name, args, roots, signal)
 							: {
 									status: "failed",
 									result: JSON.stringify({ error: "Unknown tool" }),
 								};
+					}
 					try {
 						const input: unknown = JSON.parse(args);
 						if (!input || typeof input !== "object" || Array.isArray(input))
@@ -1732,6 +1788,7 @@ export function createServer(
 									},
 								}),
 							};
+						await reviewOperation(value);
 						const toolId = activeToolId;
 						if (!toolId) throw new Error("Missing creating Tool Call");
 						database
@@ -1750,6 +1807,8 @@ export function createServer(
 							result: JSON.stringify({ agent_id: childId, status: "pending" }),
 						};
 					} catch (error) {
+						if (error instanceof ModelError && error.code === "modelCallLimit")
+							throw error;
 						return {
 							status: "failed",
 							result: JSON.stringify({
@@ -1771,6 +1830,14 @@ export function createServer(
 				},
 				{
 					signal: state.controller.signal,
+					reviewConfig: () => ({
+						apiKey: String(modelSettings.readCredential()),
+						secrets,
+						safetyReview:
+							database
+								.prepare("SELECT safety_review FROM settings WHERE id=1")
+								.get()?.safety_review === 1,
+					}),
 					targetFolders: () => {
 						rememberKey(String(modelSettings.readCredential()));
 						return currentFolders(id);
@@ -1847,7 +1914,9 @@ export function createServer(
 						? "agentCancelled"
 						: (callId !== undefined &&
 									database
-										.prepare("SELECT status FROM model_calls WHERE id=?")
+										.prepare(
+											"SELECT status FROM model_calls WHERE id=? AND url!='https://openrouter.ai/api/alpha/decisions'",
+										)
 										.get(callId)?.status === "failed") ||
 								(callId !== undefined && unsavedCalls.has(callId))
 							? null
@@ -2254,6 +2323,41 @@ export function createServer(
 					response,
 					error instanceof InputError ? 400 : 500,
 					caughtError(error, "chatWriteFailed"),
+				);
+			}
+			return;
+		}
+
+		if (
+			path === "/api/safety-review" &&
+			(request.method === "GET" || request.method === "PATCH")
+		) {
+			try {
+				if (request.method === "PATCH") {
+					const input = await readJson(request);
+					if (
+						Object.keys(input).length !== 1 ||
+						typeof input.safetyReview !== "boolean"
+					)
+						throw new InputError("invalidSafetyReview");
+					database
+						.prepare("UPDATE settings SET safety_review=? WHERE id=1")
+						.run(Number(input.safetyReview));
+				}
+				json(response, 200, {
+					safetyReview:
+						database
+							.prepare("SELECT safety_review FROM settings WHERE id=1")
+							.get()?.safety_review === 1,
+				});
+				if (request.method === "PATCH") notifyChange();
+			} catch (error) {
+				if (!(error instanceof InputError))
+					console.error("Safety review read/write failed", error);
+				json(
+					response,
+					error instanceof InputError ? 400 : 500,
+					caughtError(error, "safetyReviewSettingsFailed"),
 				);
 			}
 			return;
@@ -2698,7 +2802,7 @@ export function createServer(
 			}
 			const row = database
 				.prepare(
-					"SELECT status,response_body,output_json FROM model_calls WHERE id=? AND agent_id=?",
+					"SELECT url,status,response_body,output_json FROM model_calls WHERE id=? AND agent_id=?",
 				)
 				.get(Number(callId), Number(reasoningRoute[1]));
 			if (!row) {

@@ -55,11 +55,18 @@ export type ToolExecution = {
 	status: "succeeded" | "failed" | "interrupted";
 	result: string | InputContent[];
 };
+export type ToolReview = (operation: {
+	name: string;
+	description: string;
+	arguments: unknown;
+	execution?: unknown;
+}) => Promise<void>;
 export type ToolExecutor = (
 	name: string,
 	argumentsText: string,
 	roots: string[],
 	signal?: AbortSignal,
+	review?: ToolReview,
 ) => Promise<ToolExecution>;
 // The model loop alone has no trusted Agent identity or managed execution scope.
 export const executeTool: ToolExecutor = async () => ({

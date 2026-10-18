@@ -5,9 +5,10 @@ import {
 	StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import type { ToolExecution } from "./file-tools.ts";
+import type { ToolExecution, ToolReview } from "./file-tools.ts";
 import { type InputContent, submittedImages } from "./image-content.ts";
 import { type McpService, parseMcpConfig } from "./mcp-config.ts";
+import { ModelError } from "./openrouter.ts";
 
 export type McpConnection = {
 	id: string;
@@ -35,7 +36,11 @@ export async function connectMcp(
 	const owners = new Map<string, string>();
 	const handlers = new Map<
 		string,
-		(args: string, imagesSupported: boolean) => Promise<ToolExecution>
+		(
+			args: string,
+			imagesSupported: boolean,
+			review?: ToolReview,
+		) => Promise<ToolExecution>
 	>();
 	let closing: Promise<void> | undefined;
 	const update = () => {
@@ -144,7 +149,7 @@ export async function connectMcp(
 									description: `[MCP ${service.name}: ${tool.name}] ${tool.description ?? ""}`,
 									parameters: tool.inputSchema,
 								});
-								handlers.set(name, async (args, imagesSupported) => {
+								handlers.set(name, async (args, imagesSupported, review) => {
 									if (
 										!readServices().some(
 											(row) => row.id === service.id && row.enabled,
@@ -171,6 +176,13 @@ export async function connectMcp(
 											throw new TypeError(
 												"MCP tool arguments must be an object",
 											);
+										await review?.({
+											name: tool.name,
+											description: `[MCP ${service.name}] ${tool.description ?? ""}`,
+											arguments: argumentsValue,
+											execution: { service: service.name },
+										});
+										signal.throwIfAborted();
 										// Supplying the discovered definition prevents the SDK's modern-header refresh/replay path.
 										const result = await client.callTool(
 											{
@@ -233,6 +245,11 @@ export async function connectMcp(
 											result: content,
 										};
 									} catch (error) {
+										if (
+											error instanceof ModelError &&
+											error.code === "modelCallLimit"
+										)
+											throw error;
 										return {
 											status: "failed",
 											result: JSON.stringify({
@@ -282,10 +299,15 @@ export async function connectMcp(
 			),
 		connections,
 		has: (name: string) => handlers.has(name),
-		execute: (name: string, args: string, imagesSupported: boolean) => {
+		execute: (
+			name: string,
+			args: string,
+			imagesSupported: boolean,
+			review?: ToolReview,
+		) => {
 			const handler = handlers.get(name);
 			if (!handler) throw new Error("Unknown MCP tool");
-			return handler(args, imagesSupported);
+			return handler(args, imagesSupported, review);
 		},
 		close: async () => {
 			signal.removeEventListener("abort", cancelled);

@@ -665,14 +665,14 @@ for (const mode of ["failure", "limit"])
 		try {
 			if (mode === "limit") {
 				const db = new DatabaseSync(f.path);
-				db.prepare("UPDATE settings SET model_call_limit=2 WHERE id=1").run();
+				db.prepare("UPDATE settings SET model_call_limit=3 WHERE id=1").run();
 				db.close();
 			}
 			const rootId = await f.ask("failing parent");
 			await until(async () => childStarted && rootRequests === 2);
 			await until(async () => {
 				const calls = await f.get(`/api/agents/${rootId}/calls`);
-				return calls.calls.length === 2 && calls.calls[1].status !== "pending";
+				return calls.calls.length === 3 && calls.calls[2].status !== "pending";
 			});
 			const state = await f.get(`/api/agents/${rootId}`);
 			assert.equal(state.agents[0].status, "pending");
@@ -859,7 +859,10 @@ for (const during of ["model", "tool"])
 						childTool({ prompt: "ordered two" }, "two"),
 					];
 					if (during === "tool")
-						output.push({ ...childTool({}, "held-tool"), name: "read_file" });
+						output.push({
+							...childTool({ path: "/unused" }, "held-tool"),
+							name: "read_file",
+						});
 					return completedResponse({ output });
 				}
 				if (during === "model" && parentInputs.length === 2) {
@@ -1644,8 +1647,14 @@ test("cancellation signals an active tool and holds the chat until tool cleanup 
 			requests++;
 			return completedResponse({
 				output: [
-					{ ...childTool({}, "active-tool"), name: "read_file" },
-					{ ...childTool({}, "queued-tool"), name: "read_file" },
+					{
+						...childTool({ path: "/unused" }, "active-tool"),
+						name: "read_file",
+					},
+					{
+						...childTool({ path: "/unused" }, "queued-tool"),
+						name: "read_file",
+					},
 				],
 			});
 		},

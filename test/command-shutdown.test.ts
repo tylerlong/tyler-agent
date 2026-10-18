@@ -246,7 +246,7 @@ for (const [signal, unresponsive] of [
 		const port = address.port;
 		assert.notEqual(port, 3000);
 		await new Promise<void>((resolve) => reservation.close(() => resolve()));
-		const preload = `import {completedBody} from ${JSON.stringify(new URL("./model-fixture.ts", import.meta.url).href)};globalThis.fetch=async()=>{console.log('fixture-model-request');return new Response(completedBody({status:'completed',output:[{id:'run',call_id:'run',type:'function_call',name:'exec_command',arguments:JSON.stringify({command:"printf 'ready:%s\\n' $$; sleep 60",cwd:${JSON.stringify(root)},timeout_ms:60000})}]}))};`;
+		const preload = `import {completedBody,withSafetyReview} from ${JSON.stringify(new URL("./model-fixture.ts", import.meta.url).href)};globalThis.fetch=withSafetyReview(async()=>{console.log('fixture-model-request');return new Response(completedBody({status:'completed',output:[{id:'run',call_id:'run',type:'function_call',name:'exec_command',arguments:JSON.stringify({command:"printf 'ready:%s\\n' $$; sleep 60",cwd:${JSON.stringify(root)},timeout_ms:60000})}]}))});`;
 		const child = spawn(
 			process.execPath,
 			[

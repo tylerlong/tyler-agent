@@ -74,6 +74,7 @@ type Execution = {
 	onOutput: (stream: Stream, text: string) => void;
 };
 type Running = {
+	startup: Pick<Execution, "command" | "cwd" | "shell" | "login" | "tty">;
 	exitCode: number | null;
 	closed: boolean;
 	error?: ExecutionResult["error"];
@@ -554,6 +555,13 @@ export class CommandExecutor {
 				complete = resolve;
 			});
 			proc = {
+				startup: {
+					command: options.command,
+					cwd: options.cwd,
+					shell: options.shell ?? "/bin/sh",
+					login: options.login ?? interactive,
+					tty: options.tty ?? false,
+				},
 				exitCode: null,
 				closed: false,
 				agentId: options.agentId,
@@ -736,6 +744,10 @@ export class CommandExecutor {
 		if (!proc || proc.agentId !== agentId)
 			throw new Error("Session is available only to the Agent that started it");
 		return { processId, proc };
+	}
+
+	sessionStartup(sessionId: number, agentId: string) {
+		return { ...this.ownedSession(sessionId, agentId).proc.startup };
 	}
 
 	private async waitSession(

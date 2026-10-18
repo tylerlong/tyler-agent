@@ -318,7 +318,11 @@ commandTest(
 				),
 				/log-tail$/,
 			);
-			const calls = (await f.request(`/api/agents/${id}/calls`)).calls;
+			const allCalls = (await f.request(`/api/agents/${id}/calls`)).calls;
+			assert.equal(allCalls.length, 9);
+			const calls = allCalls.filter((call: { url: string }) =>
+				call.url.endsWith("/responses"),
+			);
 			assert.equal(calls.length, 5);
 			for (let index = 0; index < calls.length; index++) {
 				assert.equal(calls[index].requestBody, recordings[index].request);
@@ -1049,7 +1053,7 @@ commandTest(
 			assert.deepEqual(saved.toolCalls[0].output, before);
 			const agent = await waitForAgent(restartBase, agentId);
 			assert.equal(agent.status, "failed");
-			assert.equal(agent.calls.length, 1);
+			assert.equal(agent.calls.length, 2);
 			assert.equal(requests, 0);
 			await assert.rejects(readFile(join(root, "replayed")), {
 				code: "ENOENT",

@@ -37,6 +37,7 @@ import {
 	type Project,
 	ProjectEditor,
 } from "./project-editor.tsx";
+import { SafetyReview } from "./safety-review.tsx";
 import { type ComposerSkill, SkillComposer } from "./skill-composer.tsx";
 import { TaskView, urlAgent } from "./task-view.tsx";
 
@@ -828,6 +829,7 @@ function App() {
 	const settingsDialog = useRef<HTMLDialogElement>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const accessDefaultsCommit = useRef<(() => Promise<boolean>) | null>(null);
+	const safetyReviewCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const executionCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const mcpCommit = useRef<(() => Promise<boolean>) | null>(null);
 	const modelsCommit = useRef<(() => Promise<boolean>) | null>(null);
@@ -1216,6 +1218,7 @@ function App() {
 				languageOK,
 				enterOK,
 				followUpOK,
+				safetyReviewOK,
 				executionOK,
 				modelsOK,
 				accessOK,
@@ -1224,6 +1227,7 @@ function App() {
 				commitLanguage(),
 				commitEnter(),
 				commitFollowUp(),
+				safetyReviewCommit.current?.() ?? false,
 				executionCommit.current?.() ?? false,
 				modelsCommit.current?.() ?? false,
 				accessDefaultsCommit.current?.() ?? false,
@@ -1237,7 +1241,7 @@ function App() {
 				setSettingsTab("models");
 				return;
 			}
-			if (!executionOK || !accessOK) {
+			if (!executionOK || !accessOK || !safetyReviewOK) {
 				setSettingsTab("execution");
 				return;
 			}
@@ -2239,6 +2243,7 @@ function App() {
 							open={settingsOpen}
 							commitRef={accessDefaultsCommit}
 						/>
+						<SafetyReview open={settingsOpen} commitRef={safetyReviewCommit} />
 						<ExecutionLimits open={settingsOpen} commitRef={executionCommit} />
 					</fieldset>
 				</div>

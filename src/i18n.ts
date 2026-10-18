@@ -339,6 +339,14 @@ export const resources = {
 			configurationSaveFailed: "Unable to save model settings. Please retry.",
 			addModel: "Add model",
 
+			safetyReview: "Jev safety review",
+			safetyReviewHelp:
+				"Review every Tool Call for serious operational risk. Applies to all Projects, Chats and Agents. Turning this off skips Jev requests and their cost; changes apply to the next Tool Call. Review is best effort and cannot guarantee safety.",
+			safetyReviewFailed:
+				"Jev safety review failed; the operation was not executed",
+			safetyReviewBlocked: "Jev safety review blocked this operation",
+			safetyReviewSettingsFailed:
+				"Could not read or save safety review. Please retry.",
 			executionLimits: "Execution limits",
 			modelCallLimitSetting: "Model Calls per Agent",
 			subAgentLimitSetting: "Descendants per root Agent",
@@ -692,6 +700,12 @@ export const resources = {
 			configurationSaveFailed: "保存模型配置失败，请重试。",
 			addModel: "添加模型",
 
+			safetyReview: "Jev 安全审核",
+			safetyReviewHelp:
+				"审核每次工具调用是否有严重操作风险，适用于所有项目、对话和 Agent。关闭后不发送 Jev 请求、不产生审核费用；更改从下一次工具调用生效。审核仅尽力判断，无法保证安全。",
+			safetyReviewFailed: "Jev 安全审核失败；本次操作未执行",
+			safetyReviewBlocked: "Jev 安全审核阻止了本次操作",
+			safetyReviewSettingsFailed: "无法读取或保存安全审核设置，请重试。",
 			executionLimits: "执行上限",
 			modelCallLimitSetting: "每个 Agent 的模型调用上限",
 			subAgentLimitSetting: "每个根 Agent 的子 Agent 总量上限",

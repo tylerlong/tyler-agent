@@ -51,10 +51,6 @@ async function fixture(
 	const address = server.address();
 	assert(address && typeof address !== "string");
 	let base = `http://127.0.0.1:${address.port}`;
-	// Exercise the existing fifth-call boundary using an explicit current limit.
-	const db = new DatabaseSync(databasePath);
-	db.prepare("UPDATE settings SET model_call_limit=5 WHERE id=1").run();
-	db.close();
 	const send = (route: string, body: unknown, method = "POST") =>
 		fetch(base + route, { method, body: JSON.stringify(body) });
 	const get = (route: string) => fetch(base + route).then((r) => r.json());
@@ -175,7 +171,7 @@ test("fresh database configures through HTTP and saves a complete tool loop", {
 		);
 		const history = await request(`/api/chats/${chat.id}`);
 		assert.equal(history.agents[0].answer, "one file");
-		assert.equal(history.agents[0].calls.length, 2);
+		assert.equal(history.agents[0].calls.length, 3);
 		assert.equal(history.agents[0].toolCalls[0].status, "succeeded");
 		const saved = await request(`/api/agents/${accepted.agentId}/tools`);
 		assert.equal(saved.toolCalls.length, 1);
@@ -259,7 +255,7 @@ test("Agent reads a real file and continues with complete protocol context while
 		assert.equal(history.agents[0].answer, "Counting\n109 files");
 		const calls = (await f.get(`/api/agents/${history.agents[0].id}/calls`))
 			.calls;
-		assert.equal(calls.length, 2);
+		assert.equal(calls.length, 3);
 		assert(calls.every((c: { status: string }) => c.status === "succeeded"));
 		for (const request of requests) {
 			assert.equal(request.tools[0].name, "read_file");
@@ -290,13 +286,16 @@ for (const finalAnswer of [true, false])
 			);
 			return new Response(
 				completed(
-					request === 5 && finalAnswer
+					request === 3 && finalAnswer
 						? [message("finished at five")]
 						: [message(`step ${request}`), tool("/tmp", `call-${request}`)],
 				),
 			);
 		}, []);
 		try {
+			const db = new DatabaseSync(f.databasePath);
+			db.prepare("UPDATE settings SET model_call_limit=5 WHERE id=1").run();
+			db.close();
 			const response = await f.ask();
 			assert.equal(response.status, 202);
 			const agent = await f.wait((await response.json()).agentId);
@@ -313,13 +312,13 @@ for (const finalAnswer of [true, false])
 			assert.equal(agent.status, finalAnswer ? "succeeded" : "failed");
 			assert.match(
 				agent.answer,
-				finalAnswer ? /finished at five/ : /step 1[\s\S]*step 5/,
+				finalAnswer ? /finished at five/ : /step 1[\s\S]*step 3/,
 			);
 			assert.equal(
 				(await f.get(`/api/agents/${agent.id}/calls`)).calls.length,
 				5,
 			);
-			assert.equal(request, 5);
+			assert.equal(request, 3);
 		} finally {
 			await f.close();
 		}
@@ -409,7 +408,7 @@ test("remote continuation failure retains saved prior and partial output without
 		const calls = (await f.get(`/api/agents/${agent.id}/calls`)).calls;
 		assert.deepEqual(
 			calls.map((c: { status: string }) => c.status),
-			["succeeded", "failed"],
+			["succeeded", "succeeded", "failed"],
 		);
 	} finally {
 		await f.close();
@@ -566,7 +565,7 @@ test("a continuation persistence failure preserves prior calls and restart inter
 	const db = new DatabaseSync(f.databasePath);
 	try {
 		db.exec(
-			"CREATE TRIGGER reject_continuation BEFORE INSERT ON model_calls WHEN EXISTS(SELECT 1 FROM model_calls) BEGIN SELECT RAISE(ABORT,'rejected'); END",
+			"CREATE TRIGGER reject_continuation BEFORE INSERT ON model_calls WHEN NEW.url LIKE '%/responses' AND EXISTS(SELECT 1 FROM model_calls) BEGIN SELECT RAISE(ABORT,'rejected'); END",
 		);
 		db.exec(
 			"CREATE TRIGGER reject_failure BEFORE UPDATE OF status ON agents WHEN NEW.status='failed' BEGIN SELECT RAISE(ABORT,'rejected'); END",
@@ -585,7 +584,7 @@ test("a continuation persistence failure preserves prior calls and restart inter
 		assert.equal(agent.answer, "saved first");
 		assert.equal(
 			(await f.get(`/api/agents/${agent.id}/calls`)).calls.length,
-			1,
+			2,
 		);
 		const savedTools = (await f.get(`/api/agents/${agent.id}/tools`)).toolCalls;
 		assert.equal(savedTools[0].status, "succeeded");
@@ -680,8 +679,8 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			[
 				agent.calls[0].id,
 				agent.calls[0].id,
-				agent.calls[1].id,
-				agent.calls[1].id,
+				agent.calls[2].id,
+				agent.calls[2].id,
 			],
 		);
 		assert.deepEqual(
@@ -696,7 +695,8 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			]),
 			[
 				[1, "succeeded"],
-				[2, "pending"],
+				[2, "succeeded"],
+				[3, "pending"],
 			],
 		);
 		const metadata = (
@@ -720,7 +720,10 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 			assert.equal(request.length, 1);
 			assert.equal(request[0].id, savedCall.id);
 			assert.equal(request[0].responseBody, null);
-			assert.equal(JSON.parse(request[0].requestBody).model, "tool-model");
+			assert.equal(
+				JSON.parse(request[0].requestBody).model,
+				savedCall.ordinal === 2 ? "~typesafe/jev-latest" : "tool-model",
+			);
 		}
 		const details = (
 			await Promise.all(
@@ -740,7 +743,7 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 		);
 		const onlySecond = (
 			await f.get(
-				`/api/agents/${agent.id}/reasoning?callId=${agent.calls[1].id}`,
+				`/api/agents/${agent.id}/reasoning?callId=${agent.calls[2].id}`,
 			)
 		).output;
 		assert.deepEqual(onlySecond, [details[1]]);
@@ -766,11 +769,11 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 		assert.equal(agent.status, "failed");
 		assert.deepEqual(
 			agent.calls.map((call: { status: string }) => call.status),
-			["succeeded", "failed"],
+			["succeeded", "succeeded", "failed"],
 		);
 		const response = (
 			await f.get(
-				`/api/agents/${agent.id}/calls?kind=response&callId=${agent.calls[1].id}`,
+				`/api/agents/${agent.id}/calls?kind=response&callId=${agent.calls[2].id}`,
 			)
 		).calls;
 		assert.equal(response.length, 1);
@@ -788,7 +791,7 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 		assert.deepEqual(
 			(
 				await f.get(
-					`/api/agents/${agent.id}/reasoning?callId=${agent.calls[1].id}`,
+					`/api/agents/${agent.id}/reasoning?callId=${agent.calls[2].id}`,
 				)
 			).output,
 			[details[1]],
@@ -799,7 +802,7 @@ test("Model Call ownership and selected saved bodies survive continuation, failu
 		while (later.status === "pending")
 			later = (await f.get(`/api/chats/${f.chat.id}`)).agents.at(-1);
 		assert.equal(later.calls[0].ordinal, 1);
-		assert(later.calls[0].id > agent.calls[1].id);
+		assert(later.calls[0].id > agent.calls[2].id);
 		assert.equal(
 			(
 				await f.get(
@@ -1019,9 +1022,9 @@ test("graceful restart drains running tools without replay and preserves prior r
 			requests++;
 			return new Response(
 				completed([
-					tool("first", "a"),
-					tool("running", "b"),
-					tool("waiting", "c"),
+					tool("/first", "a"),
+					tool("/running", "b"),
+					tool("/waiting", "c"),
 				]),
 			);
 		},
@@ -1090,7 +1093,7 @@ for (const boundary of ["establish", "start", "result", "terminal"]) {
 				);
 				db.close();
 				return new Response(
-					completed([tool("tool-secret", "a"), tool("waiting", "b")]),
+					completed([tool("/tool-secret", "a"), tool("/waiting", "b")]),
 				);
 			},
 			[],
@@ -1147,7 +1150,7 @@ test("unwritable tool finalization reports save failure without keeping running 
 	f = await fixture(
 		async () => {
 			requests++;
-			return new Response(completed([tool("first"), tool("next", "next")]));
+			return new Response(completed([tool("/first"), tool("/next", "next")]));
 		},
 		[],
 		async () => {
@@ -1206,13 +1209,13 @@ test("unwritable tool finalization reports save failure without keeping running 
 	}
 });
 
-test("fifth response records unexecuted requests and no fabricated Tool Result", async () => {
+test("fifth total Model Call records unexecuted requests and no fabricated Tool Result", async () => {
 	let requests = 0;
 	let executions = 0;
 	const f = await fixture(
 		async () => {
 			requests++;
-			return new Response(completed([tool(`round-${requests}`)]));
+			return new Response(completed([tool(`/round-${requests}`)]));
 		},
 		[],
 		async () => {
@@ -1221,16 +1224,19 @@ test("fifth response records unexecuted requests and no fabricated Tool Result",
 		},
 	);
 	try {
+		const db = new DatabaseSync(f.databasePath);
+		db.prepare("UPDATE settings SET model_call_limit=5 WHERE id=1").run();
+		db.close();
 		const { agentId } = await (await f.ask()).json();
 		assert.equal((await f.wait(agentId)).errorCode, "modelCallLimit");
 		const tools = (await f.get(`/api/agents/${agentId}/tools`)).toolCalls;
-		assert.equal(tools.length, 5);
-		assert.equal(tools[4].status, "not_executed");
-		assert.equal(tools[4].reason, "modelCallLimit");
-		assert.equal(tools[4].result, null);
-		assert.equal(JSON.parse(tools[4].arguments).path, "round-5");
-		assert.equal(requests, 5);
-		assert.equal(executions, 4);
+		assert.equal(tools.length, 3);
+		assert.equal(tools[2].status, "not_executed");
+		assert.equal(tools[2].reason, "modelCallLimit");
+		assert.equal(tools[2].result, null);
+		assert.equal(JSON.parse(tools[2].arguments).path, "/round-3");
+		assert.equal(requests, 3);
+		assert.equal(executions, 2);
 	} finally {
 		await f.close();
 	}
