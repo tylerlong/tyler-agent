@@ -25,12 +25,13 @@
 | User Instructions（用户级指令） | 用户为所有 Project 的 Root Agent 与 Sub-agent 提供的共同工作规则，区别于某次任务的具体要求。 |
 | Project Instructions（项目指令） | 对指定目录范围内的工作生效的项目规则，区别于按任务需要读取的参考文档；同一 Project 的不同目录可有不同规则。 |
 | Skill | 针对某类任务的可复用工作指导，可附带脚本和参考资料；实际能力由工具提供。 |
-| Model Call（模型调用） | 属于 Agent 的一次模型 HTTP 通信，拥有独立请求、响应、状态和错误。 |
+| Model Call（模型调用） | 属于 Agent 的一次模型 HTTP 通信，拥有独立请求、响应、状态和错误；安全审核调用也属于模型调用。 |
 | Tool Call（工具调用） | 属于 Model Call 的一次工具请求，具有独立执行状态。 |
 | Tool Result（工具结果） | 工具实际返回的数据及错误，交给模型决定下一步。 |
 | Command Output（命令输出） | 持久保存的实际 stdout／stderr／PTY 流，区别于有长度上限的模型工具结果。 |
 | Provisional Content（暂存内容） | 调用尚未成功时收到的可读内容，不代表最终结果。 |
 | Complete Response（完整响应） | 服务方实际返回并通过协议校验的完整响应，是成功调用的输出依据。 |
 | Tool Access Mode（工具访问模式） | Chat 分别选择的文件／网络受限或完全访问模式。 |
+| Safety Review（安全审核） | 在工具执行前判断操作是否危险的防误操作检查，不评价任务合理性或相关性；审核结果区别于实际执行，不构成隔离保证。 |
 | Project Grant（项目授权） | 同项目所有 Chat 和主／子 Agent 持续复用的额外权限，区别于一次批准。 |
-| Pending Approval（待审批申请） | 某次 Tool Call 尚需用户决定的额外权限需求，等待不表示已执行。 |
+| Pending Approval（待审批申请） | 某次 Tool Call 尚需用户决定的操作，等待不表示已执行。 |
